@@ -1,0 +1,99 @@
+# ============================================================
+# Git 属性规则 - Unreal Engine 5 / TPSGunsDemo
+#
+# 策略说明（2026-09-17 调整）：
+#   GitHub 免费账户 LFS 配额仅 1GB，而本工程二进制资产合计约 2.33GB，
+#   全量走 LFS 会直接爆配额。因此改为「默认普通入库 + 超大文件单独走 LFS」：
+#     - 绝大多数二进制资产作为普通 blob 入库（受 GitHub 单文件 100MB 硬限制约束）
+#     - 单文件超过 100MB 的资产单独用 LFS 追踪（合计约 142MB，远低于 1GB 配额）
+#
+# 关键：gitattributes 中「后出现的规则覆盖先出现的」。
+# 因此通用的 `* text=auto` 必须放在最前面，
+# 否则会覆盖后面 (-text) 的二进制标记，导致在 core.autocrlf=true 的机器上
+# 检出时对已还原的 uasset 做 CRLF 转换，进而损坏资产。
+# ============================================================
+
+# ---------- 通用：文本自动识别换行 ----------
+* text=auto
+
+# ---------- 源码：显式声明为文本 ----------
+*.cpp      text diff=cpp
+*.h        text diff=cpp
+*.inl      text diff=cpp
+*.cs       text diff=csharp
+*.hpp      text diff=cpp
+*.c        text diff=cpp
+*.uplugin  text
+*.ini      text
+*.json     text
+*.md       text
+*.py       text
+*.bat      text
+*.sh       text eol=lf
+*.txt      text
+
+# ---------- Unreal 资产包（二进制，普通入库） ----------
+*.uasset  -text
+*.umap    -text
+*.uexp    -text
+*.ubulk   -text
+*.ufont   -text
+*.uptnl   -text
+*.ucurvelex  -text
+
+# ---------- 本地化二进制 ----------
+*.locres   -text
+*.locmeta  text
+*.archive  -text
+*.po       text
+*.manifest text
+*.modules  text
+
+# ---------- 原生库与调试符号 ----------
+*.pdb     -text
+*.dll     -text
+*.lib     -text
+*.exp     -text
+*.so      -text
+*.dylib   -text
+
+# ---------- 图像 ----------
+*.png     -text
+*.jpg     -text
+*.jpeg    -text
+*.tga     -text
+*.bmp     -text
+*.psd     -text
+*.exr     -text
+*.hdr     -text
+*.webp    -text
+*.ico     -text
+*.svg     text
+
+# ---------- 字体 ----------
+*.ttf     -text
+*.otf     -text
+*.woff    -text
+*.woff2   -text
+
+# ---------- 音频 / 视频 ----------
+*.wav     -text
+*.mp3     -text
+*.ogg     -text
+*.flac    -text
+*.aif     -text
+*.mp4     -text
+*.mov     -text
+*.avi     -text
+*.webm    -text
+
+# ---------- 录像回放 / 其他大二进制 ----------
+*.replay  -text
+*.bin     -text
+*.zip     -text
+
+# ============================================================
+# 例外：超过 GitHub 单文件 100MB 硬限制的资产，单独走 LFS
+# （规则放在最后，覆盖上面的同类规则）
+# ============================================================
+Content/Effects/Textures/Flipbooks/SmokeSwirl_3_Flipbook_CHANNELPACK.uasset filter=lfs diff=lfs merge=lfs -text

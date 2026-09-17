@@ -1,0 +1,62 @@
+# ============================================================
+# Unreal Engine 5 - TPSGunsDemo (based on Epic's Lyra Starter Game)
+# ============================================================
+
+# ---------- 引擎编译产物 / 缓存（可重新生成，禁止入库） ----------
+# 注意：不带前导斜杠的 Binaries/ 会匹配任意层级的同名目录，
+# 因此 Plugins/*/Binaries/ 也会一并被排除。
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+
+# ---------- IDE / 编辑器临时文件 ----------
+.vs/
+.vsconfig
+.vscode/
+.idea/
+*.VC.db
+*.VC.opendb
+*.VC.VC.opendb
+*.opensdf
+*.opendb
+*.suo
+*.user
+*.userosscache
+*.userprefs
+*.sln.docstates
+*.csproj.user
+*.pidb
+*.booproj
+*.svd
+*.pdb.user
+obj/
+*.swp
+*~
+
+# ---------- 操作系统垃圾 ----------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.Trashes
+
+# ---------- 本机开发工具配置（含本地服务地址，禁止入库） ----------
+.mcp.json
+.mcp.*.json
+.workbuddy/
+.cursor/
+.claude/
+.aider*
+*.local.json
+
+# ---------- 引擎临时 / 调试输出 ----------
+*.log
+*.log.gz
+*.tmp
+*.bak
+*.orig
+*.crash
+AutoSDKInfo.json
+AutoSDKInfo.txt
