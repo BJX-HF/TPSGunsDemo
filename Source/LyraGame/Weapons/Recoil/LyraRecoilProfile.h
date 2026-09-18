@@ -1,0 +1,452 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "Curves/CurveFloat.h"
+#include "Engine/DataAsset.h"
+#include "Camera/LyraCameraShakeTypes.h"
+#include "Weapons/Recoil/LyraRecoilTypes.h"
+
+#include "LyraRecoilProfile.generated.h"
+
+// Lyra 的跨模块导出约定：本类需要被 LyraEditor 模块（资产生成 Commandlet、
+// 资产校验 Automation Test）调用，因此必须显式导出。
+// 参见 Weapons/LyraWeaponInstance.h L11 的同款写法。
+#define UE_API LYRAGAME_API
+
+class UObject;
+
+/**
+ * ULyraRecoilProfile
+ *
+ * 后坐力手感配置资产。**后坐力系统的唯一数值来源**（见开发计划 §P1）。
+ *
+ * 设计约束（不可违反）：
+ *  - 所有可调手感参数都必须是本资产的 UPROPERTY。运行时代码里不允许出现任何
+ *    影响手感的字面量常数（0/1 这类结构性常数除外）。
+ *  - 本类只做"取值查询"，不做任何状态累积。状态在 FRecoilRuntimeState 里。
+ *  - 资产是只读的：运行时不会写回本对象，因此天然线程安全、可被多把武器共享。
+ *
+ * 单位约定：所有角度参数单位为"度"；Pitch 向上为正，Yaw 向右为正。
+ *
+ * 创建方式（P1 手动验收项）：
+ *  Content Browser 右键 → Miscellaneous → Data Asset → 选择 ULyraRecoilProfile。
+ */
+UCLASS(BlueprintType, meta = (DisplayName = "Lyra Recoil Profile"))
+class UE_API ULyraRecoilProfile : public UPrimaryDataAsset
+{
+	GENERATED_BODY()
+
+public:
+
+	ULyraRecoilProfile();
+
+	//~UObject interface
+	virtual void PostLoad() override;
+	//~End of UObject interface
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
+	// ---------------------------------------------------------------------
+	// 基础（Base）
+	// ---------------------------------------------------------------------
+
+	/** 每发基础垂直 Kick（度）。Pattern 的 Y 分量乘以此值得到实际抬枪角度。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	float RecoilPerShot_Vertical = 0.35f;
+
+	/** 每发基础水平 Kick（度）。Pattern 的 X 分量乘以此值得到实际水平偏移。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	float RecoilPerShot_Horizontal = 0.18f;
+
+	// ---------------------------------------------------------------------
+	// 曲线（Curves）
+	// ---------------------------------------------------------------------
+
+	/**
+	 * 射击序号 → 垂直 Kick 倍率。用于实现"渐强/渐弱"。
+	 * X = ShotIndex（从 0 开始），Y = 垂直 Kick 倍率。
+	 * 只作用于垂直分量，水平分量不受影响（保证 P3 的 Pattern 水平严格可比对）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Curves")
+	FRuntimeFloatCurve VerticalKickCurve;
+
+	/**
+	 * 回正进度曲线。X = 归一化回正时间 [0,1]，Y = 回正进度 [0,1]。
+	 * 线性 (0,0)-(1,1) 为匀速回正；上凸为"快回—慢回"，下凸为"慢回—快回"。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Curves")
+	FRuntimeFloatCurve RecoveryCurve;
+
+	// ---------------------------------------------------------------------
+	// 单发后坐力模型（SingleShot）
+	//
+	// 对应《FPS 相机镜头设计与实现》§2「后座」：单发射击拆为多个阶段，
+	// 各阶段时长可配、形状由插值曲线控制、每帧向相机推「相对上一帧」的旋转增量。
+	//
+	// 本项目落地为**三段式**（参考文档是四段）：
+	//   t0 上抬 ──► t1 瞬时回弹 ──► [稳定] ──► t2 下降
+	//                                  ↑
+	//                          复用 RecoveryDelay，不引入重复语义的参数
+	//
+	// InstantWrite 模式下本组参数完全不参与计算（编辑器里已用 EditCondition 灰掉）。
+	// 详细实现与调参说明见 Docs/Recoil/10_SingleShotInterpolation.md。
+	// ---------------------------------------------------------------------
+
+	/**
+	 * 单发模型开关。
+	 *
+	 *  InstantWrite  ：瞬时写入（默认）。开火帧直接累加，上抬耗时 0 秒。
+	 *  Interpolated  ：插值。按下面的阶段时长与曲线逐帧补间到相机。
+	 *
+	 * 默认刻意保持 InstantWrite —— 既有资产、3 份 Golden 数据与 24 个自动化测试
+	 * 全部建立在瞬时写入语义上，改默认值会导致基线整体失效。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot")
+	ERecoilSingleShotMode SingleShotMode = ERecoilSingleShotMode::InstantWrite;
+
+	/**
+	 * t0 上抬段时长（秒）。从 0 抬到本发完整幅度所需的时间。
+	 *
+	 * 怎么调：
+	 *   调长 → 上抬更「肉」，观感更拖沓，但每发的推进过程更可见
+	 *   调短 → 更接近瞬时写入；短于一个固定子步长(1/60s)时基本退化为瞬时
+	 *
+	 * 连发注意：本值 + ReboundDuration 应小于射击间隔，否则连发时每发的上抬
+	 * 都走不完就被下一发重置（观感变成「持续被推高」，见实现文档 §7）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
+		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
+			ForceUnits = s, ClampMin = "0.0"))
+	float LiftDuration = 0.045f;
+
+	/**
+	 * t1 瞬时回弹段时长（秒）。上抬到顶后往回掉所需的时间。
+	 * 对应参考文档 §2 的「瞬时回弹」—— 特征是「在进入稳定段之前回弹到一个比例」。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
+		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
+			ForceUnits = s, ClampMin = "0.0"))
+	float ReboundDuration = 0.030f;
+
+	/**
+	 * 回弹比例 [0,1]。上抬峰值回弹到「峰值 × 本值」。
+	 *   1.0 = 不回弹（上抬到顶直接平稳下降）
+	 *   0.7 = 掉 30%，这是最有「一顿」感觉的区间
+	 *   0.0 = 直接掉回零（不要这么配，会有明显断层）
+	 *
+	 * 参考文档 §2.2 参数表里的「瞬时回弹比例」。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
+		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
+			ClampMin = "0.0", ClampMax = "1.0"))
+	float ReboundRatio = 0.72f;
+
+	/**
+	 * 上抬曲线。X = t0 段归一化进度 [0,1]，Y = 上抬完成度 [0,1]。
+	 *
+	 * 默认 Ease-Out（先快后慢）—— 贴近枪机冲量驱动的物理过程，
+	 * 且在前 1/3 段就完成约 60% 位移，低帧率下仍能保住「主要位移」而不是零位移。
+	 * 无数据时退化为线性。
+	 *
+	 * 参考文档 §2 伪码里的「按上抬曲线插值(0, 总幅度, 进度)」。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
+		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated"))
+	FRuntimeFloatCurve LiftCurve;
+
+	/**
+	 * 回弹曲线。X = t1 段归一化进度 [0,1]，Y = 回弹完成度 [0,1]。
+	 * 回弹是个短促的「掉一下」，形状不敏感，**线性即可**，不建议在这里做花样。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
+		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated"))
+	FRuntimeFloatCurve ReboundCurve;
+
+	// ---------------------------------------------------------------------
+	// 恢复（Recovery）
+	// ---------------------------------------------------------------------
+
+	/**
+	 * 停火后开始回正的延迟（秒）。此区间内状态保持 Accumulating。
+	 *
+	 * Interpolated 模式下，本参数同时充当参考文档 §2 的「t2 稳定段」——
+	 * 三段的中间段。这不是巧合：停火延迟与稳定段在语义上是同一件事
+	 * （「偏移先冻住不动，然后才开始回落」），所以本项目刻意不引入第二个参数。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ForceUnits = s, ClampMin = "0.0"))
+	float RecoveryDelay = 0.15f;
+
+	/**
+	 * 回正总时长（秒）。必须 > 0。
+	 * Interpolated 模式下它是 t2 下降段（参考文档的「下降 / 回正」）的时长，
+	 * 形状由 RecoveryCurve 整形。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ForceUnits = s, ClampMin = "0.01"))
+	float RecoveryTime = 0.35f;
+
+	/**
+	 * 核心手感开关（开发计划 §3.3 决策 3）。
+	 *   0 = 相机完全回正（弹道不回正，玩家需自己压枪，竞技向）
+	 *   1 = 相机完全不回正
+	 *
+	 * 语义实现：回正目标 = 峰值偏移 × RecoilReturnRatio。
+	 * 因此 0 时稳态偏移为 0，1 时稳态偏移等于峰值。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float RecoilReturnRatio = 0.2f;
+
+	// ---------------------------------------------------------------------
+	// 上限（Clamp）
+	// ---------------------------------------------------------------------
+
+	/** 垂直累加偏移上限（度）。必须 > 0。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Clamp", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	float MaxVerticalKick = 8.0f;
+
+	/** 水平累加偏移上限（度）。必须 > 0。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Clamp", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	float MaxHorizontalKick = 4.0f;
+
+	// ---------------------------------------------------------------------
+	// Pattern
+	// ---------------------------------------------------------------------
+
+	/** 归一化 Pattern 点数组。索引即 ShotIndex。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern")
+	TArray<FRecoilPatternPoint> PatternPoints;
+
+	/** 固定 Pattern 覆盖的发数。必须 <= PatternPoints.Num()。超出后进入伪随机区间。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (ClampMin = "0"))
+	int32 PatternLength = 8;
+
+	/**
+	 * 固定 Pattern 之后的水平随机游走幅度（归一化单位，与 PatternPoints.X 同量纲）。
+	 * 游走累计值被 Clamp 在 [-HorizontalRandomRange, +HorizontalRandomRange]。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HorizontalRandomRange = 0.6f;
+
+	// ---------------------------------------------------------------------
+	// Roll 震屏（独立通道，与 Pitch/Yaw 的累加-回正无关）
+	// ---------------------------------------------------------------------
+	//
+	// 对应《FPS 相机镜头设计与实现》§2.1：Roll 表现"开火瞬间的爆发感与后续释放"，
+	// 是「衰减包络 × 周期震动」，按当前时刻直接求解，**不累加、不回正**。
+	// 与上面的 Recoil|Base / Curves / Recovery 完全是两套机制，不要混着调。
+
+	/** Roll 震动总开关。关闭时本武器的 Roll 恒为 0（不影响 Pitch/Yaw）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake")
+	bool bEnableRollShake = true;
+
+	/** 每发的基础 Roll 振幅（度）。实际振幅 = 本值 × 连射增量 × 分段系数 × 姿态倍率。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0"))
+	float RollShake_Amplitude = 0.6f;
+
+	/** 震动总时长（秒）。超过后本发震动结束，Roll 归零。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = s, ClampMin = "0.01"))
+	float RollShake_Duration = 0.22f;
+
+	/** 震动周期（秒）。越小抖得越快；通常落在 0.04~0.10 之间。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = s, ClampMin = "0.01"))
+	float RollShake_Period = 0.055f;
+
+	/**
+	 * 相位扰动范围（弧度）。为每次震动引入一个小的相位随机，避免连发时
+	 * 每一次震颤都从完全相同的姿态开始（听感/视觉上会显得机械）。
+	 * 0 = 完全可复现（自动化测试与 Golden 数据用 0）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = rad, ClampMin = "0.0", ClampMax = "3.14159"))
+	float RollShake_PhaseJitter = 0.35f;
+
+	/**
+	 * 衰减曲线。X = 归一化震动时间 [0,1]，Y = 振幅保留比例 [0,1]。
+	 * 线性 (0,1)-(1,0) 为匀速衰减；下凸为"先猛后缓"（更接近真实枪械的爆发后释放）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake"))
+	FRuntimeFloatCurve RollShake_AmplitudeCurve;
+
+	/**
+	 * 衰减终值比例 [0,1]。0 = 震到零；>0 时末段保留一个稳定偏角（模拟"被压住的镜头"）。
+	 * 绝大多数情况应保持 0。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ClampMin = "0.0", ClampMax = "1.0"))
+	float RollShake_EndAmplitudeRatio = 0.0f;
+
+	/**
+	 * 连射附加振幅增量（度/发）。从第 RollShake_RampStartShot 发起，
+	 * 每多打一发振幅增加本值，直到 RollShake_MaxAmplitudeBonus 封顶。
+	 * 用来表现"压不住枪、越打越抖"。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0"))
+	float RollShake_AmplitudePerShot = 0.05f;
+
+	/** 连射增量的起始发数（0 起）。此前不发散，避免点射也被加抖。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ClampMin = "0"))
+	int32 RollShake_RampStartShot = 4;
+
+	/** 连射增量上限（度）。与 RollShake_Amplitude 相加后作为最终振幅。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0"))
+	float RollShake_MaxAmplitudeBonus = 0.9f;
+
+	/**
+	 * 分段系数曲线。X = 连射序号（0 起），Y = 整体振幅倍率。
+	 * 用于"前几发轻、后几发重"这类分段手感；无数据时视为恒定 1.0。
+	 * 与 RollShake_AmplitudePerShot 的区别：本曲线是**倍率**（可做先降后升），
+	 * 增量是**线性叠加**（只增不减）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake"))
+	FRuntimeFloatCurve RollShake_SegmentScaleCurve;
+
+	/**
+	 * 周期分段系数曲线。X = 连射序号，Y = 周期倍率。
+	 * 用于"越打越快"（Y < 1 时周期变短、震动变急）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (EditCondition = "bEnableRollShake"))
+	FRuntimeFloatCurve RollShake_PeriodScaleCurve;
+
+	// ---------------------------------------------------------------------
+	// 倍率（Multipliers）
+	// ---------------------------------------------------------------------
+
+	/** 瞄准时的后坐力倍率。与姿态倍率相乘。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	float PoseMultiplier_Aiming = 0.75f;
+
+	/** 站立（非蹲、非空中）倍率。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	float PoseMultiplier_Standing = 1.0f;
+
+	/** 蹲伏倍率。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	float PoseMultiplier_Crouching = 0.8f;
+
+	/** 跳跃/下落倍率。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	float PoseMultiplier_JumpingOrFalling = 1.5f;
+
+	// ---------------------------------------------------------------------
+	// 随机（Random）
+	// ---------------------------------------------------------------------
+
+	/** 随机种子模式。自动化测试与 Golden 数据必须使用 Fixed。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Random")
+	ERecoilRandomSeedMode RandomSeedMode = ERecoilRandomSeedMode::Fixed;
+
+	/** RandomSeedMode == Fixed 时使用的种子。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Random", meta = (EditCondition = "RandomSeedMode == ERecoilRandomSeedMode::Fixed"))
+	int32 FixedRandomSeed = 20260917;
+
+public:
+
+	// ---------------------------------------------------------------------
+	// 查询接口（运行时只读，无状态）
+	// ---------------------------------------------------------------------
+
+	/** 取 VerticalKickCurve 在 ShotIndex 处的倍率。曲线无数据时返回 1（不做任何缩放）。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetVerticalKickCurveScale(int32 ShotIndex) const;
+
+	/** 取 RecoveryCurve 在 NormalizedTime 处的回正进度，已 Clamp 到 [0,1]。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetRecoveryAlpha(float NormalizedTime) const;
+
+	/**
+	 * 取 LiftCurve 在 NormalizedTime 处的上抬完成度，已 Clamp 到 [0,1]。
+	 *
+	 * 对应参考文档 §2 伪码的「按上抬曲线插值(0, 总幅度, 进度)」——
+	 * 这里只返回归一化的进度值，实际幅度由调用方乘以本发 Kick 得到。
+	 * 曲线无数据时退化为线性（返回 ClampedTime），保证系统永远可用。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetLiftAlpha(float NormalizedTime) const;
+
+	/**
+	 * 取 ReboundCurve 在 NormalizedTime 处的回弹完成度，已 Clamp 到 [0,1]。
+	 * 曲线无数据时退化为线性。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetReboundAlpha(float NormalizedTime) const;
+
+	/** 本资产是否走插值单发模型。等价于 SingleShotMode == Interpolated。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	bool IsInterpolatedSingleShot() const { return SingleShotMode == ERecoilSingleShotMode::Interpolated; }
+
+	/** 取 ShotIndex 对应的归一化 Pattern 点。越界时返回最后一点。空数组时返回 (0,1)。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	FRecoilPatternPoint GetPatternPoint(int32 ShotIndex) const;
+
+	/** ShotIndex 是否落在固定 Pattern 区间内。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	bool IsFixedPatternShot(int32 ShotIndex) const { return ShotIndex >= 0 && ShotIndex < PatternLength; }
+
+	/** 取姿态倍率。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetPoseMultiplier(EPoseState PoseState) const;
+
+	/**
+	 * 取第 ShotIndex 发的 Roll 分段系数（整体振幅倍率）。
+	 * RollShake_SegmentScaleCurve 无数据时返回 1.0。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetRollShakeSegmentScale(int32 ShotIndex) const;
+
+	/**
+	 * 取第 ShotIndex 发的周期倍率。
+	 * RollShake_PeriodScaleCurve 无数据时返回 1.0。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetRollShakePeriodScale(int32 ShotIndex) const;
+
+	/**
+	 * 按连射序号计算本发实际生效的 Roll 震动参数（纯查询，不改状态）。
+	 *
+	 * 振幅 = clamp(RollShake_Amplitude + 连射增量, 上限) × 分段系数 × PoseMultiplier × GlobalScale
+	 * 周期 = RollShake_Period × 周期分段系数
+	 *
+	 * 这是 Roll 参数的唯一装配点：算法层只认 FCameraRollShakeParams，不认识 Profile。
+	 *
+	 * @param ShotIndex       本发序号（0 起）
+	 * @param PoseMultiplier  姿态倍率（含瞄准混合），语义与 Pitch/Yaw 链一致
+	 * @param GlobalScale     全局调试倍率
+	 * @param Seed            本轮连发种子，用于相位扰动
+	 * @param OutParams       写出的生效参数
+	 * @return 本发是否需要产生震动（总开关关闭或振幅为 0 时返回 false）
+	 */
+	bool BuildRollShakeParams(
+		int32 ShotIndex,
+		float PoseMultiplier,
+		float GlobalScale,
+		int32 Seed,
+		FCameraRollShakeParams& OutParams) const;
+
+	/** 瞄准混合后的倍率：Lerp(1, PoseMultiplier_Aiming, AimingAlpha)。AimingAlpha 为 [0,1] 的相机混合权重。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
+	float GetAimingBlendedMultiplier(float AimingAlpha) const;
+
+	/**
+	 * 校验资产配置是否自洽。由 Lyra.Recoil.Profile.Validation 自动化测试与资产生成
+	 * Commandlet 共用，因此不走 UFUNCTION（避免 BP 侧的纯函数语义冲突）。
+	 * @param OutErrors 每条不合格项追加一条可读描述
+	 * @return 全部合格返回 true
+	 */
+	bool ValidateProfile(TArray<FString>& OutErrors) const;
+
+	/** 把 PatternLength 夹到合法范围。PostLoad / PostEditChangeProperty 会调用。 */
+	void SanitizePatternLength();
+};
+
+#undef UE_API

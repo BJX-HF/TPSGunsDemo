@@ -1,0 +1,119 @@
+{
+	"generatedBy": "LyraRecoilGoldenDumpCommandlet",
+	"note": "Regression lock for FRecoilRuntimeState::ComputeShotKick. Re-run -run=LyraRecoilGoldenDump after changing the profile asset.",
+	"assetPath": "/Game/Weapons/Recoil/DA_Recoil_Rifle",
+	"seed": 20260917,
+	"shotCount": 20,
+	"poseMultiplier": 1,
+	"globalScale": 1,
+	"patternLength": 8,
+	"recoilPerShotVertical": 0.34999999403953552,
+	"recoilPerShotHorizontal": 0.18000000715255737,
+	"horizontalRandomRange": 0.60000002384185791,
+	"singleShotMode": "InstantWrite",
+	"liftDuration": 0.045000001788139343,
+	"reboundDuration": 0.029999999329447746,
+	"reboundRatio": 0.72000002861022949,
+	"shots": [
+		{
+			"index": 0,
+			"vertical": 0.13474999368190765,
+			"horizontal": 0
+		},
+		{
+			"index": 1,
+			"vertical": 0.16817498207092285,
+			"horizontal": 0.0090000005438923836
+		},
+		{
+			"index": 2,
+			"vertical": 0.20825000107288361,
+			"horizontal": -0.014400000683963299
+		},
+		{
+			"index": 3,
+			"vertical": 0.2525249719619751,
+			"horizontal": -0.0036000001709908247
+		},
+		{
+			"index": 4,
+			"vertical": 0.29399999976158142,
+			"horizontal": 0.028800001367926598
+		},
+		{
+			"index": 5,
+			"vertical": 0.32878127694129944,
+			"horizontal": 0.061200004070997238
+		},
+		{
+			"index": 6,
+			"vertical": 0.35778748989105225,
+			"horizontal": 0.039599999785423279
+		},
+		{
+			"index": 7,
+			"vertical": 0.38405939936637878,
+			"horizontal": -0.018000001087784767
+		},
+		{
+			"index": 8,
+			"vertical": 0.41124996542930603,
+			"horizontal": 0.033915184438228607
+		},
+		{
+			"index": 9,
+			"vertical": 0.42656248807907104,
+			"horizontal": 0.08160063624382019
+		},
+		{
+			"index": 10,
+			"vertical": 0.44187501072883606,
+			"horizontal": -0.017886709421873093
+		},
+		{
+			"index": 11,
+			"vertical": 0.45718753337860107,
+			"horizontal": 0.0078445011749863625
+		},
+		{
+			"index": 12,
+			"vertical": 0.47249999642372131,
+			"horizontal": -0.06182292103767395
+		},
+		{
+			"index": 13,
+			"vertical": 0.47249999642372131,
+			"horizontal": -0.04666915163397789
+		},
+		{
+			"index": 14,
+			"vertical": 0.47249999642372131,
+			"horizontal": -0.00098482670728117228
+		},
+		{
+			"index": 15,
+			"vertical": 0.47249999642372131,
+			"horizontal": -0.041731532663106918
+		},
+		{
+			"index": 16,
+			"vertical": 0.47249999642372131,
+			"horizontal": -0.08926130086183548
+		},
+		{
+			"index": 17,
+			"vertical": 0.47249999642372131,
+			"horizontal": 0.015382168814539909
+		},
+		{
+			"index": 18,
+			"vertical": 0.47249999642372131,
+			"horizontal": -0.04452972486615181
+		},
+		{
+			"index": 19,
+			"vertical": 0.47249999642372131,
+			"horizontal": 0.040825448930263519
+		}
+	]
+}

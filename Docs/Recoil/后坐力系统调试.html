@@ -1,0 +1,1220 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>后坐力系统调试</title>
+<style>
+  :root{
+    --bg:#f6f6f3; --card:#ffffff; --ink:#22221f; --muted:#6b6a64; --line:#e2e0d8;
+    --accent:#1f6feb; --accent-bg:#eaf1fd; --warn:#8a5a00; --warn-bg:#fdf3e0;
+    --ok:#1f7a4d; --ok-bg:#e6f4ec; --bad:#a32d2d; --bad-bg:#fbeceb;
+    --code-bg:#f1efe8;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+    font-size:15px; line-height:1.75;
+  }
+  .wrap{max-width:900px;margin:0 auto;padding:40px 24px 80px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  h1{font-size:28px;margin:0 0 8px;letter-spacing:.5px}
+  header .sub{color:var(--muted);font-size:13.5px}
+  header .sub b{color:var(--ink);font-weight:600}
+  h2{font-size:20px;margin:44px 0 14px;padding-left:11px;border-left:4px solid var(--accent)}
+  h3{font-size:16px;margin:26px 0 10px}
+  h4{font-size:14.5px;margin:20px 0 8px;color:var(--muted)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:24px}
+  li{margin:5px 0}
+  code{background:var(--code-bg);padding:1.5px 5px;border-radius:4px;font-size:13px;
+       font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
+  pre{background:#2c2c2a;color:#e8e6df;padding:14px 16px;border-radius:8px;overflow-x:auto;
+      font-size:13px;line-height:1.6;font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
+  pre code{background:none;padding:0;color:inherit;font-size:13px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px;background:var(--card)}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#eeece5;font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin:16px 0}
+  .box{border-left:4px solid var(--accent);background:var(--accent-bg);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-bg)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-bg)}
+  .box.bad{border-left-color:var(--bad);background:var(--bad-bg)}
+  .box .t{font-weight:600;display:block;margin-bottom:4px}
+  .toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 22px;margin:24px 0}
+  .toc ol{margin:6px 0;columns:2;column-gap:32px}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 20px;margin:14px 0}
+  .step .h{font-weight:600;font-size:15.5px;margin-bottom:6px}
+  .step .h em{font-style:normal;display:inline-block;min-width:26px;height:26px;line-height:26px;
+      text-align:center;background:var(--accent);color:#fff;border-radius:50%;font-size:13px;margin-right:9px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;font-size:14px;margin:8px 0}
+  .kv dt{color:var(--muted)}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1px solid rgba(0,0,0,.15)}
+  footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>后坐力系统调试</h1>
+  <div class="sub">
+    工程 <b>TPSGunsDemo</b> · UE 5.8.2 / Lyra 派生 · 关卡 <b>L_ShooterPerf</b><br>
+    适用版本：2026-09-17（两把步枪 S 型 / 7 字型落地后）
+  </div>
+</header>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#quick">30 秒速查</a></li>
+    <li><a href="#test">完整测试步骤</a></li>
+    <li><a href="#debug">Debug 开关与效果</a></li>
+    <li><a href="#tune">怎么改一把枪的后坐力</a></li>
+    <li><a href="#add">怎么新增一把枪</a></li>
+    <li><a href="#ammo">射速 / 弹容 / 备弹</a></li>
+    <li><a href="#trouble">排错对照表</a></li>
+    <li><a href="#files">相关文件索引</a></li>
+    <li><a href="#roll"><b>Roll 震屏与实时调试</b>（P8）</a></li>
+    <li><a href="#model"><b>单发模型：现状 vs 参考文档</b>（分析，未改代码）</a></li>
+  </ol>
+</div>
+
+<h2 id="quick">1 · 30 秒速查</h2>
+
+<p>控制台（PIE 里按 <code>~</code> 打开）一共 6 个开关 + 2 个命令，全部长这样：</p>
+
+<table>
+  <tr><th>命令</th><th>默认</th><th>作用</th></tr>
+  <tr><td><code>Lyra.Recoil.Enable 0/1</code></td><td>1</td>
+      <td>总开关。置 0 后<strong>弹道偏移恒为 0、相机一点不动</strong>。用来确认"你看到的抖动确实来自后坐力系统"。</td></tr>
+  <tr><td><code>Lyra.Recoil.Scale &lt;f&gt;</code></td><td>1.0</td>
+      <td>全局调试倍率，乘在资产数值之上，<strong>不改资产</strong>。调手感时先用它快速找比例，满意了再写进资产。<strong>三轴（Pitch/Yaw/Roll）都乘。</strong></td></tr>
+  <tr><td><code>Lyra.Recoil.Debug 0/1</code></td><td>0</td>
+      <td>屏幕左上角<strong>数值面板</strong>：每发的 Kick、累计偏移、状态机、姿态倍率。</td></tr>
+  <tr><td><code>Lyra.Recoil.DebugDraw 0/1</code></td><td>0</td>
+      <td>世界内<strong>可视化</strong>：绿线瞄准轴 / 红线相机偏移 / 黄点弹道 Pattern / 青条回正进度 / <strong>品红弧 = Roll 倾角</strong>。</td></tr>
+  <tr><td><code>Lyra.Recoil.RollShake &lt;f&gt;</code></td><td>1.0</td>
+      <td><strong>Roll 实时振幅倍率</strong>。0 = 临时关掉 Roll（做 A/B 对比）；2 = 放大两倍便于观察。<strong>纯显示层，不改资产、不污染 CSV。</strong></td></tr>
+  <tr><td><code>Lyra.Recoil.RollDebug 0/1</code></td><td>0</td>
+      <td><strong>Roll 实时面板</strong>：实时值 + 生效参数 + <strong>ASCII 波形</strong>。独立于 <code>Debug</code>，可以同开。</td></tr>
+  <tr><td><code>Lyra.Recoil.Dump</code></td><td>—</td>
+      <td>把<strong>本轮连发</strong>逐发导出成 CSV：<code>Saved/RecoilDump_&lt;时间戳&gt;.csv</code>（表头含 <code>RollShake</code> 列）。</td></tr>
+  <tr><td><code>Lyra.Recoil.ReloadProfile</code></td><td>—</td>
+      <td>从磁盘强制重载后坐力资产。<strong>在编辑器里改资产不需要它</strong>，只用于"资产被编辑器之外的东西改了"。</td></tr>
+</table>
+
+<div class="box ok">
+  <span class="t">最短验证路径</span>
+  重启编辑器 → 落在 <code>L_ShooterPerf</code> → PIE → <code>Lyra.Recoil.DebugDraw 1</code> → 长按左键打满 12 发 → 看黄点画出来的是不是「S」。<br>
+  切到快捷栏第 2 格再打一轮 → 黄点应该变成「7」。<br>
+  Roll 震屏的验证路径见 <a href="#roll">第 9 节</a>。
+</div>
+
+<h2 id="test">2 · 完整测试步骤</h2>
+
+<h3>2.1 准备工作</h3>
+<ol>
+  <li><strong>重启编辑器</strong>。<code>Config/DefaultEngine.ini</code> 里 <code>EditorStartupMap</code> 已指向
+      <code>/ShooterCore/Maps/L_ShooterPerf</code>，重启后会直接打开这张图。</li>
+  <li>确认右上角内容是 <code>L_ShooterPerf</code>（不是 <code>L_DefaultEditorOverview</code>）。</li>
+  <li>确认 <code>内容浏览器</code> 能搜到 <code>DA_Recoil_Rifle_S</code> 与 <code>DA_Recoil_Rifle_7</code>
+      （路径 <code>Content/Weapons/Recoil/</code>）。</li>
+</ol>
+
+<h3>2.2 逐步操作</h3>
+
+<div class="step">
+  <div class="h"><em>1</em>启动 PIE</div>
+  点工具栏 ▶ Play。等角色落地（这张图有 20 只 bot，第一帧会卡一下）。
+  <div class="kv">
+    <dt>应该看到</dt><dd>角色手上<strong>已经有枪</strong>（不用捡），准星 + 弹药 HUD 正常。</dd>
+    <dt>不通过</dt><dd>手上空着 → 见 §6 排错「A1」。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>2</em>确认拿到的是槽位 0（S 型）</div>
+  控制台敲：
+  <pre><code>Lyra.Recoil.Debug 1</code></pre>
+  面板第一行会打印当前武器用的资产名。
+  <div class="kv">
+    <dt>应该看到</dt><dd><code>Profile=DA_Recoil_Rifle_S</code>，并且 <code>[Recoil] ON</code> 是<strong>黄色</strong>字。</dd>
+    <dt>不通过</dt><dd>显示 <code>Profile=&lt;none&gt;</code> → 武器实例没接上资产，见 §5.3。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>3</em>开世界可视化，打满一个弹匣</div>
+  <pre><code>Lyra.Recoil.DebugDraw 1</code></pre>
+  长按左键，让 <code>ShotIndex</code> 从 0 涨到 11（面板第 2 行）。
+  <div class="kv">
+    <dt>应该看到</dt>
+    <dd>
+      <span class="swatch" style="background:#0a0"></span>绿线（真实瞄准轴）<strong>纹丝不动</strong>；<br>
+      <span class="swatch" style="background:#c00"></span>红线（相机实际朝向）一路往上偏，并先向右摆、再向左摆回来；<br>
+      <span class="swatch" style="background:#cc0"></span>黄点排成一条 <strong>细高的 S</strong>；<br>
+      <span class="swatch" style="background:#0aa"></span>青条在停火后从 0 涨到满。
+    </dd>
+    <dt>关键判据</dt>
+    <dd>绿线不动 = 「相机偏移没有污染 <code>ControlRotation</code>」这条设计约束成立。<strong>绿线如果跟着抖，就是回归了，立刻报。</strong></dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>4</em>切到槽位 1（7 字型）</div>
+  快捷栏切枪（键盘 <code>1</code> / <code>2</code> 切槽位，滚轮或 <code>CycleForward</code> 循环切换）。
+  <div class="kv">
+    <dt>应该看到</dt><dd>面板第一行变成 <code>Profile=DA_Recoil_Rifle_7</code>；HUD 武器名变成 <code>Rifle 7</code>。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>5</em>再打满 12 发，对比形状</div>
+  <div class="kv">
+    <dt>应该看到</dt>
+    <dd>抬枪明显更猛（12 发累计 2.59° vs S 型的 2.34°）；水平向右甩到 <strong>1.40°</strong>（S 型只有 0.66°，
+        差一倍多）；第 7 发之后<strong>几乎不再抬枪</strong>，而是往左横拉一段。<br>
+        黄点排成「斜向右上的一条线 + 顶部向左的一根横杠」= 数字 <strong>7</strong>。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>6</em>导出 CSV，出对比图</div>
+  <pre><code>Lyra.Recoil.Dump</code></pre>
+  换枪再打一轮、再 <code>Lyra.Recoil.Dump</code> 一次，然后：
+  <pre><code>python "D:/TPSGunsDemo/TPSGunsDemo/Docs/Recoil/Tools/plot-recoil-csv.py" ^
+  "D:/TPSGunsDemo/TPSGunsDemo/Saved/RecoilDump_*.csv" -o "对比.html"</code></pre>
+  <div class="kv">
+    <dt>应该看到</dt><dd>浏览器里两条曲线明显分开，7 字型那条整体更陡、水平摆幅更大。</dd>
+    <dt>注意</dt><dd><code>Dump</code> 导出的是<strong>本轮连发</strong>；开新的一轮（换枪/停火后重开）历史会清空，所以要"打一轮 → Dump 一次"。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>7</em>验证「热生效」</div>
+  别退 PIE，<code>Alt+Tab</code> 到编辑器，打开 <code>DA_Recoil_Rifle_S</code>，把
+  <code>RecoilPerShot_Vertical</code> 从 0.22 改成 1.20，切回游戏继续开火。
+  <div class="kv">
+    <dt>应该看到</dt><dd>抬枪立刻变得非常夸张 —— 证明"改资产 → PIE 立即生效"，不用重载、不用重开。</dd>
+    <dt>记得</dt><dd>验完改回 <code>0.22</code>。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>8</em>消融验证（可选，但很有说服力）</div>
+  <pre><code>Lyra.Recoil.Enable 0</code></pre>
+  <div class="kv">
+    <dt>应该看到</dt><dd>面板变成银灰色的 <code>[Recoil] OFF</code>，弹道一点不偏，相机完全不动。</dd>
+    <dt>含义</dt><dd>反证"抖动确实来自后坐力系统"，而不是 Lyra 原有的扩散或别的什么东西。</dd>
+  </div>
+</div>
+
+<h3>2.3 验收判据汇总</h3>
+
+<table>
+  <tr><th>#</th><th>检查项</th><th>通过标准</th></tr>
+  <tr><td>1</td><td>默认关卡</td><td>重启编辑器直接落在 <code>L_ShooterPerf</code></td></tr>
+  <tr><td>2</td><td>初始装备</td><td>PIE 一进来手上就有步枪，不用捡</td></tr>
+  <tr><td>3</td><td>两把可切</td><td>切槽位后面板 <code>Profile=</code> 随之变化</td></tr>
+  <tr><td>4</td><td>S 型形状</td><td>黄点轨迹：右摆 → 左摆收尾；累计抬枪 ≈ 2.34°</td></tr>
+  <tr><td>5</td><td>7 字型形状</td><td>黄点轨迹：斜向右上 → 顶部向左横；累计抬枪 ≈ 2.59°</td></tr>
+  <tr><td>6</td><td>强度对比</td><td>7 字型水平峰值 ≈ 2 倍于 S 型</td></tr>
+  <tr><td>7</td><td>不污染输入</td><td>绿线（真实瞄准轴）在开火过程中不动</td></tr>
+  <tr><td>8</td><td>回正</td><td>停火约 0.12s（S）/ 0.18s（7）后青条开始涨，涨完偏移回到残值</td></tr>
+  <tr><td>9</td><td>热生效</td><td>编辑器改资产数值 → PIE 里立刻变</td></tr>
+  <tr><td>10</td><td>总开关</td><td><code>Enable 0</code> 后弹道与相机都干净</td></tr>
+  <tr><td>11</td><td><strong>两把枪的模型分配</strong></td>
+      <td>面板第 4 行：槽位 0（S 型）显示 <code>Mode=Interpolated</code>，槽位 1（7 字型）显示 <code>Mode=InstantWrite</code>。切枪时应随之切换</td></tr>
+  <tr><td>12</td><td><strong>单发顿挫感</strong>（仅 S 型）</td>
+      <td>只按一下单发：第 3 行 <code>Cam Pitch</code> 应该是<strong>平滑爬升</strong>（不是瞬间跳到 <code>Accum</code> 的值），
+          第 4 行 <code>Stage</code> 依次走过 <code>Lift → Rebound → Settle → Drop</code>。
+          7 字型则<strong>左右两列数值始终相等</strong>、<code>Stage</code> 恒为 <code>-</code></td></tr>
+  <tr><td>13</td><td><strong>低帧率不炸</strong></td>
+      <td><code>t.MaxFPS 20</code> 后开火，第 4 行 <code>SubSteps</code> 涨到 3 左右但<strong>不超过 8</strong>；
+          轨迹形状与 60fps 一致，不出现持续卡顿（无死亡螺旋）</td></tr>
+</table>
+
+<h2 id="debug">3 · Debug 开关与效果详解</h2>
+
+<h3>3.1 屏幕数值面板 <code>Lyra.Recoil.Debug</code></h3>
+
+<p>面板固定刷在屏幕左上角，一共 <strong>6 行</strong>（第 4 行是 2026-09-17 新增的单发模型行）：</p>
+
+<pre><code>[Recoil] ON   Scale=x1.00   Profile=DA_Recoil_Rifle_S
+  ShotIndex=5   Kick V=0.193 H=0.036
+  Accum Pitch=0.835 Yaw=0.655   Cam Pitch=0.812 Yaw=0.639
+  Mode=Interpolated   Stage=Lift   SubSteps=1   StageT=0.0217
+  State=Accumulating   RecoveryTimer t=0.000 / delay=0.120 / prog=0.000
+  Pose=Standing x1.000   Seed=20260917   History=6</code></pre>
+
+<table>
+  <tr><th>位置</th><th>字段</th><th>含义</th></tr>
+  <tr><td rowspan="3">第 1 行</td><td><code>ON / OFF</code></td>
+      <td>总开关状态。<strong>整块面板的颜色也跟着变</strong>：ON = 黄色，OFF = 银灰（扫一眼就知道当前有没有生效）</td></tr>
+  <tr><td><code>Scale=x1.00</code></td><td>当前全局调试倍率（<code>Lyra.Recoil.Scale</code>）</td></tr>
+  <tr><td><code>Profile=</code></td><td><strong>当前武器用的后坐力资产名</strong>。切枪后这里会变，是"武器接线对不对"最快的判断依据</td></tr>
+  <tr><td rowspan="2">第 2 行</td><td><code>ShotIndex</code></td><td>本轮连发打到第几发（0 起）。打满 12 发后进入随机游走区</td></tr>
+  <tr><td><code>Kick V/H</code></td><td>最近一发的垂直/水平增量（度，已含姿态倍率与全局 Scale）</td></tr>
+  <tr><td rowspan="2">第 3 行</td><td><code>Accum Pitch/Yaw</code></td>
+      <td><strong>逻辑偏移</strong>（度）。峰值 / 回正 / CSV / Golden / 测试读的都是它</td></tr>
+  <tr><td><code>Cam Pitch/Yaw</code></td>
+      <td><strong>相机实际偏了多少</strong>（补间输出）。<code>InstantWrite</code> 下与左边<strong>完全相等</strong>；
+          <code>Interpolated</code> 下会有斜坡，<strong>左右两个值对不上是正常的</strong>（见第 10.4 节）</td></tr>
+  <tr><td rowspan="4">第 4 行<br><span style="opacity:.65">（单发模型）</span></td><td><code>Mode</code></td>
+      <td>这把枪用哪套单发模型：<code>InstantWrite</code> / <code>Interpolated</code>。
+          <strong>切枪对比两把枪的模型差异，就看这里</strong>（见第 10 节）</td></tr>
+  <tr><td><code>Stage</code></td>
+      <td>当前处于哪一段：<code>-</code>（无 · 瞬时模式下恒为 -）/ <code>Lift</code> / <code>Rebound</code> / <code>Settle</code> / <code>Drop</code></td></tr>
+  <tr><td><code>SubSteps</code></td>
+      <td><strong>本帧实际推进了几个固定子步</strong>（每步 = 1/60 秒）。
+          常态是 1（60fps）或 2~3（高刷）；<strong>跳到 8 说明本帧卡了，时间被丢弃</strong></td></tr>
+  <tr><td><code>StageT</code></td><td>当前段的内部进度（秒）。和该段的时长对比，就能知道走到哪了</td></tr>
+  <tr><td rowspan="3">第 5 行</td><td><code>State</code></td>
+      <td>状态机：<code>Idle</code> → <code>Accumulating</code> → 停火超过 delay → <code>Recovering</code> → <code>Idle</code></td></tr>
+  <tr><td><code>t</code></td><td>距上次开火过了多少秒（用来对照 <code>delay</code>）</td></tr>
+  <tr><td><code>delay / prog</code></td><td>该资产的 <code>RecoveryDelay</code>（插值模式下它也兼任 <code>Settle</code> 段时长）；<code>prog</code> = 回正进度 [0,1]</td></tr>
+  <tr><td rowspan="3">第 6 行</td><td><code>Pose</code></td>
+      <td>姿态：<code>Standing</code> / <code>Crouching</code> / <code>JumpingOrFalling</code></td></tr>
+  <tr><td><code>x1.000</code></td><td>该发实际用的<strong>总倍率</strong>（姿态倍率 × 瞄准混合倍率）。蹲下应该看到 0.800，瞄准时 0.750，跳起来 1.500</td></tr>
+  <tr><td><code>Seed / History</code></td><td>本轮随机种子；<code>History</code> = 已记录的发数（<code>Dump</code> 导出的就是这些行）</td></tr>
+</table>
+
+<div class="box">
+  <span class="t">顺手能做的两个验证</span>
+  ① <strong>蹲下开火</strong> → 第 5 行 <code>x</code> 应该变 <code>0.800</code>；<br>
+  ② <strong>右键瞄准时开火</strong> → 应该变 <code>0.750</code>，同一发的 <code>Kick</code> 明显更小。<br>
+  倍率是<strong>瞬时切换、不做插值</strong>，这是刻意设计（见 PROGRESS §6 第 10 条）。
+</div>
+
+<h3>3.2 世界内可视化 <code>Lyra.Recoil.DebugDraw</code></h3>
+
+<p>从角色眼睛位置往前画一根 1500cm 的线，配合四个图元：</p>
+
+<table>
+  <tr><th>图元</th><th>颜色</th><th>是什么</th></tr>
+  <tr><td>细线</td><td><span class="swatch" style="background:#0a0"></span>绿色</td>
+      <td><strong>真实瞄准轴</strong>（<code>ControlRotation</code>）。<strong>永远不受后坐力影响</strong> ——
+          它不动，就是"相机偏移只改显示层、没碰玩家输入"的可视证据。</td></tr>
+  <tr><td>粗线 + 点</td><td><span class="swatch" style="background:#c00"></span>红色</td>
+      <td><strong>相机链当前朝向</strong> = 瞄准轴 + 累计 Pitch/Yaw。这就是玩家屏幕上真正看到的方向；
+          它和绿线的夹角就是当前后坐力偏移量。</td></tr>
+  <tr><td>一排点</td><td><span class="swatch" style="background:#cc0"></span>黄色</td>
+      <td><strong>Pattern 点阵</strong>：把前 <code>PatternLength</code> 发（现在是 12 发）的弹道方向一次性画出来。
+          不用真开火就能看出"这把枪的形状是什么样"。</td></tr>
+  <tr><td>竖条</td><td><span class="swatch" style="background:#0aa"></span>青色（底衬银灰）</td>
+      <td><strong>回正进度</strong>：底端 0，满刻度 100cm 对应进度 1.0。银灰是底条，青色是填充。</td></tr>
+  <tr><td>文字</td><td><span class="swatch" style="background:#0aa"></span>青色</td>
+      <td><code>Recoil &lt;State&gt; Shot=&lt;n&gt; Pitch=.. Yaw=.. Prog=.. Pose=..</code>，跟面板是同一份数据。</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">两个已知的"不是 bug"</span>
+  ① 绿线用的是 <code>ControlRotation</code>，不是 GA 里的 <code>CameraTowardsFocus</code>，所以是<strong>近似</strong>瞄准轴（PROGRESS §6 第 18 条）。<br>
+  ② DrawDebug 只在非 Shipping 构建里存在（<code>ENABLE_DRAW_DEBUG</code>），打包版没有。
+</div>
+
+<h3>3.3 怎么"看"后坐力而不靠感觉</h3>
+<ol>
+  <li><code>Lyra.Recoil.DebugDraw 1</code> 看<strong>形状</strong>（黄点）。</li>
+  <li><code>Lyra.Recoil.Dump</code> + <code>plot-recoil-csv.py</code> 看<strong>数值曲线</strong>（可多份叠加对比）。</li>
+  <li><code>Lyra.Recoil.Scale 0.3</code> 把后坐力整体缩到 30%，<strong>慢下来看细节</strong>（回正是否顺、有没有过冲）；这是最容易发现"回正看着别扭"的方法。</li>
+</ol>
+
+<h2 id="tune">4 · 怎么改一把枪的后坐力</h2>
+
+<h3>4.1 资产在哪</h3>
+
+<table>
+  <tr><th>枪</th><th>后坐力资产</th><th>形状</th></tr>
+  <tr><td>槽位 0（出生默认）</td><td><code>Content/Weapons/Recoil/DA_Recoil_Rifle_S</code></td><td>S 型 · 小</td></tr>
+  <tr><td>槽位 1</td><td><code>Content/Weapons/Recoil/DA_Recoil_Rifle_7</code></td><td>7 字型 · 稍大</td></tr>
+  <tr><td>（未使用）</td><td><code>DA_Recoil_Rifle</code> / <code>DA_Recoil_Pistol</code> / <code>DA_Recoil_Shotgun</code></td><td>原有三份，<code>DA_Recoil_Rifle</code> 是 Golden 基准，别乱动</td></tr>
+</table>
+
+<p>双击打开就是普通 Data Asset 面板，改完 <strong>PIE 里立刻生效</strong>，不需要重载、不需要重启。</p>
+
+<h3>4.2 参数逐个解释</h3>
+
+<table>
+  <tr><th>参数</th><th>作用</th><th>调大的后果</th></tr>
+  <tr><td><code>RecoilPerShot_Vertical</code></td>
+      <td>单发<strong>垂直</strong>基准（度）。整体强度的总闸</td>
+      <td>整枪更"跳"，抬枪更快到上限</td></tr>
+  <tr><td><code>RecoilPerShot_Horizontal</code></td>
+      <td>单发<strong>水平</strong>基准（度）</td>
+      <td>左右摆幅变大，形状更"胖"。<strong>它的水平/垂直比值决定形状看起来像不像样品</strong></td></tr>
+  <tr><td><code>PatternPoints</code></td>
+      <td><strong>形状</strong>。索引 = 第几发；<code>X</code> ∈ [-1,1] 右为正（每发水平增量），<code>Y</code> ∈ [0,1] 上为正（每发垂直倍率）</td>
+      <td>改数组 = 改形状。想镜像就把所有 X 取反</td></tr>
+  <tr><td><code>PatternLength</code></td>
+      <td>固定 Pattern 覆盖几发，之后的发数进入确定性随机游走</td>
+      <td>固定段更长，"记住弹道"更有价值</td></tr>
+  <tr><td><code>HorizontalRandomRange</code></td>
+      <td>固定 Pattern 之后水平随机游走的幅度上限</td>
+      <td>尾部更散、更难压</td></tr>
+  <tr><td><code>VerticalKickCurve</code></td>
+      <td><strong>趋势</strong>：射击序号 → 垂直倍率。曲线的上升 = "越打越跳"</td>
+      <td>后段抬得更凶。注意它<strong>只作用于垂直</strong>，保证水平形状严格可比对</td></tr>
+  <tr><td><code>RecoveryCurve</code></td>
+      <td>回正进度曲线。X = 归一化回正时间，Y = 回正进度。线性 = 匀速回正</td>
+      <td>上凸 = 快回后慢；下凸 = 慢回后快</td></tr>
+  <tr><td><code>RecoveryDelay</code></td>
+      <td>停火后多久开始回正（秒）</td>
+      <td>更容易"续枪"，连发手感更连贯</td></tr>
+  <tr><td><code>RecoveryTime</code></td>
+      <td>回正总时长（秒）</td>
+      <td>回正更慢、更粘</td></tr>
+  <tr><td><code>RecoilReturnRatio</code></td>
+      <td><strong>核心手感开关</strong>。[0,1]。0 = 相机完全回正（玩家得自己压枪，竞技向）；1 = 完全不回正</td>
+      <td>越大，停火后残留偏移越多</td></tr>
+  <tr><td><code>MaxVerticalKick</code> / <code>MaxHorizontalKick</code></td>
+      <td>累加偏移的钳制上限（度）</td>
+      <td>长连发的最终偏移更大。7 字型要"画完横杠"就必须给足水平上限</td></tr>
+  <tr><td><code>PoseMultiplier_Aiming / Standing / Crouching / JumpingOrFalling</code></td>
+      <td>姿态倍率，全部 ∈ (0,5]。与姿态<strong>相乘</strong>不是相加</td>
+      <td>蹲下 0.8、站 1.0、空中 1.5、瞄准 0.75 是项目基线</td></tr>
+  <tr><td><code>RandomSeedMode</code> / <code>FixedRandomSeed</code></td>
+      <td>随机种子模式。<strong>测试与 Golden 必须用 Fixed</strong></td>
+      <td>Random 模式手感更"活"，但序列不可复现</td></tr>
+  <tr><td colspan="3" style="opacity:.7"><strong>── 以下 6 项在 <code>Recoil | SingleShot</code> 分组，属于"单发模型"，详见第 10 节 ──</strong></td></tr>
+  <tr><td><code>SingleShotMode</code></td>
+      <td><strong>单发模型总开关</strong>。<code>InstantWrite</code>（瞬时写入，默认）/ <code>Interpolated</code>（插值，带四段顿挫）</td>
+      <td>切到 <code>Interpolated</code> 才有下面 5 项；<strong>改完要重导 Golden</strong></td></tr>
+  <tr><td><code>LiftDuration</code></td>
+      <td>上升斜坡耗时（秒）。默认 <code>0.045</code></td>
+      <td>抬得更慢更拖；<strong>为 0 等于退化回瞬时</strong></td></tr>
+  <tr><td><code>ReboundDuration</code></td>
+      <td>回弹段时长（秒）。默认 <code>0.030</code></td>
+      <td>「一顿」更明显但更钝</td></tr>
+  <tr><td><code>ReboundRatio</code></td>
+      <td><strong>「一顿」的深度</strong>，回弹到峰值的比例。默认 <code>0.72</code>，∈[0,1]</td>
+      <td>越接近 1 越像老模型（几乎不回弹）；越小顿挫越深</td></tr>
+  <tr><td><code>LiftCurve</code></td>
+      <td>Lift 段形状曲线，横轴 = 段内归一化时间。默认 <strong>Ease-Out</strong>（快起慢收）</td>
+      <td>改成线性会显得机械</td></tr>
+  <tr><td><code>ReboundCurve</code></td>
+      <td>Rebound 段形状曲线。默认线性</td>
+      <td>回弹段只有 30ms，一般不用动</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">最重要的一条职责划分（别再混淆）</span>
+  <code>PatternPoints</code> <strong>只描述形状</strong>，两个分量恒定落在归一化区间内；<br>
+  "越打越高"这种<strong>趋势</strong>由 <code>VerticalKickCurve</code> 承担。<br>
+  实际角度 = <code>RecoilPerShot_Vertical</code> × <code>Pattern.Y</code> × <code>VerticalKickCurve(i)</code>。<br>
+  把上升趋势写进 <code>Pattern.Y</code> 会被资产校验直接拦下（Y 不允许 &gt; 1）。
+</div>
+
+<h3>4.3 常见调整目标 → 怎么动</h3>
+
+<table>
+  <tr><th>想要的效果</th><th>动哪个</th></tr>
+  <tr><td>整体更稳（更小）</td><td>降 <code>RecoilPerShot_Vertical</code> + 降 <code>RecoilPerShot_Horizontal</code></td></tr>
+  <tr><td>整体更飘（更大）</td><td>升上面两个；同时确认 <code>Max*Kick</code> 别卡住累计</td></tr>
+  <tr><td>换形状（S ↔ 7 ↔ 直线）</td><td>只改 <code>PatternPoints</code> 的 <code>X</code> 序列。形状"想多胖"由 <code>RecoilPerShot_Horizontal</code> 缩放</td></tr>
+  <tr><td>形状镜像（横杠换边）</td><td>把 <code>PatternPoints</code> 里所有 <code>X</code> 取反</td></tr>
+  <tr><td>前几发稳、后段炸</td><td>陡化 <code>VerticalKickCurve</code> 的后半段</td></tr>
+  <tr><td>回正更快 / 更粘</td><td>改 <code>RecoveryDelay</code> + <code>RecoveryTime</code></td></tr>
+  <tr><td>更依赖压枪（竞技向）</td><td><code>RecoilReturnRatio</code> → 0</td></tr>
+  <tr><td>蹲下更稳 / 跳着更飘</td><td><code>PoseMultiplier_Crouching</code> / <code>PoseMultiplier_JumpingOrFalling</code></td></tr>
+  <tr><td>只想临时试个量级，不想动资产</td><td><code>Lyra.Recoil.Scale 0.5</code>，满意了再写进资产</td></tr>
+  <tr><td colspan="2" style="opacity:.7"><strong>── 单发模型相关（第 10 节） ──</strong></td></tr>
+  <tr><td>单发想要「抬起来 → 回弹一下 → 稳住」的顿挫</td>
+      <td><code>SingleShotMode = Interpolated</code> → 再调 <code>ReboundRatio</code>（越小越深）+ <code>ReboundDuration</code></td></tr>
+  <tr><td>斜坡抬得太慢 / 太急</td><td><code>LiftDuration</code>（0.02 ~ 0.06 区间试手感）+ <code>LiftCurve</code></td></tr>
+  <tr><td>某把枪想改回老的瞬时手感</td><td><code>SingleShotMode = InstantWrite</code>（默认值，改完重导 Golden）</td></tr>
+</table>
+
+<h3>4.4 改完要做什么</h3>
+<ol>
+  <li><strong>保存资产</strong>（Ctrl+S）。未保存的改动在 PIE 里也生效，但退出编辑器会丢。</li>
+  <li><strong>不用</strong>敲 <code>Lyra.Recoil.ReloadProfile</code> —— PIE 和编辑器同进程共享同一个 UObject，改完下一帧就生效。</li>
+  <li>如果改的是 <code>DA_Recoil_Rifle</code>（Golden 基准那份），必须重导 Golden，否则
+      <code>Lyra.Recoil.Pattern.Golden</code> 会 FAIL 并提示 stale：
+      <pre><code>powershell -ExecutionPolicy Bypass -File "D:\TPSGunsDemo\TPSGunsDemo\Docs\Recoil\Tools\gen-recoil-golden.ps1"</code></pre>
+      改 <code>DA_Recoil_Rifle_S</code> / <code>_7</code> <strong>不需要</strong>（它们不进 Golden）。</li>
+  <li>如果改了姿态倍率或单发基准，<code>Docs/Recoil/04_PoseMatrix.md</code> 的实测表要重跑更新。</li>
+  <li>改完跑一遍自动化测试（编辑器开着就行）：
+      <pre><code>AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")</code></pre>
+      预期 <strong>19/19</strong>。</li>
+</ol>
+
+<h2 id="add">5 · 怎么新增一把枪</h2>
+
+<p>先分清两种需求，工作量差一个数量级：</p>
+
+<table>
+  <tr><th>需求</th><th>做法</th><th>要动几个资产</th></tr>
+  <tr><td><strong>A. 只换后坐力</strong>（模型/动画/伤害/开火方式全沿用现有步枪）</td>
+      <td>复制「后坐力资产 + 武器链」三件套</td><td>3 个（复制品）+ 1 个新后坐力资产</td></tr>
+  <tr><td><strong>B. 真·新枪</strong>（不同模型/动画/伤害/弹匣）</td>
+      <td>A 的基础上再换 <code>B_Rifle</code> 模型、<code>AbilitySet</code>、伤害 GE</td><td>6~10 个</td></tr>
+</table>
+
+<p>下面走 <strong>A</strong>，用"再加一把 7 字型但更飘的枪"当例子。全程在编辑器的内容浏览器里右键复制即可。</p>
+
+<h3>5.1 理清一条武器链的四层</h3>
+
+<pre><code>ID_xxx         InventoryItemDefinition       快捷栏里"那件东西"（图标、显示名、指向装备定义）
+  └─ WID_xxx   EquipmentDefinition            装备定义：生成哪个 Instance、挂哪些 Actor、授哪些能力
+       ├─ InstanceType  → B_WeaponInstance_xxx   武器实例（★ 后坐力资产就挂在这一层）
+       └─ ActorsToSpawn → B_Rifle              枪本体（模型 + 动画 + 挂点武器插槽）
+
+后坐力资产 DA_Recoil_xxx    ← 挂在 B_WeaponInstance_xxx 的 RecoilProfile 属性上</code></pre>
+
+<h3>5.2 步骤</h3>
+
+<div class="step">
+  <div class="h"><em>1</em>建后坐力资产</div>
+  内容浏览器 → <code>Content/Weapons/Recoil/</code> → 右键 → Miscellaneous → Data Asset → 选
+  <strong>Lyra Recoil Profile</strong> → 命名 <code>DA_Recoil_Rifle_Fast</code>。<br>
+  打开，按 §4.2 调好数值。（最快的方式：先复制一份现成的再改，比如复制 <code>DA_Recoil_Rifle_7</code>。）
+</div>
+
+<div class="step">
+  <div class="h"><em>2</em>复制武器实例蓝图</div>
+  <code>ShooterCore/Weapons/Rifle/B_WeaponInstance_Rifle</code> → 右键 Duplicate →
+  <code>B_WeaponInstance_Rifle_Fast</code>。<br>
+  打开它 → Details → <strong>Recoil → Recoil Profile</strong> 指到刚建的 <code>DA_Recoil_Rifle_Fast</code>。<br>
+  <em>这一格就是全部工作</em>：不填 = 该武器静默不使用后坐力系统。
+</div>
+
+<div class="step">
+  <div class="h"><em>3</em>复制装备定义</div>
+  <code>WID_Rifle</code> → Duplicate → <code>WID_Rifle_Fast</code>。<br>
+  打开 → <strong>Instance Type</strong> 改成 <code>B_WeaponInstance_Rifle_Fast</code>；
+  <code>Actors To Spawn</code> / <code>Ability Sets To Grant</code> <strong>保持不动</strong>（还是原来那把枪的本体与能力）。
+</div>
+
+<div class="step">
+  <div class="h"><em>4</em>复制物品定义</div>
+  <code>ID_Rifle</code> → Duplicate → <code>ID_Rifle_Fast</code>。<br>
+  打开 → 找到 <code>Fragments</code> 里的 <strong>InventoryFragment_EquippableItem</strong> →
+  <code>Equipment Definition</code> 改成 <code>WID_Rifle_Fast</code>。<br>
+  顺手把 <code>Display Name</code> 改成 <code>Rifle Fast</code>（HUD 武器名用的就是它，方便一眼区分）。
+</div>
+
+<div class="step">
+  <div class="h"><em>5</em>塞进初始装备</div>
+  打开 <code>ShooterCore/Game/B_Hero_ShooterMannequin</code> → 左侧 My Blueprint →
+  选中 <code>InitialInventoryItems</code> 变量 → Details 面板的默认值数组里
+  <strong>加一项</strong> <code>ID_Rifle_Fast</code>。<br>
+  加入顺序 = 快捷栏槽位顺序（0、1、2…），快捷栏一共 3 格（<code>NumSlots = 3</code>）。<br>
+  变量被 <code>AddInitialInventory</code> 遍历，逐个 <code>AddItemToSlot</code> 后
+  <code>SetActiveSlotIndex</code> 到第 0 格。
+</div>
+
+<div class="step">
+  <div class="h"><em>6</em>验证</div>
+  PIE → <code>Lyra.Recoil.Debug 1</code> → 切到新槽位 → 第一行应该显示
+  <code>Profile=DA_Recoil_Rifle_Fast</code>。<br>
+  <code>Lyra.Recoil.DebugDraw 1</code> 看黄点形状对不对。
+</div>
+
+<div class="box warn">
+  <span class="t">三个容易踩的坑</span>
+  ① <strong>复制蓝图后确认父类没跑偏</strong>：复制品应该仍是 <code>B_WeaponInstance_Base</code> 的子类。
+  复制完打开看一眼 Class Settings 就行。<br>
+  ② <strong>只改 <code>WID</code> 不改 <code>ID</code> 是没用的</strong>：<code>ID</code> 里的
+  <code>InventoryFragment_EquippableItem</code> 才是"这件物品装备成什么"的入口。<br>
+  ③ <strong><code>B_Hero_ShooterMannequin</code> 是玩家和 20 只 bot 共用的</strong>：往
+  <code>InitialInventoryItems</code> 里加东西，bot 也会一起拿到。只想给玩家，就得改代码或给 bot 换英雄蓝图。
+</div>
+
+<h3>5.3 换成真·新枪（路径 B）还要改什么</h3>
+
+<table>
+  <tr><th>想换的</th><th>改哪</th></tr>
+  <tr><td>枪的模型 / 动画 / 挂点</td><td>复制 <code>B_Rifle</code> → 换 <code>SkeletalMesh</code>、<code>AnimLayer</code>、<code>MuzzleSocket</code></td></tr>
+  <tr><td>开火节奏 / 连发</td><td>改 <code>GA_Weapon_Fire_Rifle_Auto</code> 的 <code>Auto Rate</code> 与
+      <code>Fire Delay Time Secs</code>（详见 §6.1）；要两把枪不同则复制 GA + <code>AbilitySet_ShooterRifle</code>，
+      在 <code>WID</code> 的 <code>AbilitySetsToGrant</code> 里换成新的</td></tr>
+  <tr><td>伤害</td><td>复制 <code>GE_Damage_RifleAuto</code></td></tr>
+  <tr><td>HUD（准星 / 弹药条）</td><td>改 <code>ID</code> 里 <code>InventoryFragment_ReticleConfig</code> / <code>InventoryFragment_QuickBarIcon</code></td></tr>
+  <tr><td>弹匣容量 / 备弹</td><td>改 <code>ID</code> 里 <code>InventoryFragment_SetStats</code> 的
+      <code>Lyra.ShooterGame.Weapon.MagazineSize</code> / <code>MagazineAmmo</code> / <code>SpareAmmo</code>
+      （详见 §6.2）</td></tr>
+</table>
+
+<h2 id="ammo">6 · 射速 / 弹容 / 备弹</h2>
+
+<p>这三个数值<strong>不在同一个地方</strong>，这是最容易找错的地方。先记住一句话：</p>
+
+<div class="box warn">
+  <span class="t">一句话定位</span>
+  <strong>射速</strong>在<strong>能力层</strong>（<code>GA_Weapon_Fire_Rifle_Auto</code>），
+  <strong>弹容与备弹</strong>在<strong>物品定义层</strong>（<code>ID_Rifle</code> 的 <code>InventoryFragment_SetStats</code>）。<br>
+  注意：Lyra 原版的 <code>ULyraRangedWeaponInstance</code> 里<strong>没有</strong>「RoundsPerSecond」这类射速字段，
+  别去 <code>B_WeaponInstance_Rifle</code> 里翻，翻不到。
+</div>
+
+<h3>6.1 射速 —— 改 <code>GA_Weapon_Fire_Rifle_Auto</code></h3>
+
+<p>射速由连发能力的两个属性共同决定（<code>ShooterCore/Weapons/Rifle/GA_Weapon_Fire_Rifle_Auto</code>）：</p>
+
+<table>
+  <tr><th>属性</th><th>当前值</th><th>含义</th></tr>
+  <tr><td><code>Auto Rate</code></td><td><code>1</code></td>
+      <td>是否连发（按住不放持续开火）。<code>1</code> = 全自动，<code>0</code> = 单发。</td></tr>
+  <tr><td><code>Fire Delay Time Secs</code></td><td><code>0.12</code></td>
+      <td><strong>每发之间的间隔秒数</strong>。这是实际的射速旋钮。</td></tr>
+  <tr><td><code>Fire Delay Time Secs</code> 换算</td><td>≈ <b>8.33 发/秒</b></td>
+      <td>公式：<code>射速(RPS) = 1 / FireDelayTimeSecs</code>。<code>0.12 → 8.33</code>。</td></tr>
+  <tr><td><code>Character Fire Montage</code></td><td><code>AM_MM_Rifle_Fire</code></td>
+      <td>开火动画。间隔改太快时动画会被打断，属正常。</td></tr>
+</table>
+
+<p>常用射速对照（把 <code>Fire Delay Time Secs</code> 改成左列即可）：</p>
+
+<table>
+  <tr><th>想要的手感</th><th>FireDelayTimeSecs</th><th>实际射速</th></tr>
+  <tr><td>慢速步枪</td><td>0.20</td><td>5.0 发/秒</td></tr>
+  <tr><td>中速（AK 类）</td><td>0.15</td><td>6.7 发/秒</td></tr>
+  <tr><td><strong>当前默认</strong></td><td><strong>0.12</strong></td><td><strong>8.3 发/秒</strong></td></tr>
+  <tr><td>高速（M4 类）</td><td>0.083</td><td>12.0 发/秒</td></tr>
+  <tr><td>极速（冲锋枪）</td><td>0.067</td><td>15.0 发/秒</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">改射速前必须知道</span>
+  ① 这两把枪<strong>共用同一个</strong> <code>AbilitySet_ShooterRifle</code>，也就共用同一个
+  <code>GA_Weapon_Fire_Rifle_Auto</code>。<strong>直接改它 = 两把枪射速一起变。</strong><br>
+  ② 想让两把枪射速不同，必须<strong>复制</strong>一套：<code>GA_Weapon_Fire_Rifle_Auto</code> →
+  复制并改名 → 再复制 <code>AbilitySet_ShooterRifle</code>，把里面 <code>GrantedAbilities</code> 的该项换成新 GA →
+  最后在 <code>WID_Rifle_7</code> 的 <code>Ability Sets To Grant</code> 里挂这个新 AbilitySet。<br>
+  ③ 射速改快后<strong>后坐力感受会明显变强</strong>（同样 12 发打得快了）。若觉得飘，先调
+  <code>RecoveryTime</code> / <code>RecoveryDelay</code>，而不是急着实数减后坐力。
+</div>
+
+<h3>6.2 弹容 / 备弹 —— 改 <code>ID_Rifle</code> 的 SetStats</h3>
+
+<p>打开 <code>ShooterCore/Weapons/Rifle/ID_Rifle</code>（第二把是 <code>ID_Rifle_7</code>）→
+<code>Fragments</code> → <strong>InventoryFragment_SetStats</strong> → <code>InitialItemStats</code>：</p>
+
+<table>
+  <tr><th>GameplayTag</th><th>含义</th><th>ID_Rifle 当前</th><th>ID_Rifle_7 当前</th></tr>
+  <tr><td><code>Lyra.ShooterGame.Weapon.MagazineSize</code></td>
+      <td><strong>弹匣容量上限</strong>（一个弹匣最多几发，重装能补到多少）</td><td><b>30</b></td><td><b>30</b></td></tr>
+  <tr><td><code>Lyra.ShooterGame.Weapon.MagazineAmmo</code></td>
+      <td><strong>出生时弹匣里装了多少</strong>（≤ MagazineSize）</td><td><b>30</b></td><td><b>30</b></td></tr>
+  <tr><td><code>Lyra.ShooterGame.Weapon.SpareAmmo</code></td>
+      <td><strong>备弹总数</strong>（不含弹匣内，重装从这里扣）</td><td><b>60</b></td><td><b>60</b></td></tr>
+</table>
+
+<div class="box">
+  <span class="t">三者关系</span>
+  <code>MagazineSize</code> = 弹匣上限（改大了，一次重装就能装更多）；<br>
+  <code>MagazineAmmo</code> = 出生时弹匣里的实数（通常 = MagazineSize，也可以故意给小一点，做出"开局需要先重装"的效果）；<br>
+  <code>SpareAmmo</code> = 背包里的散装子弹，只减不增（本 Demo 没有拾取补充弹药的逻辑）。<br>
+  <strong>三个都给 0 或不填 = 枪打不出子弹</strong>，而且是静默失败，HUD 弹药条会显示 0。
+</div>
+
+<p>各武器当前基线（都在各自的 <code>ID_*</code> 上，<strong>互相独立</strong>）：</p>
+
+<table>
+  <tr><th>武器</th><th>MagazineSize</th><th>MagazineAmmo</th><th>SpareAmmo</th><th>位置</th></tr>
+  <tr><td>Rifle（S 型）</td><td>30</td><td>30</td><td>60</td><td><code>Weapons/Rifle/ID_Rifle</code></td></tr>
+  <tr><td>Rifle 7（7 字型）</td><td>30</td><td>30</td><td>60</td><td><code>Weapons/Rifle/ID_Rifle_7</code></td></tr>
+  <tr><td>Pistol</td><td>12</td><td>12</td><td>48</td><td><code>Weapons/Pistol/ID_Pistol</code></td></tr>
+  <tr><td>Shotgun</td><td>8</td><td>8</td><td>16</td><td><code>Weapons/Shotgun/ID_Shotgun</code></td></tr>
+</table>
+
+<div class="box ok">
+  <span class="t">好消息</span>
+  弹容/备弹是<strong>每把枪各自一份</strong>的（各在各自 <code>ID_*</code> 的 SetStats 里），
+  不像射速那样共用能力，<strong>改一把不影响另一把</strong>，不需要复制任何东西。
+</div>
+
+<h3>6.3 重装相关（顺带一提）</h3>
+
+<table>
+  <tr><th>想改的</th><th>改哪</th><th>当前值</th></tr>
+  <tr><td>重装速度</td><td><code>GA_Weapon_Reload_Rifle</code> 的 <code>Play Rate</code></td><td><code>1</code>（越大越快）</td></tr>
+  <tr><td>重装动画</td><td><code>GA_Weapon_Reload_Rifle</code> 的 <code>Reload Montage</code></td><td><code>AM_MM_Rifle_Reload</code></td></tr>
+  <tr><td>弹匣内每发打出几颗弹丸</td><td><code>B_WeaponInstance_Rifle</code> 的 <code>Bullets Per Cartridge</code></td><td><code>1</code></td></tr>
+  <tr><td>空仓时能否自动重装</td><td><code>GA_Weapon_AutoReload</code> 是否在 AbilitySet 里</td><td>已授予</td></tr>
+</table>
+
+<h3>6.4 改完怎么验证</h3>
+
+<ol>
+  <li>改完 <strong>保存资产</strong>（Ctrl+S）。改的是 DataAsset / 蓝图默认值，<strong>不需要重新编译 C++</strong>。</li>
+  <li>PIE → 看 HUD 右下角弹药条：左边是弹匣内，右边是备弹。数字应该立刻对得上。</li>
+  <li>按住左键连发 → 数 HUD 数字下降速度，换算回射速（例如 1 秒掉 8~9 发 ≈ 8.33 发/秒）。</li>
+  <li>打空弹匣 → 按 <code>R</code> 重装 → 弹匣应回到 <code>MagazineSize</code>，备弹按差额扣减。</li>
+  <li>配合 <code>Lyra.Recoil.Debug 1</code>：面板里的 <code>Shot #</code> 会跟着实际开火节奏跳，能直观看出射速变化。</li>
+</ol>
+
+<div class="box warn">
+  <span class="t">两个常见误解</span>
+  ① <strong>改 <code>B_WeaponInstance_Rifle</code> 里的任何东西都改不了射速</strong>——
+  那个类里只有 spread / heat / 伤害射程 / 后坐力配置。<br>
+  ② <strong>改 <code>ID_Rifle</code> 的 SetStats 也不会影响已经拿在手上的那把枪</strong>——
+  <code>InitialItemStats</code> 只在 <code>OnInstanceCreated</code> 时写入一次。
+  改完必须<strong>重新 PIE</strong>（或重新给一次装备）才生效。
+</div>
+
+<h2 id="trouble">7 · 排错对照表</h2>
+
+<table>
+  <tr><th>现象</th><th>可能原因</th><th>怎么查</th></tr>
+  <tr><td><strong>A1</strong> PIE 进来手上空着</td>
+      <td>初始装备数组没生效 / 英雄蓝图不是这张图在用的那个</td>
+      <td>确认 <code>L_ShooterPerf</code> → <code>DefaultGameplayExperience = B_ShooterGame_Perf</code> →
+          <code>DefaultPawnData = HeroData_ShooterGame</code> → <code>PawnClass = B_Hero_ShooterMannequin</code>；
+          检查 <code>InitialInventoryItems</code> 里两项都在</td></tr>
+  <tr><td>切枪后 <code>Profile=&lt;none&gt;</code></td>
+      <td>武器实例没接后坐力资产</td>
+      <td>打开对应 <code>B_WeaponInstance_*</code>，看 <code>Recoil → Recoil Profile</code> 是否为空</td></tr>
+  <tr><td>两把枪手感一模一样</td>
+      <td>两条链指向同一个 Instance（<code>WID</code> 的 <code>InstanceType</code> 没改）</td>
+      <td>对比两个 <code>WID_*</code> 的 <code>Instance Type</code></td></tr>
+  <tr><td>DebugDraw 什么都不画</td>
+      <td>忘了开；或当前没有<strong>本地玩家</strong>持枪（例如在看 bot）</td>
+      <td><code>Lyra.Recoil.DebugDraw 1</code>；确认面板里 <code>Profile</code> 不是 <code>&lt;none&gt;</code></td></tr>
+  <tr><td>面板完全不出现</td>
+      <td>只改 <code>Lyra.Recoil.Debug</code> 但没持枪（面板由武器每帧驱动）</td>
+      <td>先确保手上有枪</td></tr>
+  <tr><td><code>Dump</code> 报 "shot history is empty"</td>
+      <td>还没开过火，或刚换了枪/开了新一轮（历史被清空）</td>
+      <td>先连发几发，立刻 Dump</td></tr>
+  <tr><td>形状"像直上直下"</td>
+      <td><code>RecoilPerShot_Horizontal</code> 相对垂直太小，形状被压扁</td>
+      <td>把水平基准按比例调大</td></tr>
+  <tr><td>形状画不完，到某一发就不动了</td>
+      <td><code>MaxVerticalKick</code> / <code>MaxHorizontalKick</code> 太小，累计被钳住</td>
+      <td>调大上限</td></tr>
+  <tr><td>资产改了但游戏里没变</td>
+      <td>改的是"资产被编辑器之外的东西改过"的场景；或改完没保存就重启了编辑器</td>
+      <td>编辑器里直接改<strong>不需要</strong>重载；确实需要时敲 <code>Lyra.Recoil.ReloadProfile</code>
+          （会触发一次 Full GC，PIE 里表现为一次卡顿尖峰，不是崩溃）</td></tr>
+  <tr><td>绿线跟着抖</td>
+      <td><strong>回归 bug</strong>：相机偏移污染了 <code>ControlRotation</code></td>
+      <td>立刻报。设计约束是"只改显示层 POV"，源码里不该出现 <code>AddPitchInput</code> / <code>AddYawInput</code></td></tr>
+  <tr><td><code>Lyra.Recoil.Scale.AffectsDump</code> 偶发 FAIL</td>
+      <td>（已修）两次 Dump 落在同一毫秒 → 文件名撞车 → 第二次覆盖第一次</td>
+      <td>（2026-09-17 已修）现在落盘前会自动顺延编号（<code>_2</code> / <code>_3</code>…），
+          重复路径不可达。实测撞车那次产出 <code>..._285.csv</code> 与 <code>..._285_2.csv</code> 两份独立文件</td></tr>
+  <tr><td>改了两把枪里的一把射速，另一把也变了</td>
+      <td><strong>正常现象</strong>：两把枪共用同一个 <code>AbilitySet_ShooterRifle</code> →
+      同一个 <code>GA_Weapon_Fire_Rifle_Auto</code></td>
+      <td>要分开就得复制 GA + AbilitySet，见 §6.1 的坑②</td></tr>
+  <tr><td>枪打不出子弹，HUD 弹药显示 0</td>
+      <td><code>InventoryFragment_SetStats</code> 缺 <code>MagazineSize</code> / <code>MagazineAmmo</code>（静默失败）</td>
+      <td>打开对应 <code>ID_*</code> 看 <code>InitialItemStats</code> 三个 Tag 是否都在且非 0</td></tr>
+  <tr><td>改了弹容但游戏里没变</td>
+      <td><code>InitialItemStats</code> 只在 <code>OnInstanceCreated</code> 写一次，已装备的实例不吃新值</td>
+      <td>重新 PIE（或换枪再换回来）</td></tr>
+  <tr><td>重装后弹匣补不满</td>
+      <td><code>MagazineAmmo</code> &gt; <code>MagazineSize</code>，或 <code>SpareAmmo</code> 不够</td>
+      <td><code>MagazineAmmo</code> 应 ≤ <code>MagazineSize</code>；<code>SpareAmmo</code> 是重装的唯一来源</td></tr>
+</table>
+
+<div class="box bad">
+  <span class="t">不要做的事</span>
+  ① 不要对 <code>DA_Recoil_Rifle</code> 顺手改数值 —— 它是 <code>Lyra.Recoil.Pattern.Golden</code> 的基准，
+  改了必须重导 Golden，否则测试会红。<br>
+  ② 不要跑 <code>Docs/Recoil/Tools/gen-recoil-assets.ps1 -Force</code> —— 它会用脚本里的占位数值覆盖
+  Rifle / Pistol / Shotgun 三份资产，手工调的值全丢。<code>DA_Recoil_Rifle_S</code> / <code>_7</code>
+  不在脚本管辖范围内，不会被碰。<br>
+  ③ 不要用 <code>AddPitchInput</code> / <code>AddYawInput</code> 实现相机后坐力 —— 那会改
+  <code>ControlRotation</code>，回正时把玩家视角一起拽走。
+</div>
+
+<h2 id="files">8 · 相关文件索引</h2>
+
+<h3>资产</h3>
+<pre><code>Content/Weapons/Recoil/
+  DA_Recoil_Rifle_S.uasset     S 型 · 小      （槽位 0）→ SingleShotMode = Interpolated
+  DA_Recoil_Rifle_7.uasset     7 字型 · 稍大  （槽位 1）→ SingleShotMode = InstantWrite
+  DA_Recoil_Rifle.uasset       Golden 基准，勿动
+  DA_Recoil_Pistol / Shotgun.uasset                  → InstantWrite（未动）
+
+Plugins/GameFeatures/ShooterCore/Content/
+  Weapons/Rifle/B_WeaponInstance_Rifle        → DA_Recoil_Rifle_S
+  Weapons/Rifle/B_WeaponInstance_Rifle_7      → DA_Recoil_Rifle_7
+  Weapons/Rifle/WID_Rifle_7                   InstanceType = B_WeaponInstance_Rifle_7
+  Weapons/Rifle/ID_Rifle_7                    Fragment → WID_Rifle_7
+  Game/B_Hero_ShooterMannequin                InitialInventoryItems = [ID_Rifle, ID_Rifle_7]
+
+Config/DefaultEngine.ini        EditorStartupMap = /ShooterCore/Maps/L_ShooterPerf</code></pre>
+
+<h3>射速 / 弹药（本文第 6 节）</h3>
+<pre><code>射速（能力层，两把枪共用 —— 改它两把一起变）
+  ShooterCore/Weapons/Rifle/GA_Weapon_Fire_Rifle_Auto
+    Auto Rate               = 1        （1 = 全自动）
+    Fire Delay Time Secs    = 0.12     （射速 = 1 / 该值 ≈ 8.33 发/秒）
+  ShooterCore/Weapons/Rifle/AbilitySet_ShooterRifle
+    → 两把枪都从它拿 GA_Weapon_Fire_Rifle_Auto
+
+弹容 / 备弹（物品层，每把枪各自独立）
+  ShooterCore/Weapons/Rifle/ID_Rifle     → InventoryFragment_SetStats_0
+  ShooterCore/Weapons/Rifle/ID_Rifle_7   → InventoryFragment_SetStats_0
+      Lyra.ShooterGame.Weapon.MagazineSize  = 30   （弹匣上限）
+      Lyra.ShooterGame.Weapon.MagazineAmmo  = 30   （出生时弹匣内）
+      Lyra.ShooterGame.Weapon.SpareAmmo     = 60   （备弹总数）
+  （Pistol: 12/12/48   Shotgun: 8/8/16，位置见 §6.2 表）
+
+重装
+  ShooterCore/Weapons/Rifle/GA_Weapon_Reload_Rifle
+    Play Rate               = 1        （越大重装越快）
+    Reload Montage          = AM_MM_Rifle_Reload
+
+代码依据（只读，不用改）
+  Source/LyraGame/Inventory/InventoryFragment_SetStats.h/.cpp
+      InitialItemStats 在 OnInstanceCreated 时写入 → 改完必须重新 PIE
+  Source/LyraGame/Weapons/LyraRangedWeaponInstance.h
+      「Weapon Config」里只有 BulletsPerCartridge / MaxDamageRange 等，无射速字段</code></pre>
+
+<h3>代码</h3>
+<pre><code>Source/LyraGame/Weapons/Recoil/
+  LyraRecoilTypes.h       枚举与结构体契约（含 ERecoilSingleShotMode）
+  LyraRecoilProfile.h/.cpp  手感配置资产，唯一数值来源（含 Recoil|SingleShot 六项）
+  LyraRecoilState.h/.cpp    FRecoilRuntimeState —— 纯算法层，无 UWorld 依赖
+                            四段插值 + 固定子步 1/60 + 尾段吸附（第 10 节）
+  LyraRecoilDebug.h/.cpp    CVar + 屏幕面板 + 世界 DebugDraw + CSV 导出
+
+Source/LyraGame/Weapons/LyraRangedWeaponInstance.h/.cpp   持 RecoilProfile + RecoilState，Tick 驱动
+Source/LyraGame/Camera/LyraCameraModifier_WeaponRecoil.*  只改显示层 POV（读 CameraOffset*）
+Source/LyraGame/Tests/LyraRecoil*.spec.cpp                30 个自动化测试（含 6 个 Interp 用例）
+Source/LyraEditor/Commandlets/LyraRecoilAssetGenCommandlet.cpp    批量生成资产（含插值参数）
+Source/LyraEditor/Commandlets/LyraRecoilGoldenDumpCommandlet.cpp Golden 导出（含 mode 元信息）</code></pre>
+
+<h3>文档与工具</h3>
+<pre><code>Docs/Recoil/07_TuningRecipe.md     两把枪的配方 + 逐发手算表 + 拍板清单
+Docs/Recoil/PROGRESS.md            总状态看板（先看这份）
+Docs/Recoil/00_Recon.md            接入点勘察（带文件:行号）
+Docs/Recoil/04_PoseMatrix.md       姿态倍率实测表
+Docs/Recoil/08_CameraRollShake.md  Roll 震屏方案（本文第 9 节）
+Docs/Recoil/09_SingleShotCurveGap.md    单发曲线差距分析（已被 10 号落地覆盖）
+Docs/Recoil/10_SingleShotInterpolation.md  单发插值方案 ← 本文第 10 节的完整依据
+Docs/Recoil/Tools/plot-recoil-csv.py   CSV → 曲线图（多份可叠加）
+Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试（命令行，需要关编辑器）</code></pre>
+
+<h2 id="roll">9 · Roll 震屏与实时调试（P8）</h2>
+
+<div class="box">
+  <span class="t">这一节是 2026-09-17 新增的（P8）</span>
+  依据《FPS 相机镜头设计与实现（脱敏版）》§1/§2/§2.1/§2.2/§7。<br>
+  完整策划案 + 实现方案见 <code>Docs/Recoil/08_CameraRollShake.md</code>。
+</div>
+
+<h3>9.1 一句话：Roll 和后坐力是两套东西</h3>
+
+<p>这是本节最重要的一条，先看清楚再往下看：</p>
+
+<table>
+  <tr><th></th><th>Pitch / Yaw 后坐力</th><th>Roll 震屏</th></tr>
+  <tr><td>数学模型</td><td><strong>积分</strong>：每发累加增量</td><td><strong>解析</strong>：按当前时刻直接求解</td></tr>
+  <tr><td>是否累加</td><td>是（<code>AccumulatedPitch += Kick</code>）</td><td><strong>否</strong></td></tr>
+  <tr><td>停火后</td><td>走回正曲线，<strong>停在稳态偏移</strong></td><td><strong>衰减到零</strong>，围绕零点往复后归零</td></tr>
+  <tr><td>长连发表现</td><td>弹道持续上抬，越打越偏</td><td>每发重新起震，始终围绕零点</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">为什么不能把 Roll 塞进 Pitch/Yaw</span>
+  试过，会坏：Roll 会像 Pitch 一样<strong>单向漂移、永远回不到零点</strong>，看起来是"镜头歪了"而不是"抖了一下"。
+  更严重的是它会污染回正逻辑 —— 回正曲线是给"弹道上抬"设计的，套在往复震动上毫无意义。<br>
+  <strong>两者除了"都作用在相机 POV 上"以外，没有任何共享逻辑。</strong>
+</div>
+
+<h3>9.2 手感是什么样</h3>
+
+<ul>
+  <li><strong>短</strong>：一次震动总时长 <code>0.22</code> 秒，比回正（0.3~0.4 秒）还短。它是"开火瞬间的爆点"。</li>
+  <li><strong>快</strong>：一个震动周期 <code>0.055</code> 秒 —— 一次震动里抖 <strong>4 个来回</strong>，所以显得脆。周期拉长会变成"慢慢歪一下"，像喝醉了。</li>
+  <li><strong>必回零</strong>：震动结束精确归零，不留任何残留。</li>
+  <li><strong>幅度小</strong>：起始 <code>0.6°</code>，连射最多涨到 <code>1.5°</code>。Roll 是"歪头"方向，人眼比上下偏移更敏感，同样的角度看起来歪得更厉害。</li>
+  <li><strong>前几发稳、后段起来</strong>：第 0~3 发用基准振幅；第 4 发起每发 <code>+0.05°</code>，封顶 <code>+0.9°</code>。单点射几乎感觉不到，扫射时明显。</li>
+  <li><strong>带一点随机</strong>：每发相位有 <code>±0.35 rad</code> 的小扰动。不加的话连发时震动会完全同步叠加，看起来像机械振动，很假。</li>
+</ul>
+
+<h3>9.3 实时调试面板 <code>Lyra.Recoil.RollDebug 1</code></h3>
+
+<pre><code>[RollShake] ON  Scale=x1.00  Profile=DA_Recoil_Rifle_S  AssetRoll=on
+  Active=yes  Roll=+0.4123 deg  Envelope=0.6871  t=0.0689/0.2200 (left 69%)
+  Params: Amp=0.600 deg  Period=0.0550 s  Jitter=0.350 rad  EndRatio=0.00  Curve=linear  Shot=5
+  StartAmp=0.600 deg  PhaseOffset=+0.1821 rad (10.4 deg)  Cycles≈4.00
+  Waveform t=0..0.220s  peak=0.600 deg  (row density = amplitude, '|' = now)
+        ......::
+  :::..........
+  ..............
+  --------------  0
+  ..............
+  ..............
+        ::::....</code></pre>
+
+<table>
+  <tr><th>段</th><th>字段</th><th>含义</th></tr>
+  <tr><td rowspan="4">第 1 行</td><td><code>ON / OFF</code></td>
+      <td>总开关（<code>Lyra.Recoil.Enable</code>）。整块面板颜色也跟着变</td></tr>
+  <tr><td><code>Scale=x1.00</code></td><td><strong>Roll 专用</strong>的倍率（<code>Lyra.Recoil.RollShake</code>），不是全局那个</td></tr>
+  <tr><td><code>Profile=</code></td><td>当前武器用的后坐力资产</td></tr>
+  <tr><td><code>AssetRoll=</code></td><td>该资产的 <code>bEnableRollShake</code> 开关状态。显示 <code>off</code> 时下面全是 0</td></tr>
+  <tr><td rowspan="3">第 2 行</td><td><code>Active</code></td><td>本次震动是否还在进行</td></tr>
+  <tr><td><code>Roll=+0.4123</code></td>
+      <td><strong>当前应施加到相机的 Roll 偏移（度）</strong>。这就是玩家画面上看到的横滚量。正值 = 顺时针</td></tr>
+  <tr><td><code>Envelope / t / left</code></td>
+      <td>衰减包络当前值；已持续时间 / 总时长；剩余百分比</td></tr>
+  <tr><td>第 3 行</td><td><code>Params:</code></td>
+      <td><strong>本次震动生效的参数快照</strong>（开火瞬间装配、震动全程不变）。<code>Curve=linear</code> 表示资产没配衰减曲线</td></tr>
+  <tr><td rowspan="2">第 4 行</td><td><code>StartAmp</code></td>
+      <td>本次震动的起始振幅。<strong>连射时看着它从 0.6 涨到 1.5</strong>，能直观验证连射增量生效</td></tr>
+  <tr><td><code>PhaseOffset / Cycles</code></td>
+      <td>本发的相位扰动；本次震动会抖几个来回（<code>Duration / Period</code>）</td></tr>
+  <tr><td>第 5 段</td><td><strong>波形</strong></td>
+      <td>把整段震动从 <code>t=0</code> 到 <code>t=Duration</code> 采样 48 点画成 ASCII 折线。<strong>行密度 = 振幅强弱</strong>，<code>'|'</code> = 当前时刻，中轴标 <code>0</code></td></tr>
+</table>
+
+<div class="box ok">
+  <span class="t">为什么要有波形这一行</span>
+  Roll 的核心争议是"波形看起来对不对" —— 衰减够不够快、抖了几个来回、回零干不干净。<br>
+  盯着一个会跳的数字看不出这些，<strong>把整条曲线摊开在屏幕上就直接能判</strong>：
+  <ul style="margin-top:6px;margin-bottom:0">
+    <li>右侧比左侧矮 → 衰减在生效 ✓</li>
+    <li>数一数波峰 → 应该 ≈ 4 个（<code>Duration / Period</code>）</li>
+    <li>最右端贴近中轴 → 回零干净 ✓</li>
+  </ul>
+</div>
+
+<h3>9.4 世界内可视化 <code>Lyra.Recoil.DebugDraw 1</code> 的品红弧</h3>
+
+<p>Roll 是<strong>绕视线轴的旋转</strong>，在 3D 里没法用"方向线"表达（它不改朝向，只改倾斜）。
+所以改用<strong>绕瞄准轴的一段圆弧</strong>来示意：</p>
+
+<table>
+  <tr><th>图元</th><th>颜色</th><th>是什么</th></tr>
+  <tr><td>弧线 + 短轴</td><td><span class="swatch" style="background:#f0f"></span>品红</td>
+      <td><strong>当前 Roll 倾角</strong>。弧从世界的"上"方向扫到"倾斜 Roll 度后的上"方向，弧的倾角就等于当前 Roll</td></tr>
+  <tr><td>细线</td><td><span class="swatch" style="background:#fff;border:1px solid #999"></span>白色</td>
+      <td>水平参照（相机右轴）。不倾的时候弧和这条线垂直</td></tr>
+  <tr><td>文字</td><td><span class="swatch" style="background:#0aa"></span>青色</td>
+      <td>标签里新增了 <code>Roll=+0.412</code> 一栏</td></tr>
+</table>
+
+<h3>9.5 实时调参：怎么试 Roll 的手感</h3>
+
+<div class="step">
+  <div class="h"><em>1</em>开面板，打一枪看波形</div>
+  <pre><code>Lyra.Recoil.RollDebug 1</code></pre>
+  <div class="kv">
+    <dt>应该看到</dt><dd>面板出现；开火后 <code>Active=yes</code>，<code>Roll</code> 在 ±0.6° 内快速往复，<code>t</code> 从 0 涨到 0.22 后停。<br>
+      波形行应该能看到 <strong>4 个波峰、越靠右越矮、末尾贴中轴</strong>。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>2</em>用倍率快速试量级（最常用）</div>
+  <pre><code>Lyra.Recoil.RollShake 0</code></pre>
+  <div class="kv">
+    <dt>应该看到</dt><dd>画面上的<strong>横滚抖动立刻消失</strong>，但<strong>抬枪（Pitch）与左右摆（Yaw）完全不受影响</strong>。</dd>
+    <dt>这一条是判据</dt><dd><strong>如果 Pitch/Yaw 也跟着变了，说明两条通道被意外耦合了，属回归，立刻报。</strong></dd>
+  </div>
+  <pre><code>Lyra.Recoil.RollShake 3</code></pre>
+  <div class="kv">
+    <dt>应该看到</dt><dd>横滚抖动明显放大，便于确认它到底作用在哪。试完 <code>Lyra.Recoil.RollShake 1</code> 调回。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>3</em>扫满一个弹匣，验证连射增量</div>
+  长按左键打完 12 发以上。
+  <div class="kv">
+    <dt>应该看到</dt><dd><code>StartAmp</code> 从 <code>0.600</code> 逐发往上爬，到 <code>1.500</code> 封顶。<br>
+      波形行的高度也会跟着变高。</dd>
+    <dt>不通过</dt><dd><code>StartAmp</code> 一直不动 → 检查资产的 <code>RollShake_AmplitudePerShot</code> 是否配了非 0 值。</dd>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h"><em>4</em>觉得手感不对时改什么</div>
+  <table style="margin-top:8px">
+    <tr><th>症状</th><th>动哪个参数</th></tr>
+    <tr><td>抖得太小 / 太大</td><td><code>RollShake_Amplitude</code></td></tr>
+    <tr><td>抖得太久、拖沓</td><td>降 <code>RollShake_Duration</code></td></tr>
+    <tr><td>像"慢慢歪一下"、不够脆</td><td><strong>降</strong> <code>RollShake_Period</code>（周期越小抖得越快）</td></tr>
+    <tr><td>像机械振动、太规律</td><td><strong>升</strong> <code>RollShake_PhaseJitter</code></td></tr>
+    <tr><td>前几发就该有、别后面才起来</td><td>降 <code>RollShake_RampStartShot</code>（当前 4）</td></tr>
+    <tr><td>连射时涨得太猛 / 太慢</td><td>改 <code>RollShake_AmplitudePerShot</code> 与 <code>RollShake_MaxAmplitudeBonus</code></td></tr>
+    <tr><td>想手动控制衰减形状</td><td>配 <code>RollShake_AmplitudeCurve</code>（X=归一化时间，Y=振幅保留比例）。不配 = 线性</td></tr>
+  </table>
+</div>
+
+<div class="box warn">
+  <span class="t">改资产 vs 用倍率：别搞混</span>
+  <strong><code>Lyra.Recoil.RollShake</code> 只改显示层</strong>，<strong>不写回状态、不污染 CSV 与 Golden 数据</strong>，
+  退出 PIE 即失效 —— 适合"试个量级"。<br>
+  <strong>资产参数</strong>才是最终数值，改完要保存（Ctrl+S）。<br>
+  两者都不需要重新编译。
+</div>
+
+<h3>9.6 CSV 的 RollShake 列</h3>
+
+<p><code>Lyra.Recoil.Dump</code> 导出的表头现在有 <strong>7 列</strong>：</p>
+
+<pre><code>ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake</code></pre>
+
+<div class="box warn">
+  <span class="t">列语义不同，别当同类运算</span>
+  <code>RollShake</code> 是<strong>开火瞬间</strong>的 Roll 值（解析解在 <code>t=0</code> 的采样），
+  <strong>不是"本发累计"</strong>。它与 <code>AccumulatedPitch/Yaw</code>（累加量）并列只是为了
+  "一行内看到三轴的起点"，不表示它们同源。<br>
+  要看完整波形请用 <code>Lyra.Recoil.RollDebug</code> 面板。
+</div>
+
+<h3>9.7 Roll 相关代码与文档索引</h3>
+
+<pre><code>代码
+  Source/LyraGame/Camera/LyraCameraShakeTypes.h      参数/状态契约 + 镜头模式枚举
+  Source/LyraGame/Camera/LyraCameraRollShake.h/.cpp  Roll 纯算法层（无 UWorld 依赖）
+  Source/LyraGame/Camera/LyraCameraModifier_WeaponRecoil.cpp
+      InOutPOV.Rotation.Roll += RollOffsetDegrees   （注意：不带 NormalizeAxis）
+  Source/LyraGame/Weapons/Recoil/LyraRecoilProfile.h/.cpp
+      Category = "Recoil|RollShake" 的 12 个参数 + BuildRollShakeParams()
+  Source/LyraGame/Weapons/Recoil/LyraRecoilState.h/.cpp
+      FCameraRollShakeState RollShake;  ApplyShot 触发 / Advance 推进
+  Source/LyraGame/Tests/LyraRecoilRollShakeTest.spec.cpp   5 个自动化用例
+
+文档
+  Docs/Recoil/08_CameraRollShake.md   策划案 + 实现方案（先看这份）
+
+自动化测试
+  Lyra.Recoil.RollShake.EnvelopeDecayAndZero        包络单调衰减 + 终值精确归零
+  Lyra.Recoil.RollShake.IndependentFromPitchYaw     关/开 Roll 时 Pitch/Yaw 逐帧一致
+  Lyra.Recoil.RollShake.Determinism                 同种子同发序号 → 逐帧一致
+  Lyra.Recoil.RollShake.AmplitudeRampAndCap         连射增量走势 + 封顶
+  Lyra.Recoil.RollShake.DecayCurveOverride          曲线覆盖线性 / 极端参数不产生 NaN</code></pre>
+
+<h2 id="model">10 · 单发模型：两套并存（InstantWrite / Interpolated）</h2>
+
+<div class="box ok">
+  <span class="t">这一节 2026-09-17 更新：两套单发模型<strong>已经落地</strong></span>
+  上一版这一节是「现状 vs 参考文档」的分析，结论是「要改就得重建全部测试基线」。
+  现在<strong>不用重建了</strong> —— 做法改成了<strong>两套模型共存、按枪切换</strong>：
+  老模型原封不动（<code>InstantWrite</code>），新模型作为可选开关（<code>Interpolated</code>）。<br>
+  完整方案见 <code>Docs/Recoil/10_SingleShotInterpolation.md</code>。
+</div>
+
+<h3>10.1 一句话：现在有两套，按枪选</h3>
+
+<p>每把枪的后坐力资产上多了一个开关 <code>SingleShotMode</code>，二选一：</p>
+
+<table>
+  <tr><th>模式</th><th>Pitch/Yaw 怎么动</th><th>用在哪</th></tr>
+  <tr><td><code>InstantWrite</code><br>（瞬时写入 · 默认）</td>
+      <td>每次开火在 <code>ApplyShot()</code> 里<strong>瞬时</strong>加一个 Kick，上升耗时恒为 0</td>
+      <td><strong>默认值。</strong>所有老资产（Rifle / Pistol / Shotgun）+ <code>DA_Recoil_Rifle_7</code>，
+          以及 3 份 Golden 基线，全部走这套，<strong>零回归</strong></td></tr>
+  <tr><td><code>Interpolated</code><br>（插值 · 新）</td>
+      <td>把这一发拆成 <strong>Lift → Rebound → Settle → Drop</strong> 四段，
+          用固定子步长逐段推进，相机偏移是<strong>补间输出</strong>（有斜坡、有回弹）</td>
+      <td><code>DA_Recoil_Rifle_S</code>（槽位 0）。想要「一顿」的顿挫感就开这个</td></tr>
+</table>
+
+<div class="box">
+  <span class="t">两把默认枪的分工（大祥老师拍板）</span>
+  <strong>槽位 0 · <code>Rifle_S</code></strong> → <code>Interpolated</code>（插值，带顿挫）；<br>
+  <strong>槽位 1 · <code>Rifle_7</code></strong> → <code>InstantWrite</code>（瞬时，原样）。<br>
+  PIE 里切枪，面板第 4 行 <code>Mode=</code> 会跟着变 —— 这是「哪把枪用了哪套模型」最快的验证据。
+</div>
+
+<h3>10.2 四段阶段与三条曲线</h3>
+
+<p><code>Interpolated</code> 模式下，一发子弹的时间轴被切成四段。每段有<strong>独立时长</strong>和<strong>独立目标值</strong>：</p>
+
+<pre><code>Pitch(°)
+   ^
+   |                ┌──── Settle ────┐
+   |               ╱                  ╲
+   |             ╱   ← 这里在回弹        ╲  ← Drop 慢慢降
+   |           ╱  Rebound                 ╲
+   |     ╱────                              ╲──────────► 稳态残留
+   |  Lift                                              (峰值 × RecoilReturnRatio)
+   |
+   └──────────┬──────────┬───────────┬──────────────► 时间
+            Lift      Rebound      Settle        Drop
+          上升斜坡    回弹一下    稳住不动      单调下降</code></pre>
+
+<table>
+  <tr><th>阶段</th><th>时长参数</th><th>这段在干嘛</th><th>终值</th></tr>
+  <tr><td><code>Lift</code></td><td><code>LiftDuration</code>（默认 0.045s）</td>
+      <td>从 0 抬到本发峰值 —— 就是那根「斜坡」</td><td>峰值</td></tr>
+  <tr><td><code>Rebound</code></td><td><code>ReboundDuration</code>（默认 0.030s）</td>
+      <td>往回弹一点，<strong>这是「一顿」的来源</strong></td>
+      <td><code>峰值 × ReboundRatio</code>（默认 0.72）</td></tr>
+  <tr><td><code>Settle</code></td><td><code>RecoveryDelay</code>（默认 0.15s）<br><strong>复用，没引入新参数</strong></td>
+      <td>稳在回弹终值不动 —— 等效老模型的「停火冻结」，玩家可以续枪</td><td>不变</td></tr>
+  <tr><td><code>Drop</code></td><td><code>RecoveryTime</code>（默认 0.35s）<br><strong>复用</strong></td>
+      <td>从回弹终值单调降回稳态残留</td>
+      <td><code>峰值 × RecoilReturnRatio</code>（默认 0.2）</td></tr>
+</table>
+
+<p>三条曲线负责「段内是什么形状」（横轴都是<strong>段内归一化时间</strong>，不是发序号）：</p>
+
+<table>
+  <tr><th>曲线</th><th>管哪一段</th><th>本项目默认</th><th>为什么</th></tr>
+  <tr><td><code>LiftCurve</code></td><td><code>Lift</code></td>
+      <td><strong>Ease-Out</strong>（快起慢收）<br>0→0 / 0.15→0.35 / 0.35→0.62 / 0.60→0.83 / 1→1</td>
+      <td>真实枪械枪口上跳是「一上来就窜、快到顶时收住」；线性会显得机械</td></tr>
+  <tr><td><code>ReboundCurve</code></td><td><code>Rebound</code></td><td>线性</td>
+      <td>回弹本身只有 30ms，人眼分辨不出形状，线性够了</td></tr>
+  <tr><td><code>RecoveryCurve</code></td><td><code>Drop</code></td>
+      <td>线性（原有参数，两套模型共用）</td>
+      <td>老参数不动，保 Golden 基线</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">最容易混的一点：这两类「曲线」不是一回事</span>
+  <code>VerticalKickCurve</code> 的横轴是<strong>发序号</strong>（第 8 发该比第 1 发重多少）；<br>
+  <code>LiftCurve</code> / <code>ReboundCurve</code> 的横轴是<strong>单发内的时间</strong>（这 45 毫秒里是匀速抬还是加速抬）。<br>
+  <strong>一个管「越打越跳」，一个管「单发内形状」，不能互相套。</strong>
+</div>
+
+<h3>10.3 <code>Recoil|SingleShot</code> 配置项（资产上新增的 6 项）</h3>
+
+<p>在 <code>DA_Recoil_*</code> 资产的 <strong>Recoil | SingleShot</strong> 分组下。<strong>只有 <code>SingleShotMode = Interpolated</code> 时后 5 项才激活</strong>
+（UE 细节面板里会变灰/隐藏，用 <code>EditCondition</code> 控制）—— 所以 <code>Rifle_7</code> 上看不到它们，这是正常的。</p>
+
+<table>
+  <tr><th>参数</th><th>类型 / 默认值</th><th>作用</th><th>调大的后果</th></tr>
+  <tr><td><code>SingleShotMode</code></td><td>枚举<br><code>InstantWrite</code></td>
+      <td><strong>总开关。</strong>决定这把枪用哪套单发模型</td>
+      <td>切到 <code>Interpolated</code> 后下面 5 项才生效</td></tr>
+  <tr><td><code>LiftDuration</code></td><td>float · <code>0.045</code>（秒）</td>
+      <td>上升到峰值耗时。<strong>0 等于退化回瞬时</strong></td>
+      <td>抬得更慢更拖沓；太小则约等于瞬时</td></tr>
+  <tr><td><code>ReboundDuration</code></td><td>float · <code>0.030</code>（秒）</td>
+      <td>回弹段时长</td>
+      <td>「一顿」更明显但更钝</td></tr>
+  <tr><td><code>ReboundRatio</code></td><td>float · <code>0.72</code> · [0,1]</td>
+      <td><strong>手感核心。</strong>回弹到峰值的百分之几</td>
+      <td>越接近 1 回弹越弱（越像老模型）；越小「一顿」越深</td></tr>
+  <tr><td><code>LiftCurve</code></td><td>曲线资源 · Ease-Out</td>
+      <td>Lift 段形状</td><td>—</td></tr>
+  <tr><td><code>ReboundCurve</code></td><td>曲线资源 · 线性</td>
+      <td>Rebound 段形状</td><td>—</td></tr>
+</table>
+
+<h3>10.4 两个「偏移」是什么意思（为什么加了插值却没改坏老数据）</h3>
+
+<p>这是整个改动<strong>最关键的架构决定</strong>：状态里现在有<strong>两套</strong> Pitch/Yaw。</p>
+
+<table>
+  <tr><th></th><th>字段</th><th>谁读它</th><th>两套模式下的差别</th></tr>
+  <tr><td><strong>逻辑偏移</strong></td><td><code>AccumulatedPitch</code> / <code>AccumulatedYaw</code></td>
+      <td>峰值判定 / 回正 / 姿态 / <strong>CSV / Golden / 全部自动化测试</strong></td>
+      <td>基本不变 —— <strong>这是老基线能活下来的原因</strong></td></tr>
+  <tr><td><strong>补间输出</strong></td><td><code>CameraOffsetPitch</code> / <code>CameraOffsetYaw</code></td>
+      <td><strong>只有相机链</strong>（<code>GetCameraPitchOffset()</code> / <code>GetCameraYawOffset()</code>）</td>
+      <td><code>InstantWrite</code> 下<strong>恒等于逻辑偏移</strong>（零回归）；<code>Interpolated</code> 下是平滑后的斜坡</td></tr>
+</table>
+
+<p>所以：<strong>老模式行为逐帧不变，新模式只多了一条平滑输出</strong>。3 份 Golden 和 24 个老测试一个都没动。</p>
+
+<h3>10.5 低帧率怎么处理（<code>Lyra.Recoil.*</code> 相关的实现约束）</h3>
+
+<p>验收标准是「<strong>采样轨迹一样</strong>」—— 60fps 和 144fps 下同一发的曲线必须重合。做法三条：</p>
+
+<table>
+  <tr><th>手段</th><th>具体值</th><th>解决什么问题</th></tr>
+  <tr><td><strong>固定子步长</strong></td><td><code>FixedSubStepSeconds = 1/60</code></td>
+      <td>不管你显示器多少帧，内部一律按 1/60 秒为最小步推进。
+          帧率只影响<strong>一帧推几个子步</strong>，不影响轨迹本身</td></tr>
+  <tr><td><strong>子步上限</strong></td><td><code>MaxSubStepsPerAdvance = 8</code></td>
+      <td>防「死亡螺旋」：卡顿时本帧最多推 8 步，超出的时间<strong>丢弃</strong>并直接推整条轴到稳态。
+          宁可长帧吞掉一点时间，也不能让一帧里无限循环</td></tr>
+  <tr><td><strong>尾段吸附</strong></td><td>见下方伪码</td>
+      <td>修掉 off-by-one：若不吸附，阶段终值可能永远不被采样到，
+          导致 60 / 144fps 的终点差一点点</td></tr>
+</table>
+
+<p>尾段吸附的关键意思（策划版）：<strong>「如果这一小步跨过了段的终点，就直接落在终点上」</strong>。</p>
+
+<pre><code>// AdvanceInterpolatedSubStepBy() —— 尾段吸附
+StageDuration = 这一段的时长
+Advanced      = 已过时间 + 一个子步
+
+if (Advanced &lt; StageDuration &amp;&amp; (StageDuration - Advanced) &lt; 一个子步)
+    已过时间 = StageDuration        // ← 离终点不足一步：直接吸附，保证终值被采样
+else
+    已过时间 = min(Advanced, StageDuration)</code></pre>
+
+<div class="box bad">
+  <span class="t">刻意<strong>没做</strong>的一件事：不冲刷「零头」</span>
+  每帧算完子步循环后，累加器里通常会剩一个<strong>不足 1/60 秒的零头</strong>。
+  按直觉应该「顺便把它推完」，但<strong>不行</strong> —— 零头的大小和帧率强相关，
+  冲刷就等于让帧率影响轨迹，直接违反「采样轨迹一样」。<br>
+  <strong>实测：冲刷会让 60fps 与 144fps 产生约 0.006 的偏差；不冲刷则相机链偏差严格为 0。</strong>
+  代码里这段有显式注释标明「刻意不做」，别当成漏写。
+</div>
+
+<div class="box">
+  <span class="t">Roll 震屏<strong>不</strong>走子步循环（刻意区分）</span>
+  Roll 是解析解（衰减包络 × 周期项），帧率只影响<strong>采样密度</strong>，怎么采都对；<br>
+  Pitch/Yaw 是逐帧增量累加，帧率一变就漂移 —— 所以只有它需要固定子步。<br>
+  Roll 的细节见本文第 9 节。
+</div>
+
+<h3>10.6 验收数据（2026-09-17 实测）</h3>
+
+<pre><code>自动化测试   Lyra.Recoil  →  Succeeded=30   Failed=0
+             其中新增 6 个插值用例全部通过：
+               Lyra.Recoil.Interp.ModeIsolation        两模式互不干扰
+               Lyra.Recoil.Interp.LiftTiming           Lift 耗时精确
+               Lyra.Recoil.Interp.FrameRateInvariance  ← 帧率不变性（就是本条验收）
+               Lyra.Recoil.Interp.StageShape           四段形状正确
+               Lyra.Recoil.Interp.LongFrameSafety      长帧不炸、不死亡螺旋
+               Lyra.Recoil.Interp.RefireContinuity     连发不跳变
+
+帧率不变性实测（60 / 144fps 对比）：
+  max trajectory deviation across frame rates = 0.000000   ← 相机链：严格零偏差
+  max accumulated deviation across frame rates = 0.007500  ← 逻辑偏移：仅阶段边界的相位差
+
+Golden 基线   Written=5  Failed=0
+  Rifle_S  mode=Interpolated    lift=0.045  rebound=0.030  ratio=0.72
+  Rifle_7  mode=InstantWrite
+  Rifle / Pistol / Shotgun      mode=InstantWrite（未动）</code></pre>
+
+<p><strong>「采样轨迹一样」这条验收标准达成</strong>：相机链（玩家真正感知到的画面）偏差严格为 0；
+逻辑偏移的 0.0075 是阶段切换瞬间的相位差，在测试容差 <code>1e-2</code> 之内，且玩家不可感知。</p>
+
+<h3>10.7 现在调单发手感该动什么</h3>
+
+<table>
+  <tr><th>想要的效果</th><th>动哪个</th></tr>
+  <tr><td>打起来越来越跳</td><td><code>VerticalKickCurve</code>（横轴 = <strong>发序号</strong>）+ <code>RecoilPerShot_Vertical</code></td></tr>
+  <tr><td>松手后多久开始回</td><td><code>RecoveryDelay</code>（Settle 段也用它）</td></tr>
+  <tr><td>回得快还是慢、什么形状</td><td><code>RecoveryTime</code> + <code>RecoveryCurve</code></td></tr>
+  <tr><td>回不到零、留一点</td><td><code>RecoilReturnRatio</code>（刻意设计，不是 bug）</td></tr>
+  <tr><td rowspan="5"><strong>单发的顿挫手感</strong><br>（仅 <code>Interpolated</code>）</td>
+      <td>先确认 <code>SingleShotMode = Interpolated</code>，否则下面都没用</td></tr>
+  <tr><td>抬起来那根斜坡多长 → <code>LiftDuration</code></td></tr>
+  <tr><td>斜坡的快起慢收 → <code>LiftCurve</code></td></tr>
+  <tr><td>「一顿」有多深 → <code>ReboundRatio</code>（越小越深）+ <code>ReboundDuration</code></td></tr>
+  <tr><td>回弹显得太机械 → <code>ReboundCurve</code></td></tr>
+  <tr><td>哪把枪用哪套模型</td><td><code>SingleShotMode</code>（默认 <code>InstantWrite</code>，改完记得重导 Golden）</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">改 <code>SingleShotMode</code> 之后必须做的事</span>
+  ① 重跑资产生成 / Golden 导出（<code>Tools/gen-recoil-golden.ps1</code>）；<br>
+  ② 面板第 4 行确认 <code>Mode=</code> 已经变了；<br>
+  ③ 跑一遍 <code>Lyra.Recoil</code> 全量测试，<code>Pattern.Golden</code> 必须过。<br>
+  只改数值（不改模式）走正常流程即可，Golden 本身不受影响。
+</div>
+
+<footer>
+  后坐力系统调试 · 2026-09-17 · TPSGunsDemo<br>
+  数值以 <code>DA_Recoil_Rifle_S</code> / <code>DA_Recoil_Rifle_7</code> 资产为准；改过资产请回头更新本文第 2.3 节的预期值。<br>
+  <strong>三方一致性</strong>：本文（怎么用）↔ <code>10_SingleShotInterpolation.md</code>（为什么这么设计）↔ <code>LyraRecoilState.cpp / LyraRecoilProfile.cpp</code>（代码事实）。
+  单发模型相关内容以第 10 节为准；本节之外的老内容（P0~P8）已由 <code>Lyra.Recoil</code> 30 个用例守住。
+</footer>
+
+</div>
+</body>
+</html>

@@ -3,12 +3,21 @@
 #include "LyraRangedWeaponInstance.h"
 #include "NativeGameplayTags.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Camera/LyraCameraComponent.h"
+#include "Camera/LyraCameraModifier_WeaponRecoil.h"
+#include "Camera/LyraPlayerCameraManager.h"
 #include "Physics/PhysicalMaterialWithTags.h"
+#include "UObject/Package.h"
+#include "UObject/UObjectGlobals.h"
 #include "Weapons/LyraWeaponInstance.h"
+#include "Weapons/Recoil/LyraRecoilDebug.h"
+#include "Weapons/Recoil/LyraRecoilProfile.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(LyraRangedWeaponInstance)
+
+DEFINE_LOG_CATEGORY_STATIC(LogLyraRecoilWeapon, Log, All);
 
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Lyra_Weapon_SteadyAimingCamera, "Lyra.Weapon.SteadyAimingCamera");
 
@@ -63,11 +72,24 @@ void ULyraRangedWeaponInstance::OnEquipped()
 	StandingStillMultiplier = 1.0f;
 	JumpFallMultiplier = 1.0f;
 	CrouchingMultiplier = 1.0f;
+
+	// 后坐力：装备即清零，避免上一把枪的残留偏移带过来
+	ResetRecoilState();
 }
 
 void ULyraRangedWeaponInstance::OnUnequipped()
 {
 	Super::OnUnequipped();
+
+	// 后坐力：卸下时做两件事 ——
+	//  1) 清零状态，否则再装备会从旧偏移开始；
+	//  2) 让相机上可能残留的偏移走一段释放衰减。
+	//
+	// 注意这里**不再摘掉相机修改器**。摘掉等于让残留偏移在同一帧内消失，
+	// 玩家看到的就是一次跳变（反馈里的"切枪震屏"）。
+	// 修改器常驻在相机管理器上，由它自己把偏移衰减回 0 —— 详见 UCameraModifier_WeaponRecoil 的类注释。
+	ResetRecoilState();
+	ClearRecoilCameraOffset();
 }
 
 void ULyraRangedWeaponInstance::Tick(float DeltaSeconds)
@@ -79,6 +101,9 @@ void ULyraRangedWeaponInstance::Tick(float DeltaSeconds)
 	const bool bMinMultipliers = UpdateMultipliers(DeltaSeconds);
 
 	bHasFirstShotAccuracy = bAllowFirstShotAccuracy && bMinMultipliers && bMinSpread;
+
+	// 后坐力：推进时间轴（回正）→ 把结果推给相机链 → 数值面板
+	UpdateRecoil(DeltaSeconds);
 
 #if WITH_EDITOR
 	UpdateDebugVisualization();
@@ -133,7 +158,7 @@ float ULyraRangedWeaponInstance::GetPhysicalMaterialAttenuation(const UPhysicalM
 	float CombinedMultiplier = 1.0f;
 	if (const UPhysicalMaterialWithTags* PhysMatWithTags = Cast<const UPhysicalMaterialWithTags>(PhysicalMaterial))
 	{
-		for (const FGameplayTag MaterialTag : PhysMatWithTags->Tags)
+		for (FGameplayTag MaterialTag : PhysMatWithTags->Tags)
 		{
 			if (const float* pTagMultiplier = MaterialDamageMultiplier.Find(MaterialTag))
 			{
@@ -161,6 +186,29 @@ bool ULyraRangedWeaponInstance::UpdateSpread(float DeltaSeconds)
 	ComputeSpreadRange(/*out*/ MinSpread, /*out*/ MaxSpread);
 
 	return FMath::IsNearlyEqual(CurrentSpreadAngle, MinSpread, KINDA_SMALL_NUMBER);
+}
+
+float ULyraRangedWeaponInstance::ComputeAimingAlpha() const
+{
+	// 这段判定原本内联在 UpdateMultipliers() 里；后坐力姿态倍率需要同一份数据，
+	// 所以提取成共用函数，避免两处逻辑随时间漂移（开发计划 §P4「不重复造轮子」）。
+	const APawn* Pawn = GetPawn();
+	if (Pawn == nullptr)
+	{
+		return 0.0f;
+	}
+
+	const ULyraCameraComponent* CameraComponent = ULyraCameraComponent::FindCameraComponent(Pawn);
+	if (CameraComponent == nullptr)
+	{
+		return 0.0f;
+	}
+
+	float TopCameraWeight = 0.0f;
+	FGameplayTag TopCameraTag;
+	CameraComponent->GetBlendInfo(/*out*/ TopCameraWeight, /*out*/ TopCameraTag);
+
+	return (TopCameraTag == TAG_Lyra_Weapon_SteadyAimingCamera) ? TopCameraWeight : 0.0f;
 }
 
 bool ULyraRangedWeaponInstance::UpdateMultipliers(float DeltaSeconds)
@@ -193,15 +241,7 @@ bool ULyraRangedWeaponInstance::UpdateMultipliers(float DeltaSeconds)
 	const bool bJumpFallMultiplerIs1 = FMath::IsNearlyEqual(JumpFallMultiplier, 1.0f, MultiplierNearlyEqualThreshold);
 
 	// Determine if we are aiming down sights, and apply the bonus based on how far into the camera transition we are
-	float AimingAlpha = 0.0f;
-	if (const ULyraCameraComponent* CameraComponent = ULyraCameraComponent::FindCameraComponent(Pawn))
-	{
-		float TopCameraWeight;
-		FGameplayTag TopCameraTag;
-		CameraComponent->GetBlendInfo(/*out*/ TopCameraWeight, /*out*/ TopCameraTag);
-
-		AimingAlpha = (TopCameraTag == TAG_Lyra_Weapon_SteadyAimingCamera) ? TopCameraWeight : 0.0f;
-	}
+	const float AimingAlpha = ComputeAimingAlpha();
 	const float AimingMultiplier = FMath::GetMappedRangeValueClamped(
 		/*InputRange=*/ FVector2D(0.0f, 1.0f),
 		/*OutputRange=*/ FVector2D(1.0f, SpreadAngleMultiplier_Aiming),
@@ -216,3 +256,282 @@ bool ULyraRangedWeaponInstance::UpdateMultipliers(float DeltaSeconds)
 	return bStandingStillMultiplierAtMin && bCrouchingMultiplierAtTarget && bJumpFallMultiplerIs1 && bAimingMultiplierAtTarget;
 }
 
+//////////////////////////////////////////////////////////////////////////
+// 后坐力系统
+//////////////////////////////////////////////////////////////////////////
+
+void ULyraRangedWeaponInstance::AddRecoil()
+{
+	if (!ULyraRecoilDebug::IsRecoilEnabled())
+	{
+		return;
+	}
+
+	const ULyraRecoilProfile* Profile = RecoilProfile;
+	if (Profile == nullptr)
+	{
+		// 没配资产 = 本武器不使用后坐力。静默跳过，不打扰原有的 spread 链路。
+		return;
+	}
+
+	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+	RecoilState.ApplyShot(Profile, ComputeRecoilPoseMultiplier(), ComputeRecoilPoseState());
+}
+
+FRecoilShotKick ULyraRangedWeaponInstance::GetRecoilShotDirectionOffset(int32 ShotIndex)
+{
+	// 弹道链取"这一刻"的倍率：瞄具混合权重逐帧变化，用上一发缓存值会让第一发偏掉
+	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+	RecoilState.SetPoseMultiplier(ComputeRecoilPoseMultiplier());
+
+	// 开关语义（关闭/无资产 → 零偏移）收在 ComputeShotKickGated 里，
+	// 这样"不污染 Lyra 原有纯扩散逻辑"这条约束只有一个实现点，且可被纯数值单测覆盖。
+	return FRecoilRuntimeState::ComputeShotKickGated(
+		RecoilProfile,
+		ShotIndex,
+		RecoilState.CurrentPoseMultiplier,
+		RecoilState.GlobalScale,
+		RecoilState.ActiveSeed,
+		ULyraRecoilDebug::IsRecoilEnabled());
+}
+
+void ULyraRangedWeaponInstance::UpdateRecoil(float DeltaSeconds)
+{
+	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+	RecoilState.Advance(RecoilProfile, DeltaSeconds);
+
+	UpdateRecoilCameraModifier();
+
+	// 工具层：屏幕面板（Lyra.Recoil.Debug）+ 世界内可视化（Lyra.Recoil.DebugDraw）
+	ULyraRecoilDebug::DrawDebugPanel(GetWorld(), RecoilProfile, RecoilState);
+	DrawRecoilDebug();
+}
+
+EPoseState ULyraRangedWeaponInstance::ComputeRecoilPoseState() const
+{
+	const APawn* Pawn = GetPawn();
+	if (Pawn == nullptr)
+	{
+		return EPoseState::Standing;
+	}
+
+	UCharacterMovementComponent* MovementComp = Cast<UCharacterMovementComponent>(Pawn->GetMovementComponent());
+	if (MovementComp == nullptr)
+	{
+		return EPoseState::Standing;
+	}
+
+	// 判定来源与 UpdateMultipliers() 完全一致（IsFalling / IsCrouching），但后坐力侧刻意不做插值：
+	// 每发按"当下"的姿态取倍率，这样 P4 的"各姿态累计位移比值 == 配置倍率比值"才是精确的。
+	//
+	// 判定优先级与倍率换算都收在 FRecoilRuntimeState 的纯静态函数里，便于脱离 Pawn 做纯数值单测。
+	return FRecoilRuntimeState::ResolvePoseState(MovementComp->IsCrouching(), MovementComp->IsFalling());
+}
+
+float ULyraRangedWeaponInstance::ComputeRecoilPoseMultiplier() const
+{
+	const ULyraRecoilProfile* Profile = RecoilProfile;
+	if (Profile == nullptr)
+	{
+		return 1.0f;
+	}
+
+	// 姿态与瞄准正交：姿态倍率 × 瞄准混合倍率（见 LyraRecoilTypes.h 里 EPoseState 的说明）。
+	// 换算逻辑收在纯静态函数里，便于脱离 Pawn 做纯数值单测。
+	return FRecoilRuntimeState::ComputePoseMultiplier(*Profile, ComputeRecoilPoseState(), ComputeAimingAlpha());
+}
+
+void ULyraRangedWeaponInstance::ResetRecoilState()
+{
+	RecoilState.Reset(RecoilProfile);
+	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+}
+
+ALyraPlayerCameraManager* ULyraRangedWeaponInstance::GetOwningPlayerCameraManager() const
+{
+	const APawn* Pawn = GetPawn();
+	if ((Pawn == nullptr) || !Pawn->IsLocallyControlled())
+	{
+		// 服务器上的远程玩家不需要本地相机链
+		return nullptr;
+	}
+
+	const APlayerController* PC = Cast<const APlayerController>(Pawn->GetController());
+	if (PC == nullptr)
+	{
+		return nullptr;
+	}
+
+	return Cast<ALyraPlayerCameraManager>(PC->PlayerCameraManager);
+}
+
+void ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()
+{
+	ALyraPlayerCameraManager* CameraManager = GetOwningPlayerCameraManager();
+	if (CameraManager == nullptr)
+	{
+		RecoilCameraModifier = nullptr;
+		return;
+	}
+
+	if (RecoilCameraModifier == nullptr)
+	{
+		// 先找现成的，避免反复装备/卸下时在相机上堆出多个同类修改器
+		RecoilCameraModifier = Cast<UCameraModifier_WeaponRecoil>(
+			CameraManager->FindCameraModifierByClass(UCameraModifier_WeaponRecoil::StaticClass()));
+
+		if (RecoilCameraModifier == nullptr)
+		{
+			RecoilCameraModifier = Cast<UCameraModifier_WeaponRecoil>(
+				CameraManager->AddNewCameraModifier(UCameraModifier_WeaponRecoil::StaticClass()));
+		}
+	}
+
+	if (RecoilCameraModifier == nullptr)
+	{
+		return;
+	}
+
+	if (ULyraRecoilDebug::IsRecoilEnabled())
+	{
+		// 三轴一起推给相机修改器：
+		// Pitch/Yaw 是"累加-回正"的积分量，Roll 是"衰减包络 × 周期项"的瞬时解。
+		// 语义不同，但都只作用在显示层 POV 上，所以在相机修改器里合流。
+		//
+		// **Pitch/Yaw 读的是补间输出，不是逻辑偏移**（见 LyraRecoilState.h 的说明）：
+		//   InstantWrite 模式下两者恒等 —— 既有行为零变化；
+		//   Interpolated 模式下补间输出是逐帧差分累加的结果，逻辑偏移是"这一发应该抬到哪"。
+		// 相机每帧只能转一点，所以必须读补间输出。
+		//
+		// Roll 额外乘一个调试倍率（Lyra.Recoil.RollShake，默认 1）：
+		// 这是**纯显示层缩放**，不写回 RecoilState，因此不会污染 ShotHistory / CSV / Golden 数据。
+		// 0 就是"临时关掉 Roll 做 A/B 对比"，比改资产再重载快得多。
+		const float RollDisplayOffset = RecoilState.GetCameraRollOffset() * ULyraRecoilDebug::GetRollShakeScale();
+
+		RecoilCameraModifier->SetRecoilOffset(
+			RecoilState.GetCameraPitchOffset(),
+			RecoilState.GetCameraYawOffset(),
+			RollDisplayOffset);
+	}
+	else
+	{
+		RecoilCameraModifier->ClearRecoilOffset();
+	}
+}
+
+void ULyraRangedWeaponInstance::ClearRecoilCameraOffset()
+{
+	// 目的：让相机上可能残留的偏移**平滑归零**，而不是一帧砍断。
+	//
+	// 为什么不再 RemoveCameraModifier：
+	//   摘掉修改器的瞬间，它正在施加的偏移会立刻消失。若此时玩家刚打完一轮、
+	//   相机上还挂着几度残留（Rifle 的 MaxVerticalKick 是 8 度），
+	//   这一点残留在一帧内归零就是一次可见的跳变 —— 也就是反馈里的"切枪震屏"。
+	//   修改器本身是常驻在 PlayerCameraManager 上的，让它自己衰减回 0 即可。
+	if (RecoilCameraModifier != nullptr)
+	{
+		RecoilCameraModifier->ClearRecoilOffset();
+	}
+
+	// 缓存指针可以丢掉：下一个武器实例会通过 FindCameraModifierByClass 重新拿到同一个修改器。
+	RecoilCameraModifier = nullptr;
+}
+
+void ULyraRangedWeaponInstance::DrawRecoilDebug()
+{
+	// 屏幕面板（数值 + Roll 波形）不受 ENABLE_DRAW_DEBUG 限制：
+	// 它们是纯 GEngine->AddOnScreenDebugMessage，只要不是 Shipping 构建就能用。
+	// 分开判断是因为两者的 CVar 独立 —— 只想看波形时不必把世界线也画出来。
+	if (const APawn* DebugPawn = GetPawn())
+	{
+		if (DebugPawn->IsLocallyControlled())
+		{
+			const UWorld* DebugWorld = GetWorld();
+
+			if (ULyraRecoilDebug::IsDebugPanelEnabled())
+			{
+				ULyraRecoilDebug::DrawDebugPanel(DebugWorld, RecoilProfile, RecoilState);
+			}
+
+			if (ULyraRecoilDebug::IsRollDebugPanelEnabled())
+			{
+				ULyraRecoilDebug::DrawRollShakeDebugPanel(DebugWorld, RecoilProfile, RecoilState);
+			}
+		}
+	}
+
+#if ENABLE_DRAW_DEBUG
+	// 注意：LyraGame.Build.cs 定义了 SHIPPING_DRAW_DEBUG_ERROR=1，
+	// DrawDebug 系列必须包在 #if ENABLE_DRAW_DEBUG 里。
+	if (!ULyraRecoilDebug::IsDebugDrawEnabled())
+	{
+		return;
+	}
+
+	const APawn* Pawn = GetPawn();
+	if ((Pawn == nullptr) || !Pawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	// 起点取"眼睛高度"，与 GA 的 GetWeaponTargetingSourceLocation 同一量级，
+	// 方便把画出来的方向与实际弹道对照。
+	const FVector Origin = Pawn->GetActorLocation() + FVector(0.0f, 0.0f, Pawn->BaseEyeHeight);
+	const FRotator AimRotation = Pawn->GetControlRotation();
+
+	ULyraRecoilDebug::DrawWorldDebug(GetWorld(), Origin, AimRotation, RecoilProfile, RecoilState);
+#endif // ENABLE_DRAW_DEBUG
+}
+
+void ULyraRangedWeaponInstance::ReloadRecoilProfile()
+{
+#if WITH_EDITOR
+	if (RecoilProfile == nullptr)
+	{
+		UE_LOG(LogLyraRecoilWeapon, Warning, TEXT("ReloadRecoilProfile: no recoil profile assigned on %s"), *GetName());
+		return;
+	}
+
+	ULyraRecoilProfile* OldProfile = RecoilProfile;
+	UPackage* OldPackage = OldProfile->GetOutermost();
+	if (OldPackage == nullptr)
+	{
+		UE_LOG(LogLyraRecoilWeapon, Error, TEXT("ReloadRecoilProfile: profile has no outer package"));
+		return;
+	}
+
+	const FString PackageName = OldPackage->GetName();
+	const FString AssetName = OldProfile->GetName();
+
+	// 先断开引用。否则旧对象仍被本实例持有 → GC 判定可达 → 同名包不会被真正卸载，
+	// 后面 LoadPackage 只会把内存里的旧包原样还回来 —— 看起来"成功"了，其实没重载。
+	RecoilProfile = nullptr;
+
+	ResetLoaders(OldPackage);
+	OldPackage->SetDirtyFlag(false);
+	OldPackage->ClearFlags(RF_Public | RF_Standalone | RF_Transactional);
+	OldPackage->MarkAsGarbage();
+
+	// bPerformFullPurge = true 是必须的：只标记不回收的话包还在内存里，重载会拿到旧数据
+	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS, /*bPerformFullPurge=*/ true);
+
+	UPackage* NewPackage = LoadPackage(nullptr, *PackageName, LOAD_None);
+	ULyraRecoilProfile* NewProfile = (NewPackage != nullptr)
+		? FindObject<ULyraRecoilProfile>(NewPackage, *AssetName)
+		: nullptr;
+
+	RecoilProfile = NewProfile;
+
+	// 重载后偏移必须清零，否则会带着旧曲线的残留继续算
+	ResetRecoilState();
+
+	if (NewProfile != nullptr)
+	{
+		UE_LOG(LogLyraRecoilWeapon, Display, TEXT("ReloadRecoilProfile: reloaded %s from disk"), *PackageName);
+	}
+	else
+	{
+		UE_LOG(LogLyraRecoilWeapon, Error, TEXT("ReloadRecoilProfile: FAILED to reload %s (asset name=%s) - profile is now unset"), *PackageName, *AssetName);
+	}
+#endif // WITH_EDITOR
+}

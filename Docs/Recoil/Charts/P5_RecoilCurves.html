@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Recoil Dump Report</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 40px 64px;
+    background: #f7f9fa; color: #1b2631;
+    font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 36px 0 12px; padding-bottom: 6px;
+        border-bottom: 1px solid #dce1e4; }
+  h3 { font-size: 13px; margin: 24px 0 8px; }
+  .sub { color: #5d6d7e; font-size: 12.5px; margin-bottom: 24px; }
+  .card { background: #ffffff; border: 1px solid #e1e6e9; border-radius: 8px;
+           padding: 18px 20px 10px; margin-bottom: 20px; }
+  .mono { font-family: Consolas, "Courier New", monospace; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { border: 1px solid #e1e6e9; padding: 5px 10px; text-align: right; }
+  th { background: #eef2f4; font-weight: 600; text-align: right; }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr:nth-child(even) { background: #fafcfc; }
+  .meta { font-size: 12.5px; color: #5d6d7e; }
+  code { background: #eef2f4; padding: 1px 5px; border-radius: 3px;
+          font-family: Consolas, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>后坐力 CSV 曲线报告</h1>
+<div class="sub">
+  数据源：游戏内 <code>Lyra.Recoil.Dump</code> 导出的 CSV（列定义见
+  <code>Lyra.Recoil.Dump.HeaderSchema</code>）。本页由
+  <span class="mono">plot-recoil-csv.py</span> 生成（纯标准库，无外部依赖）。
+</div>
+
+<h2>总览</h2>
+<div class="card">
+<table>
+  <thead><tr>
+    <th>CSV</th><th>发数</th><th>峰值 Pitch</th><th>峰值 Yaw</th>
+    <th>末发 Pitch</th><th>末发 Yaw</th><th>累计射击时长 (s)</th>
+  </tr></thead>
+  <tbody><tr><td class='mono'>RecoilDump_20260917_205153_369.csv</td><td>17</td><td>8.5000</td><td>0.8000</td><td>8.5000</td><td>0.6827</td><td>0.0800</td></tr></tbody>
+</table>
+</div>
+
+<h2>曲线</h2>
+<div class="card"><svg viewBox="0 0 1080 420" width="100%" role="img" aria-label="AccumulatedPitch over shot index">
+<text x="78" y="26" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" fill="#1b2631">AccumulatedPitch over shot index</text>
+<text x="16" y="210" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#5d6d7e" transform="rotate(-90 16 210)" text-anchor="middle">degrees (up = +)</text>
+<line x1="78" y1="364.0" x2="890" y2="364.0" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="367.5" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">-0.460</text>
+<line x1="78" y1="300.4" x2="890" y2="300.4" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="303.9" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">1.524</text>
+<line x1="78" y1="236.8" x2="890" y2="236.8" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="240.3" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">3.508</text>
+<line x1="78" y1="173.2" x2="890" y2="173.2" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="176.7" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">5.492</text>
+<line x1="78" y1="109.6" x2="890" y2="109.6" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="113.1" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">7.476</text>
+<line x1="78" y1="46.0" x2="890" y2="46.0" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="49.5" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">9.460</text>
+<line x1="78.0" y1="46" x2="78.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="78.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">0</text>
+<line x1="128.8" y1="46" x2="128.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="128.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">1</text>
+<line x1="179.5" y1="46" x2="179.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="179.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">2</text>
+<line x1="230.2" y1="46" x2="230.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="230.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">3</text>
+<line x1="281.0" y1="46" x2="281.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="281.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">4</text>
+<line x1="331.8" y1="46" x2="331.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="331.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">5</text>
+<line x1="382.5" y1="46" x2="382.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="382.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">6</text>
+<line x1="433.2" y1="46" x2="433.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="433.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">7</text>
+<line x1="484.0" y1="46" x2="484.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="484.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">8</text>
+<line x1="534.8" y1="46" x2="534.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="534.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">9</text>
+<line x1="585.5" y1="46" x2="585.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="585.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">10</text>
+<line x1="636.2" y1="46" x2="636.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="636.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">11</text>
+<line x1="687.0" y1="46" x2="687.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="687.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">12</text>
+<line x1="737.8" y1="46" x2="737.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="737.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">13</text>
+<line x1="788.5" y1="46" x2="788.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="788.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">14</text>
+<line x1="839.2" y1="46" x2="839.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="839.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">15</text>
+<line x1="890.0" y1="46" x2="890.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="890.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">16</text>
+<line x1="78" y1="364.0" x2="890" y2="364.0" stroke="#839192" stroke-width="1.5"/>
+<line x1="78" y1="46" x2="78" y2="364.0" stroke="#839192" stroke-width="1.5"/>
+<line x1="78" y1="349.3" x2="890" y2="349.3" stroke="#aab7b8" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="484" y="402" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#5d6d7e" text-anchor="middle">Shot index</text>
+<path d="M78.0 333.2 L128.8 317.2 L179.5 301.2 L230.2 285.1 L281.0 269.1 L331.8 253.1 L382.5 237.1 L433.2 221.0 L484.0 205.0 L534.8 189.0 L585.5 172.9 L636.2 156.9 L687.0 140.9 L737.8 124.9 L788.5 108.8 L839.2 92.8 L890.0 76.8" fill="none" stroke="#c0392b" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="78.0" cy="333.2" r="2.6" fill="#c0392b"/>
+<circle cx="128.8" cy="317.2" r="2.6" fill="#c0392b"/>
+<circle cx="179.5" cy="301.2" r="2.6" fill="#c0392b"/>
+<circle cx="230.2" cy="285.1" r="2.6" fill="#c0392b"/>
+<circle cx="281.0" cy="269.1" r="2.6" fill="#c0392b"/>
+<circle cx="331.8" cy="253.1" r="2.6" fill="#c0392b"/>
+<circle cx="382.5" cy="237.1" r="2.6" fill="#c0392b"/>
+<circle cx="433.2" cy="221.0" r="2.6" fill="#c0392b"/>
+<circle cx="484.0" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="534.8" cy="189.0" r="2.6" fill="#c0392b"/>
+<circle cx="585.5" cy="172.9" r="2.6" fill="#c0392b"/>
+<circle cx="636.2" cy="156.9" r="2.6" fill="#c0392b"/>
+<circle cx="687.0" cy="140.9" r="2.6" fill="#c0392b"/>
+<circle cx="737.8" cy="124.9" r="2.6" fill="#c0392b"/>
+<circle cx="788.5" cy="108.8" r="2.6" fill="#c0392b"/>
+<circle cx="839.2" cy="92.8" r="2.6" fill="#c0392b"/>
+<circle cx="890.0" cy="76.8" r="2.6" fill="#c0392b"/>
+<rect x="906" y="50" width="11" height="11" rx="2" fill="#c0392b"/>
+<text x="923" y="60" font-family="Consolas, monospace" font-size="10.5" fill="#1b2631">RecoilDump_20260917_205153_369.csv</text>
+</svg></div>
+<div class="card"><svg viewBox="0 0 1080 420" width="100%" role="img" aria-label="AccumulatedYaw over shot index">
+<text x="78" y="26" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" fill="#1b2631">AccumulatedYaw over shot index</text>
+<text x="16" y="210" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#5d6d7e" transform="rotate(-90 16 210)" text-anchor="middle">degrees (right = +)</text>
+<line x1="78" y1="364.0" x2="890" y2="364.0" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="367.5" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.016</text>
+<line x1="78" y1="300.4" x2="890" y2="300.4" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="303.9" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.190</text>
+<line x1="78" y1="236.8" x2="890" y2="236.8" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="240.3" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.363</text>
+<line x1="78" y1="173.2" x2="890" y2="173.2" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="176.7" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.537</text>
+<line x1="78" y1="109.6" x2="890" y2="109.6" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="113.1" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.710</text>
+<line x1="78" y1="46.0" x2="890" y2="46.0" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="49.5" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.884</text>
+<line x1="78.0" y1="46" x2="78.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="78.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">0</text>
+<line x1="128.8" y1="46" x2="128.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="128.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">1</text>
+<line x1="179.5" y1="46" x2="179.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="179.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">2</text>
+<line x1="230.2" y1="46" x2="230.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="230.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">3</text>
+<line x1="281.0" y1="46" x2="281.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="281.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">4</text>
+<line x1="331.8" y1="46" x2="331.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="331.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">5</text>
+<line x1="382.5" y1="46" x2="382.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="382.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">6</text>
+<line x1="433.2" y1="46" x2="433.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="433.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">7</text>
+<line x1="484.0" y1="46" x2="484.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="484.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">8</text>
+<line x1="534.8" y1="46" x2="534.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="534.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">9</text>
+<line x1="585.5" y1="46" x2="585.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="585.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">10</text>
+<line x1="636.2" y1="46" x2="636.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="636.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">11</text>
+<line x1="687.0" y1="46" x2="687.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="687.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">12</text>
+<line x1="737.8" y1="46" x2="737.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="737.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">13</text>
+<line x1="788.5" y1="46" x2="788.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="788.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">14</text>
+<line x1="839.2" y1="46" x2="839.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="839.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">15</text>
+<line x1="890.0" y1="46" x2="890.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="890.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">16</text>
+<line x1="78" y1="364.0" x2="890" y2="364.0" stroke="#839192" stroke-width="1.5"/>
+<line x1="78" y1="46" x2="78" y2="364.0" stroke="#839192" stroke-width="1.5"/>
+<text x="484" y="402" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#5d6d7e" text-anchor="middle">Shot index</text>
+<path d="M78.0 333.2 L128.8 296.6 L179.5 260.0 L230.2 223.3 L281.0 186.7 L331.8 150.0 L382.5 113.4 L433.2 76.8 L484.0 85.4 L534.8 121.7 L585.5 149.5 L636.2 166.0 L687.0 191.2 L737.8 177.1 L788.5 155.4 L839.2 153.5 L890.0 119.7" fill="none" stroke="#c0392b" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="78.0" cy="333.2" r="2.6" fill="#c0392b"/>
+<circle cx="128.8" cy="296.6" r="2.6" fill="#c0392b"/>
+<circle cx="179.5" cy="260.0" r="2.6" fill="#c0392b"/>
+<circle cx="230.2" cy="223.3" r="2.6" fill="#c0392b"/>
+<circle cx="281.0" cy="186.7" r="2.6" fill="#c0392b"/>
+<circle cx="331.8" cy="150.0" r="2.6" fill="#c0392b"/>
+<circle cx="382.5" cy="113.4" r="2.6" fill="#c0392b"/>
+<circle cx="433.2" cy="76.8" r="2.6" fill="#c0392b"/>
+<circle cx="484.0" cy="85.4" r="2.6" fill="#c0392b"/>
+<circle cx="534.8" cy="121.7" r="2.6" fill="#c0392b"/>
+<circle cx="585.5" cy="149.5" r="2.6" fill="#c0392b"/>
+<circle cx="636.2" cy="166.0" r="2.6" fill="#c0392b"/>
+<circle cx="687.0" cy="191.2" r="2.6" fill="#c0392b"/>
+<circle cx="737.8" cy="177.1" r="2.6" fill="#c0392b"/>
+<circle cx="788.5" cy="155.4" r="2.6" fill="#c0392b"/>
+<circle cx="839.2" cy="153.5" r="2.6" fill="#c0392b"/>
+<circle cx="890.0" cy="119.7" r="2.6" fill="#c0392b"/>
+<rect x="906" y="50" width="11" height="11" rx="2" fill="#c0392b"/>
+<text x="923" y="60" font-family="Consolas, monospace" font-size="10.5" fill="#1b2631">RecoilDump_20260917_205153_369.csv</text>
+</svg></div>
+<div class="card"><svg viewBox="0 0 1080 420" width="100%" role="img" aria-label="Per-shot VerticalKick">
+<text x="78" y="26" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" fill="#1b2631">Per-shot VerticalKick</text>
+<text x="16" y="210" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#5d6d7e" transform="rotate(-90 16 210)" text-anchor="middle">degrees</text>
+<line x1="78" y1="364.0" x2="890" y2="364.0" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="367.5" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">-0.500</text>
+<line x1="78" y1="300.4" x2="890" y2="300.4" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="303.9" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">-0.100</text>
+<line x1="78" y1="236.8" x2="890" y2="236.8" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="240.3" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.300</text>
+<line x1="78" y1="173.2" x2="890" y2="173.2" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="176.7" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">0.700</text>
+<line x1="78" y1="109.6" x2="890" y2="109.6" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="113.1" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">1.100</text>
+<line x1="78" y1="46.0" x2="890" y2="46.0" stroke="#e5e8ea" stroke-width="1"/>
+<text x="70" y="49.5" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="end">1.500</text>
+<line x1="78.0" y1="46" x2="78.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="78.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">0</text>
+<line x1="128.8" y1="46" x2="128.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="128.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">1</text>
+<line x1="179.5" y1="46" x2="179.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="179.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">2</text>
+<line x1="230.2" y1="46" x2="230.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="230.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">3</text>
+<line x1="281.0" y1="46" x2="281.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="281.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">4</text>
+<line x1="331.8" y1="46" x2="331.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="331.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">5</text>
+<line x1="382.5" y1="46" x2="382.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="382.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">6</text>
+<line x1="433.2" y1="46" x2="433.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="433.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">7</text>
+<line x1="484.0" y1="46" x2="484.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="484.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">8</text>
+<line x1="534.8" y1="46" x2="534.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="534.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">9</text>
+<line x1="585.5" y1="46" x2="585.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="585.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">10</text>
+<line x1="636.2" y1="46" x2="636.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="636.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">11</text>
+<line x1="687.0" y1="46" x2="687.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="687.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">12</text>
+<line x1="737.8" y1="46" x2="737.8" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="737.8" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">13</text>
+<line x1="788.5" y1="46" x2="788.5" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="788.5" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">14</text>
+<line x1="839.2" y1="46" x2="839.2" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="839.2" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">15</text>
+<line x1="890.0" y1="46" x2="890.0" y2="364" stroke="#e5e8ea" stroke-width="1"/>
+<text x="890.0" y="380" font-family="Consolas, monospace" font-size="10" fill="#5d6d7e" text-anchor="middle">16</text>
+<line x1="78" y1="364.0" x2="890" y2="364.0" stroke="#839192" stroke-width="1.5"/>
+<line x1="78" y1="46" x2="78" y2="364.0" stroke="#839192" stroke-width="1.5"/>
+<line x1="78" y1="284.5" x2="890" y2="284.5" stroke="#aab7b8" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="484" y="402" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#5d6d7e" text-anchor="middle">Shot index</text>
+<path d="M78.0 205.0 L128.8 205.0 L179.5 205.0 L230.2 205.0 L281.0 205.0 L331.8 205.0 L382.5 205.0 L433.2 205.0 L484.0 205.0 L534.8 205.0 L585.5 205.0 L636.2 205.0 L687.0 205.0 L737.8 205.0 L788.5 205.0 L839.2 205.0 L890.0 205.0" fill="none" stroke="#c0392b" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="78.0" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="128.8" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="179.5" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="230.2" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="281.0" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="331.8" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="382.5" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="433.2" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="484.0" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="534.8" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="585.5" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="636.2" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="687.0" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="737.8" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="788.5" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="839.2" cy="205.0" r="2.6" fill="#c0392b"/>
+<circle cx="890.0" cy="205.0" r="2.6" fill="#c0392b"/>
+<rect x="906" y="50" width="11" height="11" rx="2" fill="#c0392b"/>
+<text x="923" y="60" font-family="Consolas, monospace" font-size="10.5" fill="#1b2631">RecoilDump_20260917_205153_369.csv</text>
+</svg></div>
+
+<h2>逐发数据</h2>
+<div class="card"><h3 class='mono'>RecoilDump_20260917_205153_369.csv</h3><table><thead><tr><th>ShotIndex</th><th>VerticalKick</th><th>HorizontalKick</th><th>AccumulatedPitch</th><th>AccumulatedYaw</th><th>TimeSinceFire</th></tr></thead><tbody><tr><td>0</td><td>0.5000</td><td>0.1000</td><td>0.5000</td><td>0.1000</td><td>0.0000</td></tr><tr><td>1</td><td>0.5000</td><td>0.1000</td><td>1.0000</td><td>0.2000</td><td>0.0050</td></tr><tr><td>2</td><td>0.5000</td><td>0.1000</td><td>1.5000</td><td>0.3000</td><td>0.0050</td></tr><tr><td>3</td><td>0.5000</td><td>0.1000</td><td>2.0000</td><td>0.4000</td><td>0.0050</td></tr><tr><td>4</td><td>0.5000</td><td>0.1000</td><td>2.5000</td><td>0.5000</td><td>0.0050</td></tr><tr><td>5</td><td>0.5000</td><td>0.1000</td><td>3.0000</td><td>0.6000</td><td>0.0050</td></tr><tr><td>6</td><td>0.5000</td><td>0.1000</td><td>3.5000</td><td>0.7000</td><td>0.0050</td></tr><tr><td>7</td><td>0.5000</td><td>0.1000</td><td>4.0000</td><td>0.8000</td><td>0.0050</td></tr><tr><td>8</td><td>0.5000</td><td>-0.0237</td><td>4.5000</td><td>0.7763</td><td>0.0050</td></tr><tr><td>9</td><td>0.5000</td><td>-0.0990</td><td>5.0000</td><td>0.6774</td><td>0.0050</td></tr><tr><td>10</td><td>0.5000</td><td>-0.0759</td><td>5.5000</td><td>0.6014</td><td>0.0050</td></tr><tr><td>11</td><td>0.5000</td><td>-0.0449</td><td>6.0000</td><td>0.5565</td><td>0.0050</td></tr><tr><td>12</td><td>0.5000</td><td>-0.0689</td><td>6.5000</td><td>0.4877</td><td>0.0050</td></tr><tr><td>13</td><td>0.5000</td><td>0.0386</td><td>7.0000</td><td>0.5262</td><td>0.0050</td></tr><tr><td>14</td><td>0.5000</td><td>0.0593</td><td>7.5000</td><td>0.5855</td><td>0.0050</td></tr><tr><td>15</td><td>0.5000</td><td>0.0051</td><td>8.0000</td><td>0.5906</td><td>0.0050</td></tr><tr><td>16</td><td>0.5000</td><td>0.0921</td><td>8.5000</td><td>0.6827</td><td>0.0050</td></tr></tbody></table></div>
+
+<div class="meta" style="margin-top:28px">
+  生成时间：2026-09-17 20:52:12
+</div>
+</body>
+</html>

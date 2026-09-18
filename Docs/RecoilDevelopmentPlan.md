@@ -6,9 +6,9 @@
 | 引擎 | UE 5.8.2（源码版，`D:\UE_5.8`） |
 | 代码模块 | `LyraGame` / `LyraEditor` |
 | 手感取向 | **数据驱动可调框架**（不绑定具体竞品手感，参数后期在编辑器调） |
-| 网络策略 | **先单机跑通，联机同步作为后置独立阶段（P6）** |
+| 网络策略 | **不做联机**（2026-09-17 决定，详见 §5「P6 — 已剔除」） |
 | 交付范围 | 程序核心 + 调试与可视化工具链 |
-| 本文档状态 | 已冻结，作为开发与验收的唯一基准 |
+| 本文档状态 | 已冻结，作为开发与验收的唯一基准（2026-09-17 修订：剔除 P6 联机同步阶段） |
 | 建立日期 | 2026-09-17 |
 
 ---
@@ -36,7 +36,7 @@
 | 发射方向计算 | `Source/LyraGame/Weapons/LyraGameplayAbility_RangedWeapon.cpp` | 弹道 Pattern 注入位置（现为 `VRandCone` 采样处） |
 | 武器运行时状态 | `Source/LyraGame/Weapons/LyraRangedWeaponInstance.h/.cpp` | 后坐力状态的宿主位置，参照现有 `CurrentHeat` / `AddSpread()` 写法 |
 | 相机链 | `Source/LyraGame/Camera/LyraPlayerCameraManager.h/.cpp`、`LyraCameraComponent` | CameraModifier 挂载点 |
-| 武器状态同步 | `Source/LyraGame/Weapons/LyraWeaponStateComponent.h/.cpp` | P6 联机阶段参考 |
+| 武器状态同步 | `Source/LyraGame/Weapons/LyraWeaponStateComponent.h/.cpp` | （原 P6 联机参考，联机已剔除）但该组件实际是**每帧驱动武器 `Tick()` 的关键一环**，见 §3 |
 | 调试命令 | `Source/LyraGame/Player/LyraCheatManager.h/.cpp` | exec 命令扩展入口 |
 | 自动化测试范式 | `Source/LyraGame/Tests/MenuStartElimination.spec.cpp` | 新增测试用例的写法参考 |
 
@@ -63,6 +63,8 @@
 - CameraShake 资产与音效触发挂点（预留接口，不实现）
 - 武器动画 / 蒙皮后坐动画（美术职责）
 - 具体数值的最终手感调优（P7 单独做，属于调参不属于开发）
+- **联机同步（状态复制 / 客户端预测 / 服务器校验 / 作弊检测）** —— 本项目定位为**单机** Demo，
+  2026-09-17 决定不做联机，原 P6 阶段已剔除，详见 §5「P6 — 已剔除」
 
 ---
 
@@ -101,7 +103,8 @@
 ### 3.3 关键决策（提前定死，避免后期返工）
 
 1. **相机偏移走 CameraModifier，不用 `AddPitchInput` / `AddYawInput`。**
-   `AddPitchInput` 会直接改 `ControlRotation`，与玩家输入、灵敏度、网络复制耦合，恢复时无法区分"玩家自己拉的"和"后坐力抬的"，回正会把玩家视角一起拽走。CameraModifier 只作用于显示层，真实瞄准方向始终可控。
+   `AddPitchInput` 会直接改 `ControlRotation`，与玩家输入、灵敏度耦合，恢复时无法区分"玩家自己拉的"和"后坐力抬的"，回正会把玩家视角一起拽走。CameraModifier 只作用于显示层，真实瞄准方向始终可控。
+   （原文此处还列了"网络复制"作为耦合来源之一 —— 本项目 2026-09-17 已决定不做联机，该条不再适用，故删去；不影响结论。）
 2. **算法层独立成纯 USTRUCT，不依赖 UWorld。**
    这是"每阶段可验证"的技术保障——P2/P3 的核心逻辑可以跑纯数值 Automation 测试，不需要起 PIE、不需要人工看画面。
 3. **区分"视觉回正"与"弹道回正"，用 `RecoilReturnRatio` 单参数控制。**
@@ -123,10 +126,22 @@
 | **P3** | 弹道 Pattern 接入 | 发射方向注入 + Pattern 采样 | Golden 数据比对 + 靶场截图 | P2 | M |
 | **P4** | 恢复与姿态倍率 | 恢复曲线 + 4 种姿态倍率 | 数值参数化测试 + 姿态对比表 | P3 | M |
 | **P5** | 调试与可视化工具链 | CVar 集 + DebugDraw + CSV Dump | CSV 曲线图（核心验收证据） | P4 | M |
-| **P6** | 联机同步（后置） | 状态复制 + 预测 + 服务器校验 | DS + 客户端双开验证 | P5 | L |
-| **P7** | 手感调参 + 固化（可选） | 参数配方 + 验收报告 | 完整验收 checklist 全绿 | P6 | S |
+| ~~**P6**~~ | ~~联机同步（后置）~~ **已剔除** | — | — | — | — |
+| **P7** | 手感调参 + 固化（可选） | 参数配方 + 验收报告 | 完整验收 checklist 全绿 | P5 | S |
+| **P8** | **相机镜头系统：Roll 震屏 + 镜头模式**（2026-09-17 追加） | Roll 独立通道 + 实时调试面板 + 镜头模式契约 | 纯数值单测 + PIE 目视 + A/B 消融 | P5 | M |
 
-依赖链为严格串行：`P0 → P1 → P2 → P3 → P4 → P5 → P6 → P7`。**不允许跳阶**，每阶段必须通过验收才进入下一阶段。
+依赖链为严格串行：`P0 → P1 → P2 → P3 → P4 → P5 → P7`。**不允许跳阶**，每阶段必须通过验收才进入下一阶段。
+
+> **范围变更（2026-09-17）**：原 `P6 联机同步` 已从本计划剔除。
+> 理由：本项目定位为**单机** TPS 枪械 Demo，不做联机。
+> 因此 P5 是本轮开发的**最后一个必做阶段**，P7 为可选的收尾（调参 + 固化）。
+> 详见 §5「P6 — 已剔除（2026-09-17）」。
+>
+> **范围追加（2026-09-17）**：新增 **P8「相机镜头系统」**，依据
+> 《FPS 相机镜头设计与实现（脱敏版）》§1/§2/§2.1/§2.2/§7，
+> 在后坐力的 Pitch/Yaw 之外独立实现 **Roll 方向震屏**，并按文档 §1 抽象镜头模式契约。
+> P8 只依赖 P5（复用既有 Debug 体系与测试范式），与 P7 调参并行。
+> 详见 **[Docs/Recoil/08_CameraRollShake.md](Recoil/08_CameraRollShake.md)**。
 
 ---
 
@@ -332,26 +347,32 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
 
 ---
 
-### P6 — 联机同步接入（后置阶段）
+### P6 — 已剔除（2026-09-17）
 
-**目标**：DS 权威 + 客户端预测，双端观感一致。
+**状态**：**不做**。本项目定位为**单机** TPS 枪械 Demo，不做联机，故原「联机同步接入」阶段从本计划中剔除。
 
-**交付物**
-- `FRecoilRuntimeState` 关键字段复制（`ShotIndex`、`AccumulatedKick`、`LastFireTime`）
-- 客户端预测 + 服务器校验逻辑（速度作弊检测留接口）
-- 预测失败时的容差回滚策略
+**决定记录**
 
-**可验证内容**
+| 项 | 内容 |
+| --- | --- |
+| 决定日期 | 2026-09-17 |
+| 决定人 | 大祥老师 |
+| 原计划内容 | DS 权威 + 客户端预测 + 服务器校验 + 容差回滚（交付物为 `FRecoilRuntimeState` 关键字段复制、`LyraTestController` 双端自动化、`Net PktLag=100` 手动验收） |
+| 剔除理由 | 本项目是单机 Demo，没有联机需求 |
+| 影响 | P5 成为本轮开发的**最后一个必做阶段**；依赖链变为 `P0 → P1 → P2 → P3 → P4 → P5 → P7`；附录 B 对应行标记为「已剔除」 |
 
-*自动验证*
-- 使用项目现有 `LyraTestController` 范式，起 DS + 1 客户端自动化跑通开火链路，断言双端 `ShotIndex` 收敛
+**保留下来的设计（不做联机也依然有价值，故不回退）**
 
-*手动验收*
-- [ ] Listen Server + 1 客户端双开：两侧相机表现与弹道分布一致
-- [ ] 注入网络延迟/丢包（`Net PktLag=100`）：瞄准不出现明显抖动或回弹
-- [ ] 服务器权威性：客户端篡改本地后坐力参数不生效
+1. `FRecoilRuntimeState` 不持有任何 UObject 指针 → 核心算法可以被**纯数值单测**完整覆盖。
+   这是 P2/P3/P4 每阶段都能给出可复制命令 + PASS/FAIL 证据的技术基础（见硬性规则 4）。
+2. 相机偏移走 `CameraModifier` 而不改 `ControlRotation` → 消除的是"后坐力与玩家输入耦合"这个问题（回正时不会把玩家自己拉的视角一起拽走）。**单机下同样存在**，与联机无关。
+3. 随机种子可控（`Fixed` / `Random`）→ 单机下用于**弹道可复现**与 Golden 回归锁。
 
-**DoD**：双端一致；延迟环境下无可见异常。
+**如果将来要重启联机**（保留备查，不在本轮范围）：
+
+- 给 `FRecoilRuntimeState` 加 `UPROPERTY(Replicated)` + `GetLifetimeReplicatedProps`
+- 让"这一发用哪个 ShotIndex / 哪个 Seed"由可复现的输入显式决定，使双端算出逐位一致的结果
+- 服务器权威 + 客户端预测的容差回滚（算法是纯函数 + 固定种子，回滚可简化为"权威值覆盖本地"）
 
 ---
 
@@ -369,6 +390,41 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
 *手动验收*
 - [ ] 完整验收 checklist 全项通过
 - [ ] 三把武器（Rifle / Pistol / Shotgun）手感差异明确，经确认定稿
+
+---
+
+### P8 — 相机镜头系统：Roll 震屏与镜头模式（2026-09-17 追加）
+
+**目标**：依据《FPS 相机镜头设计与实现（脱敏版）》§1/§2/§2.1/§2.2/§7，
+在既有 Pitch/Yaw 后坐力之外**独立**实现 Roll 方向阻尼震屏，并按 §1 抽象镜头模式契约，配实时调试。
+
+**为什么独立成阶段**：Roll 与 Pitch/Yaw **没有共享逻辑** —— 前者是"累加-回正"的积分模型、
+停在稳态偏移；后者是"每发重置时钟 → 衰减包络 × 周期项"的解析模型、必回零。
+把它塞进 `AccumulatedPitch/Yaw` 会导致 Roll 单向漂移（看起来"镜头歪了"）并污染回正曲线。
+因此它是一条**并列的第三通道**，不是 Pitch/Yaw 的扩展 —— 这是本阶段的核心设计判断。
+
+**交付物**
+- `Source/LyraGame/Camera/LyraCameraShakeTypes.h`：参数/状态契约 + 镜头模式枚举
+- `Source/LyraGame/Camera/LyraCameraRollShake.h/.cpp`：Roll 纯算法层（无 UWorld 依赖）
+- `ULyraRecoilProfile` 的 `Recoil|RollShake` 完整参数组
+- `Docs/Recoil/08_CameraRollShake.md`：策划案 + 实现方案（含实时调试说明）
+
+**可验证内容**
+
+*自动验证*
+- [ ] 编译 0 error（`-NoUBA`）
+- [ ] `Lyra.Recoil` 全量测试通过（含新增 Roll 用例）
+- [ ] Roll 单测：`Elapsed >= Duration` 输出精确为 0；`PhaseJitter = 0` 时序列完全可复现
+
+*手动验收*
+- [ ] `Lyra.Recoil.RollDebug 1` 面板出现，波形行能看到 ~4 个递减波峰、末尾贴中轴
+- [ ] `Lyra.Recoil.RollShake 0` → 横滚抖动消失，**Pitch/Yaw 完全不受影响**（独立通道的判据）
+- [ ] 扫满弹匣 → `StartAmp` 从 0.6 逐发涨到 1.5 封顶
+- [ ] `Lyra.Recoil.DebugDraw 1` → 开火时品红圆弧往复，绿线（真实瞄准轴）不动
+
+**已知未落地项**（见 `08_CameraRollShake.md` §6）
+- 固定步长更新（文档 §2/§7 要求）仍走帧 DeltaSeconds
+- FOV / Breathing 模式只有枚举、无实现（属独立需求）
 
 ---
 
@@ -416,7 +472,7 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
 | 后坐力与 Lyra 原有 Spread 冲突 | 双份随机叠加，弹道失控 | P3 明确顺序：后坐力偏移叠加在扩散之前，两者独立可关 |
 | 弹道每次不可复现 | 无法自动化测试，只能靠感觉 | 决策 4/5：固定 Pattern + 可控随机种子 |
 | 手感调参无据可依 | 反复"凭感觉"改参数，无法收敛 | P5 的 CSV 曲线作为标准证据，调参前后可量化对比 |
-| P6 联机改造波及前期设计 | 大量返工 | P2 起所有状态集中在 `FRecoilRuntimeState`，复制边界提前划清 |
+| ~~P6 联机改造波及前期设计~~ | — | **已随 P6 剔除而消失（2026-09-17）**。不过"状态集中在 `FRecoilRuntimeState`"这个做法保留 —— 它的价值是实现层面的纯数值可测，与联机无关 |
 | 资产过多导致手工维护成本 | 参数不一致 | P1 资产校验测试覆盖全部资产 |
 
 ---
@@ -440,7 +496,9 @@ D:\TPSGunsDemo\TPSGunsDemo\Docs\RecoilDevelopmentPlan.md
 验收制度、进度状态表（附录 B）。开工前必须完整读一遍。
 
 【硬性规则，不可违反】
-1. 严格按 P0 → P1 → P2 → P3 → P4 → P5 → P6 顺序推进，不允许跳阶。
+1. 严格按 P0 → P1 → P2 → P3 → P4 → P5 顺序推进，不允许跳阶。
+   （原 P6「联机同步」已由大祥老师于 2026-09-17 决定剔除 —— 本项目不做联机，详见 §5；
+     P7「手感调参 + 固化」为可选的收尾阶段。）
 2. 每完成一个任务条目或一个阶段，立即停下来发出「验收请求」，格式见文档第 6.2 节，
    内容必须包含：改动清单、自动验证命令与结果、手动验收步骤、证据、待确认项。
    发出后停止推进，等待我回复"验收通过"才继续。
@@ -484,14 +542,47 @@ D:\TPSGunsDemo\TPSGunsDemo\Docs\RecoilDevelopmentPlan.md
 
 | 阶段 | 名称 | 状态 | 自动验证 | 手动验收 | 完成日期 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| P0 | 勘察与接口冻结 | 未开始 | — | — | — | |
-| P1 | 数据层 | 未开始 | — | — | — | |
-| P2 | 运行时核心 + 相机 Kick | 未开始 | — | — | — | |
-| P3 | 弹道 Pattern 接入 | 未开始 | — | — | — | |
-| P4 | 恢复与姿态倍率 | 未开始 | — | — | — | |
-| P5 | 调试与可视化工具链 | 未开始 | — | — | — | |
-| P6 | 联机同步 | 未开始 | — | — | — | |
+| P0 | 勘察与接口冻结 | 待验收 | ✅ 编译 0 error | ⏳ 待确认 | 2026-09-17 | 接入点全部定位到 `文件:行号`，无 TBD |
+| P1 | 数据层 | 待验收 | ✅ 1/1 PASS | ⏳ 待确认 | 2026-09-17 | 3 份资产已生成；Commandlet 幂等 |
+| P2 | 运行时核心 + 相机 Kick | 待验收 | ✅ 5/5 PASS | ⏳ 待确认 | 2026-09-17 | 纯数值测试；未改动 `LyraWeaponStateComponent` |
+| P3 | 弹道 Pattern 接入 | 待验收 | ✅ 4/4 PASS | ⏳ 待确认 | 2026-09-17 | Golden 3 份已导出并手工验算 |
+| P4 | 恢复与姿态倍率 | 待验收 | ✅ 3/3 PASS | ⏳ 待确认 | 2026-09-17 | 恢复曲线已在 P2 接入；姿态换算抽成纯静态函数；实测表见 `Docs/Recoil/04_PoseMatrix.md` |
+| P5 | 调试与可视化工具链 | 待验收 | ✅ 6/6 PASS | ⏳ 待确认 | 2026-09-17 | 六个交付项全部落地；新增 CSV→HTML 曲线工具；命令注册钉成断言 |
+| ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 | 决定：本项目为单机 Demo，不做联机；详见 §5「P6 — 已剔除」 |
 | P7 | 手感调参 + 固化 | 未开始 | — | — | — | 可选 |
+
+**累计自动化测试：19 个用例全绿**（`Lyra.Recoil.*`）。一键复跑：
+`Docs/Recoil/Tools/run-all-checks.ps1`
+
+**P4 实测姿态倍率（Rifle，10 发累计垂直位移）**：站 2.9661 / 蹲 2.3729 / 空中 4.4492 / 瞄准 2.2246，
+比值与配置倍率（1.0 / 0.8 / 1.5 / 0.75）最大偏差 5e-5。
+**非线性回正实测半程进度**：快回—慢回 0.7667 / 线性 0.5000 / 慢回—快回 0.3667。
+
+**P5 实测证据**：CSV 导出 17 发、行数与数值逐项与 P2 公式吻合（1e-4）；
+`Lyra.Recoil.Scale` 1.0 → 0.5 时逐发 kick 严格减半；
+曲线报告产物 `Docs/Recoil/Charts/P5_ScaleOverlay.html`（两条曲线叠加可见差异）。
+
+### 执行备注（AI 记录，待大祥老师确认后可能回写正文）
+
+1. **本机编译命令必须追加 `-NoUBA`**。系统拦截了进程的文件删除类系统调用
+   （`SetFileInformationByHandle(FileDispositionInfo)`），UBA 清理临时文件被拒会导致整轮构建
+   被判 `Failed (OtherCompilationError)`，但代码本身是好的。加 `-NoUBA` 后正常。
+   本文档 §5「自动验证」处给出的原始命令**未做修改**，等你拍板后再统一回写。
+2. **P1 的 `.uasset` 由 `ULyraRecoilAssetGenCommandlet` 生成**（工程未启用 PythonScriptPlugin）。
+   命令：`UnrealEditor-Cmd <uproject> -run=LyraRecoilAssetGen`
+3. **P3 的 Golden 数据由 `ULyraRecoilGoldenDumpCommandlet` 导出**。
+   改过资产的相关字段后必须重导，否则 `Lyra.Recoil.Pattern.Golden` 会报 stale。
+   命令：`UnrealEditor-Cmd <uproject> -run=LyraRecoilGoldenDump`
+4. **武器实例接线（`DA_Recoil_*` → `B_WeaponInstance_*`）尚未执行**，因此 P2/P3 的手动验收
+   暂时无法进行。BluePrint 位置：`Plugins/GameFeatures/ShooterCore/Content/Weapons/`。
+5. 详细的逐阶段改动清单、证据与待确认项见 `Docs/Recoil/Acceptance/`；
+   操作手册见 `Docs/Recoil/PROGRESS.md`。
+6. **`-ExecCmds` 里不能塞多个分号命令**（本机实测不会执行，且 `Quit` 失效导致编辑器挂住）。
+   单命令 + `-TestExit` 正常。`Lyra.Recoil.Dump` / `ReloadProfile` 这类动作型命令的注册状态
+   改由自动化测试 `Lyra.Recoil.Console.Registration` 断言，不依赖命令行调用。
+7. **CSV 曲线工具**：`Docs/Recoil/Tools/plot-recoil-csv.py`（纯标准库，无需 matplotlib）
+   把 `Lyra.Recoil.Dump` 导出的 CSV 画成自包含 HTML；支持多文件叠加对比，
+   是 §P5 手动验收与 §P7 调参的配套证据工具。
 
 ---
 

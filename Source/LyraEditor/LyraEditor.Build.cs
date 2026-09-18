@@ -49,7 +49,9 @@ public class LyraEditor : ModuleRules
 				"DeveloperToolSettings",
 				"CollectionManager",
 				"SourceControl",
-				"Chaos"
+				"Chaos",
+				// 后坐力 Golden 数据导出（P3）需要写 JSON
+				"Json"
 			}
         );
 
