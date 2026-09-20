@@ -5,6 +5,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "HAL/IConsoleManager.h"
 #include "Camera/LyraCameraComponent.h"
 #include "Camera/LyraCameraModifier_WeaponRecoil.h"
 #include "Camera/LyraPlayerCameraManager.h"
@@ -18,6 +19,30 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(LyraRangedWeaponInstance)
 
 DEFINE_LOG_CATEGORY_STATIC(LogLyraRecoilWeapon, Log, All);
+
+namespace LyraRecoilWeaponPrivate
+{
+	/**
+	 * 诊断跟踪开关：`Lyra.Recoil.Trace`（默认 0）。
+	 *
+	 * 刻意定义在本文件内、而不是挂到 ULyraRecoilDebug 上：
+	 * 那是一个 UCLASS，加一个带 UFUNCTION 的入口会触发 UHT 重新生成反射代码，
+	 * 而这里只需要一个控制台开关。放在用它的地方，改动面最小。
+	 *
+	 * 打开后每帧打印一行，用来区分两种**修法完全不同**的成因：
+	 *   ① 上游状态链断了        —— push 本身就是 0
+	 *   ② 偏移被别的东西覆盖了  —— push 非零，但 delta 是 0
+	 * 排查完请敲 `Lyra.Recoil.Trace 0` 关掉（每帧一行会淹没日志）。
+	 */
+	static bool bRecoilTrace = false;
+	static FAutoConsoleVariableRef CVarRecoilTrace(
+		TEXT("Lyra.Recoil.Trace"),
+		bRecoilTrace,
+		TEXT("Log one line per frame comparing the offset pushed to the camera against the camera's actual POV.\n")
+		TEXT("Use it to tell 'the offset chain is broken' apart from 'the offset is applied but overwritten'.\n")
+		TEXT("Default: 0 - leave it off outside of a diagnostic session."),
+		ECVF_Default);
+}
 
 UE_DEFINE_GAMEPLAY_TAG_STATIC(TAG_Lyra_Weapon_SteadyAimingCamera, "Lyra.Weapon.SteadyAimingCamera");
 
@@ -275,6 +300,11 @@ void ULyraRangedWeaponInstance::AddRecoil()
 	}
 
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+
+	// 开火前必须重新采一次玩家瞄准：鼠标输入与武器 tick 不一定同帧，
+	// 用上一帧的值会让"第一发的基准"偏掉，整轮连发的压枪量跟着偏。
+	SampleRecoilPlayerAim();
+
 	RecoilState.ApplyShot(Profile, ComputeRecoilPoseMultiplier(), ComputeRecoilPoseState());
 }
 
@@ -298,6 +328,10 @@ FRecoilShotKick ULyraRangedWeaponInstance::GetRecoilShotDirectionOffset(int32 Sh
 void ULyraRangedWeaponInstance::UpdateRecoil(float DeltaSeconds)
 {
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+
+	// 采样必须在 Advance 之前：本帧玩家压了多少枪，要参与本帧的回正目标计算。
+	SampleRecoilPlayerAim();
+
 	RecoilState.Advance(RecoilProfile, DeltaSeconds);
 
 	UpdateRecoilCameraModifier();
@@ -339,6 +373,21 @@ float ULyraRangedWeaponInstance::ComputeRecoilPoseMultiplier() const
 	// 姿态与瞄准正交：姿态倍率 × 瞄准混合倍率（见 LyraRecoilTypes.h 里 EPoseState 的说明）。
 	// 换算逻辑收在纯静态函数里，便于脱离 Pawn 做纯数值单测。
 	return FRecoilRuntimeState::ComputePoseMultiplier(*Profile, ComputeRecoilPoseState(), ComputeAimingAlpha());
+}
+
+void ULyraRangedWeaponInstance::SampleRecoilPlayerAim()
+{
+	// 本地玩家才有真实 ControlRotation（远程玩家的控制器不在本机）。
+	// 非本地控制时直接跳过：压枪量保持 0，等价于"没人压枪"这个既有语义。
+	const APawn* Pawn = GetPawn();
+	if ((Pawn == nullptr) || !Pawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	// 只取显示相关的两个轴：Roll 是独立通道，不参与压枪量。
+	const FRotator AimRotation = Pawn->GetControlRotation();
+	RecoilState.SamplePlayerAim(AimRotation.Pitch, AimRotation.Yaw);
 }
 
 void ULyraRangedWeaponInstance::ResetRecoilState()
@@ -416,6 +465,41 @@ void ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()
 	else
 	{
 		RecoilCameraModifier->ClearRecoilOffset();
+	}
+
+	// ---------------------------------------------------------------------
+	// 诊断跟踪（Lyra.Recoil.Trace，默认关闭）。
+	//
+	// 排查"后坐力的偏移到底有没有真的上到相机上"时，光看屏幕/面板无法区分两种成因：
+	//   ① 上游状态链断了 —— push 本身就是 0
+	//   ② push 非零，但施加到显示层的量被别的东西覆盖了 —— delta 是 0
+	// 这两类的修法完全不同，所以这里把三个量并排打出来：
+	//   push  = 本帧推给相机修改器的目标（= 状态层的补间输出 CameraOffset）
+	//   Ctrl  = 玩家的控制旋转（鼠标输入直接写的就是它，真值基准）
+	//   POV   = 相机管理器最终给出的朝向（已含相机修改器的施加结果）
+	//   delta = POV − Ctrl，即修改器**实际**作用到显示层的角度
+	//
+	// 注意 POV 是"上一帧"的结果（相机管理器的 tick 与武器 tick 不同步），
+	// 所以这里看的是趋势而不是逐帧精确对应。
+	// ---------------------------------------------------------------------
+	if (LyraRecoilWeaponPrivate::bRecoilTrace)
+	{
+		const APawn* TracePawn = GetPawn();
+		const FRotator POVRot = CameraManager->GetCameraRotation();
+		const FRotator CtrlRot = (TracePawn != nullptr) ? TracePawn->GetControlRotation() : FRotator::ZeroRotator;
+
+		UE_LOG(LogLyraRecoilWeapon, Log,
+			TEXT("[RecoilTrace] enable=%d mode=%s state=%d stage=%d | push=(%.4f,%.4f) | Ctrl=(%.3f,%.3f) POV=(%.3f,%.3f) delta=(%.4f,%.4f)"),
+			ULyraRecoilDebug::IsRecoilEnabled() ? 1 : 0,
+			(RecoilProfile != nullptr && RecoilProfile->IsInterpolatedSingleShot()) ? TEXT("Interpolated") : TEXT("InstantWrite"),
+			static_cast<int32>(RecoilState.State),
+			static_cast<int32>(RecoilState.InterpStage),
+			RecoilState.GetCameraPitchOffset(),
+			RecoilState.GetCameraYawOffset(),
+			CtrlRot.Pitch, CtrlRot.Yaw,
+			POVRot.Pitch, POVRot.Yaw,
+			POVRot.Pitch - CtrlRot.Pitch,
+			POVRot.Yaw - CtrlRot.Yaw);
 	}
 }
 

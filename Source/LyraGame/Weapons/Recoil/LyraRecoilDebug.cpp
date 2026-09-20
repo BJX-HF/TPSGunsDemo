@@ -232,6 +232,19 @@ void ULyraRecoilDebug::DrawDebugPanel(const UWorld* World, const ULyraRecoilProf
 		(Profile != nullptr) ? Profile->RecoveryDelay : 0.0f,
 		State.RecoveryProgress);
 
+	// 压枪量一行：排查"回正是不是按玩家的压枪量扣的"。
+	//   Push   ：实时压枪量（玩家相对本轮第一发把准星往反方向拉了多少，度）
+	//   Frozen ：进入回正时冻结的快照 —— 回正目标真正用的是它
+	//   AimNow ：最近一次采样到的玩家瞄准（ControlRotation），真值基准
+	const FString CompLine = FString::Printf(
+		TEXT("  PushComp P=%.3f Y=%.3f   FrozenComp P=%.3f Y=%.3f   AimNow=(%.2f, %.2f)"),
+		State.PlayerCompensationPitch,
+		State.PlayerCompensationYaw,
+		State.RecoveryCompensationPitch,
+		State.RecoveryCompensationYaw,
+		State.SampledAimPitch,
+		State.SampledAimYaw);
+
 	const FString PoseLine = FString::Printf(
 		TEXT("  Pose=%s x%.3f   Seed=%d   History=%d"),
 		LyraRecoilDebugPrivate::GetPoseName(State.LastPoseState),
@@ -240,8 +253,8 @@ void ULyraRecoilDebug::DrawDebugPanel(const UWorld* World, const ULyraRecoilProf
 		State.ShotHistory.Num());
 
 	const FString PanelText = FString::Printf(
-		TEXT("%s\n%s\n%s\n%s\n%s\n%s"),
-		*Header, *ShotLine, *AccumLine, *InterpLine, *StateLine, *PoseLine);
+		TEXT("%s\n%s\n%s\n%s\n%s\n%s\n%s"),
+		*Header, *ShotLine, *AccumLine, *InterpLine, *StateLine, *CompLine, *PoseLine);
 
 	const FColor PanelColor = bEnabled ? FColor::Yellow : FColor::Silver;
 

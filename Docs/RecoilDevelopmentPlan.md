@@ -550,9 +550,10 @@ D:\TPSGunsDemo\TPSGunsDemo\Docs\RecoilDevelopmentPlan.md
 | P5 | 调试与可视化工具链 | 待验收 | ✅ 6/6 PASS | ⏳ 待确认 | 2026-09-17 | 六个交付项全部落地；新增 CSV→HTML 曲线工具；命令注册钉成断言 |
 | ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 | 决定：本项目为单机 Demo，不做联机；详见 §5「P6 — 已剔除」 |
 | P7 | 手感调参 + 固化 | 未开始 | — | — | — | 可选 |
+| P10 | 回正扣减压枪量 | 待验收 | ✅ 37/37 PASS | ⏳ 待确认 | 2026-09-20 | 修掉「回正把玩家压的枪还回去」；两轴同规则 + `bCompensationAwareRecovery` 总开关；详见 `Docs/Recoil/11_RecoveryCompensation.md` |
 
-**累计自动化测试：19 个用例全绿**（`Lyra.Recoil.*`）。一键复跑：
-`Docs/Recoil/Tools/run-all-checks.ps1`
+**累计自动化测试：37 个用例全绿**（`Lyra.Recoil.*`：P0–P5 的 19 个 + P8 的 5 个 + P9 的 6 个 + P10 的 7 个）。
+一键复跑：`Docs/Recoil/Tools/run-all-checks.ps1`
 
 **P4 实测姿态倍率（Rifle，10 发累计垂直位移）**：站 2.9661 / 蹲 2.3729 / 空中 4.4492 / 瞄准 2.2246，
 比值与配置倍率（1.0 / 0.8 / 1.5 / 0.75）最大偏差 5e-5。

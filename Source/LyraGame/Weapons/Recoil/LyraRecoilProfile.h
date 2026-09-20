@@ -198,6 +198,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float RecoilReturnRatio = 0.2f;
 
+	/**
+	 * 回正时是否扣除玩家的压枪量。
+	 *
+	 * true（默认）：回正量 = 原本回正量 − 压枪量，两端钳制。
+	 *   玩家往下压 4°、峰值 10°、Ratio 0.15
+	 *     → 终止值 = 10×0.15 + 4 = 5.5（回正 4.5°，而不是 8.5°）
+	 *   压枪量超过可回正量时终止值停在峰值（"只回正到最后一发子弹射出的位置"）
+	 *   压枪量为 0 时与关闭本开关**完全一致**，所以打开它不影响任何既有验收。
+	 *
+	 * false：退回旧公式（终止值 = 峰值 × RecoilReturnRatio），保留 A/B 对照能力。
+	 *
+	 * 实现与验收见 Docs/Recoil/11_RecoveryCompensation.md。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery")
+	bool bCompensationAwareRecovery = true;
+
 	// ---------------------------------------------------------------------
 	// 上限（Clamp）
 	// ---------------------------------------------------------------------

@@ -321,6 +321,15 @@ private:
 	/** 每帧推进后坐力状态并把结果推给相机链。 */
 	void UpdateRecoil(float DeltaSeconds);
 
+	/**
+	 * 采样玩家当前的瞄准（ControlRotation）交给后坐力状态，用于计算"压枪量"。
+	 *
+	 * 每帧 + 每次开火前各调一次（见 UpdateRecoil / AddRecoil）。
+	 * 这是**唯一**一处让算法层知道"玩家往哪压了"的地方 —— FRecoilRuntimeState 本身
+	 * 依旧不碰 UWorld，只接受数值，所以纯数值单测的隔离性没有被破坏。
+	 */
+	void SampleRecoilPlayerAim();
+
 	/** 姿态状态，复用 CharacterMovementComponent 的蹲/空中判定。 */
 	EPoseState ComputeRecoilPoseState() const;
 

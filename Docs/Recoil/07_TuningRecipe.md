@@ -95,10 +95,15 @@ Pattern（X = 每发水平增量，右为正；Y = 每发垂直倍率）：
 **总计：垂直 2.342°，水平 峰值 +0.655° → 收尾 -0.343°。**
 水平/垂直峰值比 ≈ 0.28 —— 一条**细长的 S**：先向右摆出去，再向左摆回来。
 
-### 3.2 7 字型（`DA_Recoil_Rifle_7`）—— 明显更大 · **`InstantWrite`**
+### 3.2 7 字型（`DA_Recoil_Rifle_7`）—— 明显更大 · **`Interpolated`**（2026-09-20 起）
 
 | 参数 | 值 | 说明 |
 | --- | --- | --- |
+| **`SingleShotMode`** | **`Interpolated`** | 单发模型（2026-09-20 由 `InstantWrite` 切过来） |
+| **`LiftDuration`** | **0.045** s | 与 S 型一致（两把枪射速相同，时间轴暂不分开） |
+| **`ReboundDuration`** | **0.030** s | |
+| **`ReboundRatio`** | **0.72** | |
+| **`LiftCurve` / `ReboundCurve`** | Ease-Out / 线性 | |
 | `RecoilPerShot_Vertical` | 0.42 | 单发垂直基准（比 S 型大 91%） |
 | `RecoilPerShot_Horizontal` | 0.35 | 单发水平基准 |
 | `PatternLength` | 12 | |
@@ -265,8 +270,8 @@ AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")
 
 > **✅ 2026-09-17 更新：已支持四段式，但它是可选模式。**
 > 每把枪的资产上现在有 `SingleShotMode` 开关：
-> `InstantWrite`（**默认**，即本文 5.6 原描述的老模型）/ `Interpolated`（新增四段式）。
-> **两把枪的实际分配**：`DA_Recoil_Rifle_S` = `Interpolated`，`DA_Recoil_Rifle_7` = `InstantWrite`。
+> `InstantWrite`（**结构默认值**，即本文 5.6 原描述的老模型）/ `Interpolated`（新增四段式）。
+> **两把枪的实际分配（2026-09-20 起）**：`DA_Recoil_Rifle_S` 与 `DA_Recoil_Rifle_7` **都是 `Interpolated`**。
 > 完整方案 → **[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)**；操作向 → **[后坐力系统调试.html §10](后坐力系统调试.html#model)**。
 
 下表**对 `InstantWrite` 模式（默认）依然完全成立**：

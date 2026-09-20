@@ -1208,11 +1208,81 @@ Golden 基线   Written=5  Failed=0
   只改数值（不改模式）走正常流程即可，Golden 本身不受影响。
 </div>
 
+<h2 id="comp">11 · 回正扣减压枪量（P10 · 2026-09-20）</h2>
+
+<h3>11.1 一句话：回正不再把你压的枪还给你</h3>
+
+<p>以前：开枪把准星顶高 10°，你往下压 4° 把它拉回目标 —— 松手回正时偏移从 10° 回到底，
+<strong>那 4° 被还回去了</strong>，准星比目标低了 4°，你得再抬一次。</p>
+
+<p>现在：回正量扣掉你压的那部分。<strong>你压多少，就少回多少。</strong>压过头（压的比能回正的还多），
+回正量归零 —— 也就是<strong>只回正到最后一发子弹射出的位置</strong>。</p>
+
+<p>两把枪都是这个规则，Pitch / Yaw 两轴同一条公式。</p>
+
+<h3>11.2 公式（想手算就照这个）</h3>
+
+<pre>原本回正量 = 峰值 − 峰值 × RecoilReturnRatio
+实际回正量 = clamp(原本回正量 − 压枪量, 0, 原本回正量)
+回正终止值 = 峰值 − 实际回正量</pre>
+
+<table>
+  <tr><th>你压了多少</th><th>原本回正量</th><th>实际回正量</th><th>准星最终停在哪</th></tr>
+  <tr><td>0</td><td>3.75</td><td>3.75</td><td>与改动前<strong>完全一样</strong></td></tr>
+  <tr><td>1.0°</td><td>3.75</td><td>2.75</td><td>少回 1°：停在目标上</td></tr>
+  <tr><td>3.75°</td><td>3.75</td><td>0</td><td>回正量刚好归零</td></tr>
+  <tr><td>20°（压过头）</td><td>3.75</td><td>0</td><td>停在最后一发的位置，不再回</td></tr>
+</table>
+
+<h3>11.3 总开关：<code>bCompensationAwareRecovery</code></h3>
+
+<p>每把枪的资产上，<code>Recoil | Recovery</code> 分类里。<strong>默认开启。</strong></p>
+
+<ul>
+  <li>关掉它 → 退回旧公式（<code>终止值 = 峰值 × RecoilReturnRatio</code>），用于 A/B 对照。</li>
+  <li><strong>没压枪时两条路径完全相同</strong> —— 所以"我没压枪也觉得准星变飘了"不是这套逻辑引起的。</li>
+  <li>压枪量本身在开关关闭时<strong>照常显示</strong>，只是不参与回正。</li>
+</ul>
+
+<h3>11.4 看数：面板多出来的那一行</h3>
+
+<pre>Lyra.Recoil.Debug 1
+  PushComp P=0.000 Y=0.000   FrozenComp P=0.000 Y=0.000   AimNow=(0.00, 0.00)</pre>
+
+<table>
+  <tr><th>字段</th><th>是什么</th></tr>
+  <tr><td><code>PushComp P / Y</code></td><td>实时压枪量：相对本轮第一发，你把准星往后坐力反方向拉了多少度。往下压 / 往左拉为正</td></tr>
+  <tr><td><code>FrozenComp P / Y</code></td><td>进入回正时冻结的快照 —— <strong>回正目标真正用的是它</strong></td></tr>
+  <tr><td><code>AimNow</code></td><td>最近一次采样到的 <code>ControlRotation</code>，真值基准</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">两条容易被当成 bug 的行为（都是刻意的）</span>
+  ① <strong>压枪量只在"开始回正"那一刻冻结。</strong><code>RecoveryDelay</code> 之内继续压的枪算数；
+     回正开始之后再动鼠标<strong>不会改变落点</strong>。<br>
+  ② <strong>连续多轮开火时，压枪量会一轮一轮垒进残留偏移</strong>，顶到
+     <code>MaxVerticalKick</code> / <code>MaxHorizontalKick</code> 后停住（不再增长）。
+     观感上不可见（准星就是显示层），但你的鼠标会一轮比一轮多压一点。
+     觉得不舒服就把 <code>RecoilReturnRatio</code> 调小，或关掉总开关。
+</div>
+
+<h3>11.5 yaw 也会被扣（这是你拍板的）</h3>
+
+<p>连发过程中<strong>主动拉枪追目标</strong>，回正会把视角拽回开火前的位置 ——
+因为系统分不出"你在压后坐力"和"你在追人"，两者都是同一笔鼠标位移。
+只想要"垂直扣压枪、水平随便拉"，就把 <code>bCompensationAwareRecovery</code> 关掉。</p>
+
+<h3>11.6 相关文件</h3>
+
+<p><code>Docs/Recoil/11_RecoveryCompensation.md</code>（设计与验收）↔
+本文（怎么用）↔ <code>LyraRecoilState.cpp</code> 的 <code>SamplePlayerAim</code> / <code>ComputeRecoveryTarget</code>（代码事实）。</p>
+
 <footer>
-  后坐力系统调试 · 2026-09-17 · TPSGunsDemo<br>
+  后坐力系统调试 · 2026-09-20 · TPSGunsDemo<br>
   数值以 <code>DA_Recoil_Rifle_S</code> / <code>DA_Recoil_Rifle_7</code> 资产为准；改过资产请回头更新本文第 2.3 节的预期值。<br>
-  <strong>三方一致性</strong>：本文（怎么用）↔ <code>10_SingleShotInterpolation.md</code>（为什么这么设计）↔ <code>LyraRecoilState.cpp / LyraRecoilProfile.cpp</code>（代码事实）。
-  单发模型相关内容以第 10 节为准；本节之外的老内容（P0~P8）已由 <code>Lyra.Recoil</code> 30 个用例守住。
+  <strong>三方一致性</strong>：本文（怎么用）↔ <code>10_SingleShotInterpolation.md</code> / <code>11_RecoveryCompensation.md</code>（为什么这么设计）↔ <code>LyraRecoilState.cpp / LyraRecoilProfile.cpp</code>（代码事实）。
+  单发模型看第 10 节，回正扣压枪看第 11 节；两个四段模型相关内容以第 10 节为准。
+  老内容（P0~P9）由 <code>Lyra.Recoil</code> 37 个用例守住。
 </footer>
 
 </div>

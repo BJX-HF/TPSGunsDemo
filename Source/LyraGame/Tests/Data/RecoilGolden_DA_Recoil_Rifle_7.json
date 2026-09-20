@@ -10,7 +10,7 @@
 	"recoilPerShotVertical": 0.37999999523162842,
 	"recoilPerShotHorizontal": 0.20000000298023224,
 	"horizontalRandomRange": 0.62000000476837158,
-	"singleShotMode": "InstantWrite",
+	"singleShotMode": "Interpolated",
 	"liftDuration": 0.045000001788139343,
 	"reboundDuration": 0.029999999329447746,
 	"reboundRatio": 0.72000002861022949,

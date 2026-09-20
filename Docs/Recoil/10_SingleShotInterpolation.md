@@ -293,7 +293,10 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 | 武器 | 资产 | 模式 | 理由 |
 | --- | --- | --- | --- |
 | `Rifle_S` | `/Game/Weapons/Recoil/DA_Recoil_Rifle_S` | **`Interpolated`** | 高射速长按连发向，单发顿挫感最容易被感知 |
-| `Rifle_7` | `/Game/Weapons/Recoil/DA_Recoil_Rifle_7` | `InstantWrite` | 保持现状做 A/B 对照 |
+| `Rifle_7` | `/Game/Weapons/Recoil/DA_Recoil_Rifle_7` | **`Interpolated`**（2026-09-20 起；此前是 `InstantWrite`） | 两把枪统一走四段式，时间轴与 S 型一致（`0.045 / 0.030 / 0.72`，射速相同故不分开） |
+
+> **注意**：`ERecoilSingleShotMode` 的**结构默认值仍是 `InstantWrite`** —— 既有的 `DA_Recoil_Rifle`
+> 与自动化测试使用的内存 Profile 都依赖它。场上两把枪的资产各自显式配成 `Interpolated`。
 
 两把枪同属步枪族，切换开关就能直接对比两套模型 —— 这是「共存」的价值所在。
 

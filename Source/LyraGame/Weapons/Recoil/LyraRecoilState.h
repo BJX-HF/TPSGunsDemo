@@ -182,6 +182,63 @@ public:
 	FCameraRollShakeState RollShake;
 
 	// ---------------------------------------------------------------------
+	// 压枪量（Compensation）
+	//
+	// === 为什么需要它 ===
+	//
+	// 相机偏移只作用在**显示层 POV**（CameraModifier），玩家"压枪"动的是
+	// ControlRotation —— 两笔账本来是分开的。但回正只回偏移那一笔，于是出现：
+	//
+	//   开枪 → 准星被顶高 10°  → 玩家往下压 4° 把它拉回目标
+	//   → 停火回正 → 偏移从 10° 回到 0° → 准星比目标低了 4°
+	//
+	// 玩家压的那 4° 被"还回去"了。修法是把压枪量记下来，回正时扣掉：
+	// **回正终止值 = 原本回正目标 + 压枪量**（等价于「回正量 −= 压枪量」）。
+	//
+	// === 怎么测 ===
+	//
+	// 以"本轮连发第一发的玩家瞄准"为基准，逐帧对 ControlRotation 做差：
+	//   PitchCompensation = −(当前Pitch − 基准Pitch)   // 往下压 → 正
+	//   YawCompensation   = −(当前Yaw   − 基准Yaw  )   // 往左压 → 正
+	// 正值表示"玩家把准星朝后坐力的反方向拉"。两轴用同一条规则。
+	//
+	// 纯数值单测不调用 SamplePlayerAim()，两个量恒为 0 —— 于是既有 30 个用例、
+	// 3 份 Golden、CSV 契约**一个都不用改**。
+	// ---------------------------------------------------------------------
+
+	/** 本轮连发的压枪量（度）。Pitch 正值 = 玩家往下压；Yaw 正值 = 玩家往左拉。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float PlayerCompensationPitch = 0.0f;
+
+	/** 本轮连发的水平压枪量（度）。语义同 PlayerCompensationPitch。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float PlayerCompensationYaw = 0.0f;
+
+	/** 进入回正那一刻冻结的压枪量（度）。回正目标据此计算，回正期间不再变化。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float RecoveryCompensationPitch = 0.0f;
+
+	/** 进入回正那一刻冻结的水平压枪量（度）。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float RecoveryCompensationYaw = 0.0f;
+
+	/** 本轮连发第一发时玩家的瞄准 Pitch（度）。压枪量的基准。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float AimPitchAtBurstStart = 0.0f;
+
+	/** 本轮连发第一发时玩家的瞄准 Yaw（度）。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float AimYawAtBurstStart = 0.0f;
+
+	/** 最近一次采样到的玩家瞄准 Pitch（度）。仅用于调试面板与差分的基准，不做他用。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float SampledAimPitch = 0.0f;
+
+	/** 最近一次采样到的玩家瞄准 Yaw（度）。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Compensation")
+	float SampledAimYaw = 0.0f;
+
+	// ---------------------------------------------------------------------
 	// 内部推进状态
 	// ---------------------------------------------------------------------
 
@@ -317,6 +374,39 @@ public:
 	 * 之前必须先刷新它，否则第一发会用到上一发缓存的值。
 	 */
 	void SetPoseMultiplier(float InMultiplier) { CurrentPoseMultiplier = FMath::Max(0.0f, InMultiplier); }
+
+	/**
+	 * 采样玩家当前瞄准（ControlRotation，单位度）。
+	 *
+	 * 由 ULyraRangedWeaponInstance 每帧（以及每次开火前）调用。它只做一件事：
+	 * 把「当前瞄准」与「本轮连发第一发的瞄准」做差，得到压枪量。
+	 *
+	 * **不调用则压枪量恒为 0**，交回既有语义 —— 纯数值单测正是靠这一点保持零回归。
+	 * 状态为 Idle 时不更新（此时基准已经过期，算出来的差值没有意义）。
+	 */
+	void SamplePlayerAim(float InAimPitchDegrees, float InAimYawDegrees);
+
+	/**
+	 * 回正终止值的唯一实现（含压枪量扣除）。
+	 *
+	 * 语义（开发计划 §P4 的一处修订，见 Docs/Recoil/11_RecoveryCompensation.md）：
+	 *
+	 *     原本回正量 = Peak − Peak × RecoilReturnRatio
+	 *     实际回正量 = clamp(原本回正量 − 压枪量, 0, 原本回正量)
+	 *     终止值     = Peak − 实际回正量
+	 *
+	 * 展开后等价于：
+	 *
+	 *     终止值 = clamp(Peak × RecoilReturnRatio + 压枪量, min(Peak, Peak×Ratio), max(Peak, Peak×Ratio))
+	 *
+	 * 双端钳制的含义：
+	 *   上界 Peak      —— 压枪量再大，回正量最多归零（"只回正到最后一发子弹射出的位置"）
+	 *   下界 Peak×Ratio—— 玩家顺着后坐力方向推时，回正量不会**超过**原本的回正量
+	 *
+	 * 压枪量为 0 时严格等于 Peak × RecoilReturnRatio，所以既有行为零变化。
+	 * bCompensationAwareRecovery 关闭时直接返回旧公式。
+	 */
+	static float ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float Peak, float Compensation);
 
 	// ---------------------------------------------------------------------
 	// 推进

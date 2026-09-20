@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>相机调试手册（腰射 / ADS）</title>
+<style>
+  :root{
+    --bg:#f6f6f3; --card:#ffffff; --ink:#22221f; --muted:#6b6a64; --line:#e2e0d8;
+    --accent:#1f6feb; --accent-bg:#eaf1fd; --warn:#8a5a00; --warn-bg:#fdf3e0;
+    --ok:#1f7a4d; --ok-bg:#e6f4ec; --bad:#a32d2d; --bad-bg:#fbeceb;
+    --code-bg:#f1efe8;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+    font-size:15px; line-height:1.75;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:40px 24px 80px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  h1{font-size:28px;margin:0 0 8px;letter-spacing:.5px}
+  header .sub{color:var(--muted);font-size:13.5px}
+  header .sub b{color:var(--ink);font-weight:600}
+  h2{font-size:20px;margin:44px 0 14px;padding-left:11px;border-left:4px solid var(--accent)}
+  h3{font-size:16px;margin:26px 0 10px}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:24px}
+  li{margin:5px 0}
+  code{background:var(--code-bg);padding:1.5px 5px;border-radius:4px;font-size:13px;
+       font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
+  pre{background:#2c2c2a;color:#e8e6df;padding:14px 16px;border-radius:8px;overflow-x:auto;
+      font-size:13px;line-height:1.6;font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
+  pre code{background:none;padding:0;color:inherit;font-size:13px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px;background:var(--card)}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#eeece5;font-weight:600;white-space:nowrap}
+  td code{white-space:nowrap}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin:16px 0}
+  .box{border-left:4px solid var(--accent);background:var(--accent-bg);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+  .box.warn{border-left-color:var(--warn);background:var(--warn-bg)}
+  .box.ok{border-left-color:var(--ok);background:var(--ok-bg)}
+  .box.bad{border-left-color:var(--bad);background:var(--bad-bg)}
+  .box .t{font-weight:600;display:block;margin-bottom:4px}
+  .toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 22px;margin:24px 0}
+  .toc ol{margin:6px 0;columns:2;column-gap:32px}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 20px;margin:14px 0}
+  .step .h{font-weight:600;font-size:15.5px;margin-bottom:6px}
+  .step .h em{font-style:normal;display:inline-block;min-width:26px;height:26px;line-height:26px;
+      text-align:center;background:var(--accent);color:#fff;border-radius:50%;font-size:13px;margin-right:9px}
+  .chk{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 20px;margin:16px 0}
+  .chk label{display:block;padding:5px 0;cursor:pointer}
+  .chk input{margin-right:9px;transform:translateY(1px)}
+  .chk input:checked + span{text-decoration:line-through;color:var(--muted)}
+  .mono{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;font-size:13px}
+  .tag{display:inline-block;background:var(--accent);color:#fff;border-radius:4px;padding:1px 7px;font-size:12px}
+  .tag.gray{background:#6b6a64}
+  footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+  .fig{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 10px;margin:16px 0;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>相机调试手册（腰射 / ADS）</h1>
+  <div class="sub">
+    工程 <b>TPSGunsDemo</b> · UE 5.8.2（源码版） · 相机结构 <b>Lyra 原生 ULyraCameraModeStack</b>，未派生自定义相机类<br>
+    生成于 2026-09-20 · 配套纯文本版 <code>Docs/CameraDebugGuide.md</code>
+  </div>
+</header>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#quick">结论速查</a></li>
+    <li><a href="#chain">完整链路</a></li>
+    <li><a href="#params">参数清单</a></li>
+    <li><a href="#rule">生效规则</a></li>
+    <li><a href="#how">调试手段</a></li>
+    <li><a href="#trouble">症状归因对照表</a></li>
+    <li><a href="#gap">当前缺口与建议</a></li>
+    <li><a href="#check">调参 checklist</a></li>
+  </ol>
+</div>
+
+<h2 id="quick">1 · 结论速查</h2>
+
+<table>
+  <tr><th></th><th>腰射 / 常态</th><th>瞄准 / ADS</th></tr>
+  <tr><th>相机模式类</th>
+      <td><code>/Game/Characters/Cameras/CM_ThirdPerson</code></td>
+      <td><code>/ShooterCore/Camera/CM_ThirdPersonADS</code></td></tr>
+  <tr><th>偏移曲线</th>
+      <td><code>/Game/Characters/Cameras/ThirdPersonOffsetCurve</code></td>
+      <td><code>/ShooterCore/Camera/ThirdPersonADSOffsetCurve</code></td></tr>
+  <tr><th>谁挂上去</th>
+      <td>PawnData 的 <code>DefaultCameraMode</code><br>（<code>HeroData_ShooterGame</code>、<code>SimplePawnData</code>）</td>
+      <td><code>/ShooterCore/Input/Abilities/GA_ADS</code></td></tr>
+  <tr><th>触发</th>
+      <td>出生即生效，常驻栈底</td>
+      <td>按住 <code>InputTag.Weapon.ADS</code> 压栈，松手出栈</td></tr>
+  <tr><th>CameraTypeTag</th>
+      <td>未覆盖（空）</td>
+      <td><code>Lyra.Weapon.SteadyAimingCamera</code></td></tr>
+</table>
+
+<p>两者父类都是 <code>ULyraCameraMode_ThirdPerson</code>。另有一个死亡相机
+<code>/Game/Characters/Cameras/CM_ThirdPerson_Death</code>（曲线 <code>ThirdPersonDeathOffsetCurve</code>），
+由 <code>GA_Hero_Death</code> 挂载——调腰射/瞄准时不用管它。</p>
+
+<h2 id="chain">2 · 完整链路</h2>
+
+<div class="fig">
+<svg viewBox="0 0 680 470" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Lyra 相机模式链路</title>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+
+<rect x="40" y="16" width="270" height="52" rx="10" fill="#2C2C2A" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="175" y="36" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#F1EFE8">PawnData.DefaultCameraMode</text>
+<text x="175" y="54" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B4B2A9">腰射入口 · 出生即生效</text>
+
+<rect x="340" y="16" width="300" height="52" rx="10" fill="#185FA5" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="490" y="36" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#E6F1FB">GA_ADS · SetCameraMode</text>
+<text x="490" y="54" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B5D4F4">ADS 入口 · InputTag.Weapon.ADS</text>
+
+<path d="M175 68 L175 116" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M490 68 L490 116" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<rect x="40" y="116" width="600" height="52" rx="10" fill="#2C2C2A" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="340" y="136" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#F1EFE8">ULyraHeroComponent → ULyraCameraComponent</text>
+<text x="340" y="154" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B4B2A9">DetermineCameraMode 委托：AbilityCameraMode 优先于 PawnData 默认值</text>
+
+<path d="M340 168 L340 196" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<rect x="40" y="196" width="600" height="52" rx="10" fill="#2C2C2A" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="340" y="216" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#F1EFE8">ULyraCameraModeStack</text>
+<text x="340" y="234" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B4B2A9">两模式按 BlendWeight 插值 · BlendTime / BlendFunction / BlendExponent</text>
+
+<path d="M340 248 L340 262 L185 262 L185 276" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M340 248 L340 262 L495 262 L495 276" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<rect x="40" y="276" width="290" height="64" rx="10" fill="#444441" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="185" y="300" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#F1EFE8">CM_ThirdPerson（腰射）</text>
+<text x="185" y="322" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B4B2A9">曲线 ThirdPersonOffsetCurve</text>
+
+<rect x="350" y="276" width="290" height="64" rx="10" fill="#185FA5" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="495" y="300" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#E6F1FB">CM_ThirdPersonADS（瞄准）</text>
+<text x="495" y="322" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B5D4F4">曲线 ThirdPersonADSOffsetCurve</text>
+
+<path d="M185 340 L185 356 L340 356 L340 372" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M495 340 L495 356 L340 356" fill="none" stroke="#888780" stroke-width="1.5"/>
+
+<rect x="40" y="372" width="600" height="52" rx="10" fill="#2C2C2A" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="340" y="392" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#F1EFE8">DesiredView · Location / Rotation / FOV</text>
+<text x="340" y="410" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B4B2A9">再经 PlayerCameraManager → CameraModifier（WeaponRecoil / RollShake）</text>
+
+<path d="M340 424 L340 446" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="340" y="460" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#5F5E5A">屏幕</text>
+</svg>
+</div>
+
+<h3>2.1 对应代码位置</h3>
+
+<table>
+  <tr><th>环节</th><th>文件</th><th>行</th></tr>
+  <tr><td>模式选择（能力优先于 PawnData）</td><td><code>Source/LyraGame/Character/LyraHeroComponent.cpp</code></td><td>L471-493</td></tr>
+  <tr><td>能力设置 / 清除相机模式</td><td>同上</td><td>L495-511</td></tr>
+  <tr><td>蓝图可调度的 <code>SetCameraMode</code> / <code>ClearCameraMode</code></td><td><code>Source/LyraGame/AbilitySystem/Abilities/LyraGameplayAbility.cpp</code></td><td>L520-544</td></tr>
+  <tr><td>取模式并压栈</td><td><code>Source/LyraGame/Camera/LyraCameraComponent.cpp</code></td><td>L85-99</td></tr>
+  <tr><td>产出最终 View</td><td>同上</td><td>L32-83</td></tr>
+  <tr><td>栈内混合</td><td><code>Source/LyraGame/Camera/LyraCameraMode.cpp</code></td><td>L330-341 / L407-428</td></tr>
+  <tr><td>模式实例缓存（决定"改了要不要重启"）</td><td>同上</td><td>L343-363</td></tr>
+  <tr><td>第三人称 offset 应用</td><td><code>Source/LyraGame/Camera/LyraCameraMode_ThirdPerson.cpp</code></td><td>L35-72</td></tr>
+  <tr><td>调试打印</td><td><code>Source/LyraGame/Camera/LyraPlayerCameraManager.cpp</code></td><td>L47-65</td></tr>
+</table>
+
+<h2 id="params">3 · 参数清单</h2>
+
+<h3>3.1 相机模式标量属性（CM_ThirdPerson / CM_ThirdPersonADS 的 Class Defaults）</h3>
+
+<table>
+  <tr><th>属性</th><th>含义</th></tr>
+  <tr><td><code>FieldOfView</code></td><td>该模式的视场角（度）</td></tr>
+  <tr><td><code>ViewPitchMin</code> / <code>ViewPitchMax</code></td><td>俯仰限位</td></tr>
+  <tr><td><code>BlendTime</code></td><td>进入该模式的混合时长</td></tr>
+  <tr><td><code>BlendFunction</code></td><td>Linear / EaseIn / EaseOut / EaseInOut</td></tr>
+  <tr><td><code>BlendExponent</code></td><td>缓动曲线指数</td></tr>
+  <tr><td><code>CameraTypeTag</code></td><td>供 gameplay 查询"当前是不是在瞄准"</td></tr>
+  <tr><td><code>TargetOffsetCurve</code></td><td>偏移曲线资产引用</td></tr>
+  <tr><td><code>bUseRuntimeFloatCurves</code> + <code>TargetOffsetX/Y/Z</code></td><td>内联曲线 —— <strong>调参期间不要用</strong>，见第 4 节</td></tr>
+  <tr><td><code>CrouchOffsetBlendMultiplier</code></td><td>蹲下时相机高度过渡速度</td></tr>
+  <tr><td><code>PenetrationBlendInTime</code> / <code>OutTime</code></td><td>相机被墙挤压时的推进 / 恢复速度</td></tr>
+  <tr><td><code>bPreventPenetration</code></td><td>是否做相机防穿墙</td></tr>
+  <tr><td><code>bDoPredictiveAvoidance</code></td><td>是否做预测性避让</td></tr>
+  <tr><td><code>CollisionPushOutDistance</code></td><td>穿墙时的推出距离</td></tr>
+  <tr><td><code>PenetrationAvoidanceFeelers</code></td><td>避让射线组（构造里默认 7 条）</td></tr>
+</table>
+
+<div class="box">
+  <span class="t">要点</span>
+  <code>CM_ThirdPerson</code> <strong>没有</strong>覆盖 <code>FieldOfView</code> / <code>BlendTime</code> / <code>CameraTypeTag</code>，
+  走 C++ 默认值（80 / 0.5 / 空）；<code>CM_ThirdPersonADS</code> 三个都覆盖了。想知道 ADS 具体是多少，直接打开该资产看 Class Defaults。
+</div>
+
+<h3>3.2 偏移曲线（CurveVector）</h3>
+
+<ul>
+  <li>横轴是 <strong>Pitch（角色俯仰，约 -89 ~ 89）</strong>，<strong>不是时间</strong>。</li>
+  <li>X / Y / Z = 角色局部空间的前后 / 左右 / 上下偏移（cm），代码里用 <code>PivotRotation.RotateVector(TargetOffset)</code> 应用。</li>
+  <li>曲线为零或缺失时，相机就落在 Pivot（眼睛高度）上，越肩感消失。</li>
+  <li>它是"腰射手感"和"ADS 收拢程度"的<strong>唯一</strong>决定因素。</li>
+</ul>
+
+<h3>3.3 C++ 默认值（改这些要重编译）</h3>
+
+<table>
+  <tr><th>项</th><th>值</th><th>位置</th></tr>
+  <tr><td>默认 FOV</td><td><code>LYRA_CAMERA_DEFAULT_FOV = 80.0f</code></td><td><code>LyraPlayerCameraManager.h</code> L14</td></tr>
+  <tr><td>默认俯仰限位</td><td><code>-89.0f / +89.0f</code></td><td>同上 L15-16</td></tr>
+  <tr><td>默认混合</td><td><code>BlendTime 0.5</code> / <code>EaseOut</code> / <code>BlendExponent 4</code></td><td><code>LyraCameraMode.cpp</code> L52-63</td></tr>
+</table>
+
+<h2 id="rule">4 · 生效规则（决定你怎么改）</h2>
+
+<table>
+  <tr><th>改什么</th><th>生效条件</th><th>依据</th></tr>
+  <tr><td>偏移曲线资产</td><td><strong>PIE 中实时生效</strong>，边跑边拖点</td><td>每帧从资产求值（<code>LyraCameraMode_ThirdPerson.cpp</code> L55）</td></tr>
+  <tr><td>相机模式标量属性</td><td>改蓝图 defaults 后<strong>必须重启 PIE</strong></td><td>模式实例由 <code>CameraModeInstances</code> 缓存，创建时从 CDO 拷贝一次（<code>LyraCameraMode.cpp</code> L343-363）</td></tr>
+  <tr><td><code>bUseRuntimeFloatCurves</code> 内联曲线</td><td>PIE 中<strong>无法实时编辑</strong></td><td>源码注释 UE-103986（<code>LyraCameraMode_ThirdPerson.h</code> L43）</td></tr>
+  <tr><td>C++ 构造函数默认值</td><td>重编译 + 重启编辑器</td><td><code>LyraCameraMode.cpp</code> L52-63</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">结论</span>
+  调参期一律走<strong>曲线资产</strong>，不要动 <code>bUseRuntimeFloatCurves</code>。
+</div>
+
+<h2 id="how">5 · 调试手段</h2>
+
+<div class="step">
+  <div class="h"><em>1</em>看运行时状态：<code>showdebug camera</code></div>
+  PIE 控制台执行 <code>showdebug camera</code>（再执行一次关闭）。它走 <code>ALyraPlayerCameraManager::DisplayDebug</code>，
+  输出相机 Location / Rotation / FOV，以及模式栈每层<strong>名字 + BlendWeight</strong>；
+  <code>LyraCameraMode_ThirdPerson::DrawDebug</code> 还会额外列出本帧被防穿墙射线命中的 Actor。<br>
+  <strong>用途</strong>：确认"按下 ADS 后 <code>CM_ThirdPersonADS</code> 是否真的压上了栈""权重有没有到 1""FOV 当前实际是多少"。调参时建议常开。
+</div>
+
+<div class="step">
+  <div class="h"><em>2</em>调偏移曲线（主战场）</div>
+  <ol>
+    <li>起 PIE，站定，固定一个 Pitch（例如 0°，再试 ±30°）。</li>
+    <li>打开 <code>ThirdPersonOffsetCurve</code> 或 <code>ThirdPersonADSOffsetCurve</code>，直接拖关键点。</li>
+    <li>画面即时变化，满意后保存资产。</li>
+  </ol>
+</div>
+
+<div class="step">
+  <div class="h"><em>3</em>隔离 ADS 调参：PawnData 替换法</div>
+  不想每次按住 ADS 键触发（还会带入移动速度、动画、UI 等变量）时：
+  <ol>
+    <li>打开 <code>HeroData_ShooterGame</code>（或 <code>SimplePawnData</code>）。</li>
+    <li>把 <code>DefaultCameraMode</code> 临时换成 <code>CM_ThirdPersonADS</code>。</li>
+    <li>重启 PIE，就是纯 ADS 视角，可以安静地调曲线和 FOV。</li>
+    <li>调完换回 <code>CM_ThirdPerson</code>。</li>
+  </ol>
+</div>
+
+<div class="step">
+  <div class="h"><em>4</em>先排除干扰层（必做）</div>
+  <code>UCameraModifier_WeaponRecoil</code> 和 <code>LyraCameraRollShake</code> 是在相机模式<strong>之后</strong>叠加到 POV 上的，
+  由 <code>ULyraRangedWeaponInstance</code> 驱动（<code>LyraRangedWeaponInstance.cpp</code> L10），与相机模式无关。
+  开着它们调曲线，你分不清画面变化是自己拖出来的还是后坐力推的。<br>
+  调相机前先执行：
+  <pre><code>Lyra.Recoil.Enable 0
+Lyra.Recoil.RollShake 0</code></pre>
+</div>
+
+<div class="step">
+  <div class="h"><em>5</em>旁观相机实际位置：<code>ToggleDebugCamera</code></div>
+  PIE 里切 UE 原生自由相机，从侧面看角色相机到底停在哪。注意切成自由相机后就不再走角色相机模式，
+  它只用于"确认相机位置"，不用于调参。
+</div>
+
+<h2 id="trouble">6 · 症状 → 归因对照表</h2>
+
+<table>
+  <tr><th>症状</th><th>大概率原因</th></tr>
+  <tr><td>改了资产没反应</td><td>改的是标量属性且没重启 PIE；或改的是 <code>bUseRuntimeFloatCurves</code> 的内联曲线</td></tr>
+  <tr><td>按住 ADS 画面完全不变</td><td><code>CM_ThirdPersonADS</code> 没压上栈 —— 用 <code>showdebug camera</code> 确认；再查 <code>GA_ADS</code> 是否被触发（<code>InputTag.Weapon.ADS</code>）</td></tr>
+  <tr><td>ADS 过渡"黏"</td><td><code>CM_ThirdPersonADS.BlendTime</code> 偏大；或两层 FOV 差太大</td></tr>
+  <tr><td>ADS 收镜后画面还在飘</td><td>是后坐力层，先按第 5 节第 4 条关掉再判断</td></tr>
+  <tr><td>相机贴墙时抖动 / 穿墙</td><td><code>Penetration*</code> 参数与 <code>PenetrationAvoidanceFeelers</code></td></tr>
+  <tr><td>蹲下时相机高度跳变</td><td><code>CrouchOffsetBlendMultiplier</code></td></tr>
+  <tr><td>抬头 / 低头时贴脸或穿角色</td><td>偏移曲线在高 <code>|Pitch|</code> 段没给够 Z / X</td></tr>
+</table>
+
+<h2 id="gap">7 · 当前缺口与建议</h2>
+
+<div class="box warn">
+  <span class="t">现状</span>
+  只有<strong>曲线</strong>能热调。FOV、混合时长这类"到底是 65 还是 72"的问题，每轮都要改资产 + 重启 PIE。
+</div>
+
+<p>建议照项目既有的 <code>LyraRecoilDebug</code>（<code>Lyra.Recoil.*</code>）范式补一套 <code>Lyra.Camera.*</code>：</p>
+
+<table>
+  <tr><th>CVar</th><th>作用</th></tr>
+  <tr><td><code>Lyra.Camera.Debug</code></td><td>屏幕面板：当前模式栈、各层权重、FOV、Pivot、Offset、被挡百分比</td></tr>
+  <tr><td><code>Lyra.Camera.FOV</code></td><td>覆盖当前 FOV（走现成的 <code>AddFieldOfViewOffset</code>）</td></tr>
+  <tr><td><code>Lyra.Camera.OffsetScale</code></td><td>整体缩放曲线输出，用于快速判断"偏移量级对不对"</td></tr>
+  <tr><td><code>Lyra.Camera.ADSBlendTime</code></td><td>覆盖 ADS 混合时长</td></tr>
+  <tr><td><code>Lyra.Camera.ForceADS</code></td><td>强制切 ADS 模式，免按键</td></tr>
+</table>
+
+<div class="box bad">
+  <span class="t">实现约束（沿用项目已定的规矩）</span>
+  <ul>
+    <li>用<strong>文件内局部</strong> <code>FAutoConsoleVariableRef</code> / <code>FAutoConsoleVariable</code> 注册，<strong>不要挂在 UCLASS 上</strong>，避免 UHT 重跑。</li>
+    <li>放在 <code>Source/LyraGame/Camera/</code> 下新增 .cpp，编译走既有的 <code>pipe2.py</code> 流程（只重编 TU + 重链，10s 级；必须 <code>-NoUBA</code>）。</li>
+    <li>自动化测试可以直接 <code>ExecCmds</code> 驱动 CVar（参考 <code>LyraRecoilConsoleTest.spec.cpp</code> 的写法）。</li>
+  </ul>
+</div>
+
+<h2 id="check">8 · 一次典型调参流程</h2>
+
+<div class="chk">
+  <label><input type="checkbox"><span>起 PIE，控制台：<code>showdebug camera</code>、<code>Lyra.Recoil.Enable 0</code>、<code>Lyra.Recoil.RollShake 0</code></span></label>
+  <label><input type="checkbox"><span>持枪站定，录一条基准（腰射，Pitch 0 / +30 / -30 各停一下）</span></label>
+  <label><input type="checkbox"><span>拖 <code>ThirdPersonOffsetCurve</code>，实时看画面；确认 X/Y/Z 三路方向没搞反</span></label>
+  <label><input type="checkbox"><span>按住 ADS，<code>showdebug camera</code> 确认栈里出现 <code>CM_ThirdPersonADS</code>、权重最终到 1</span></label>
+  <label><input type="checkbox"><span>拖 <code>ThirdPersonADSOffsetCurve</code>，把瞄准视角收到目标位置</span></label>
+  <label><input type="checkbox"><span>打开 <code>CM_ThirdPersonADS</code>，调 <code>FieldOfView</code> 与 <code>BlendTime</code> → <strong>重启 PIE</strong> 验证</span></label>
+  <label><input type="checkbox"><span>若腰射基准 FOV 也要改，同样改 <code>CM_ThirdPerson</code> 的 defaults → 重启 PIE</span></label>
+  <label><input type="checkbox"><span>恢复 <code>Lyra.Recoil.Enable 1</code>、<code>Lyra.Recoil.RollShake 1</code>，整体复看：射击时相机叠加是否仍可接受</span></label>
+  <label><input type="checkbox"><span>保存全部涉及的资产</span></label>
+</div>
+
+<footer>
+  相机（腰射 / ADS）调试手册 · 2026-09-20 · 纯文本版 <code>Docs/CameraDebugGuide.md</code><br>
+  本项目相机为 Lyra 原生结构，本文档未修改任何引擎或工程代码。
+</footer>
+
+</div>
+</body>
+</html>

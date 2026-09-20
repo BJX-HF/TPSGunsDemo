@@ -3,7 +3,7 @@
 > 这份文档是给大祥老师用的**操作手册 + 状态看板**。
 > 每次推进都会更新，看这一份就知道"现在到哪了、怎么复跑、要拍板什么"。
 >
-> 最后更新：2026-09-17（P0–P5 完成；P7 两把步枪落地；**P8 相机镜头 Roll 震屏落地**）
+> 最后更新：2026-09-20（P0–P5 / P8 / P9 完成；**P10 回正扣减压枪量落地**；两把枪统一四段式单发）
 
 ---
 
@@ -24,10 +24,17 @@
 依据参考文档 §2 与 09 号差距分析。含固定子步长 1/60 的**帧率不变性**保证。
 详见 → **[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)**；操作向说明 → **[后坐力系统调试.html §10](后坐力系统调试.html#model)**。
 
+**P10 已落地（2026-09-20 追加）**：修掉「回正把玩家压的枪还回去」这个 bug ——
+回正量现在会**扣掉玩家在连发期间压的那部分角度**；压过头则停在最后一发的位置。
+Pitch / Yaw 两轴同规则，含 `bCompensationAwareRecovery` 总开关。
+详见 → **[11_RecoveryCompensation.md](11_RecoveryCompensation.md)**。
+
+**同日（2026-09-20）**：两把枪的单发模型**统一为四段式 `Interpolated`**（此前槽位 1 是 `InstantWrite`）。
+
 | 槽位 | 武器 | 后坐力资产 | 形状 | 强度 | 单发模型 |
 | --- | --- | --- | --- | --- | --- |
 | 0（出生默认） | `ID_Rifle` | `DA_Recoil_Rifle_S` | S 型（一个弯） | 小：12 发垂直 2.34° | **`Interpolated`** |
-| 1 | `ID_Rifle_7` | `DA_Recoil_Rifle_7` | 7 字型（斜线 + 顶部横杠） | 稍大：12 发垂直 2.59°，水平峰值 1.40° | `InstantWrite` |
+| 1 | `ID_Rifle_7` | `DA_Recoil_Rifle_7` | 7 字型（斜线 + 顶部横杠） | 稍大：12 发垂直 2.59°，水平峰值 1.40° | **`Interpolated`** |
 
 同时 `Config/DefaultEngine.ini` 的 `EditorStartupMap` 已指向 `/ShooterCore/Maps/L_ShooterPerf`。
 
@@ -40,6 +47,7 @@ P3 ✅ 弹道 Pattern     P4 ✅ 恢复+姿态倍率  P5 ✅ 调试与可视化�
 P6 联机同步 —— 已剔除（本项目不做联机）      P7 ⬜ 手感调参 + 固化（可选）
 P8 ✅ 相机镜头 Roll 震屏 + 镜头模式（2026-09-17 追加）
 P9 ✅ 单发插值模型 · 两套并存（2026-09-17 追加）   测试 30/30 全绿
+P10 ✅ 回正扣减压枪量（2026-09-20 追加）          测试 37/37 全绿
 ```
 
 ---
@@ -153,9 +161,10 @@ powershell -ExecutionPolicy Bypass -File "D:\TPSGunsDemo\TPSGunsDemo\Docs\Recoil
 | P5 | 调试与可视化工具链 | 待验收 | ✅ 6/6 | ⏳ | [P5](Acceptance/P5_验收请求.md) |
 | **P8** | **相机镜头 Roll 震屏** | **待验收** | ✅ 编译 + 测试 | ⏳ | [08_CameraRollShake.md](08_CameraRollShake.md) §7 |
 | **P9** | **单发插值模型（两套并存）** | **待验收** | ✅ 30/30（含 6 个 Interp） | ⏳ | [10_SingleShotInterpolation.md](10_SingleShotInterpolation.md) |
+| **P10** | **回正扣减压枪量** | **待验收** | ✅ **37/37**（含 7 个 Compensation） | ⏳ | [11_RecoveryCompensation.md](11_RecoveryCompensation.md) §9 |
 | ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 决定：本项目不做联机 |
 
-**测试用例清单（30 个 = P0–P5 的 19 个 + P8 的 5 个 + P9 的 6 个）**
+**测试用例清单（37 个 = P0–P5 的 19 个 + P8 的 5 个 + P9 的 6 个 + P10 的 7 个）**
 
 > **列契约变更（P8）**：CSV 从 6 列变 7 列（新增 `RollShake`），
 > `Lyra.Recoil.Dump.HeaderSchema` 与 `Lyra.Recoil.Dump.RowCountAndValues` 已同步更新。
@@ -185,6 +194,13 @@ powershell -ExecutionPolicy Bypass -File "D:\TPSGunsDemo\TPSGunsDemo\Docs\Recoil
 | `Lyra.Recoil.Interp.StageShape` | **P9**（1） |
 | `Lyra.Recoil.Interp.LongFrameSafety` | **P9**（1） |
 | `Lyra.Recoil.Interp.RefireContinuity` | **P9**（1） |
+| `Lyra.Recoil.Compensation.ZeroInputMatchesBaseline` | **P10**（1） |
+| `Lyra.Recoil.Compensation.RetainsPullDown` | **P10**（1） |
+| `Lyra.Recoil.Compensation.OverCompensationClampsToPeak` | **P10**（1） |
+| `Lyra.Recoil.Compensation.YawRetainsDrag` | **P10**（1） |
+| `Lyra.Recoil.Compensation.DisabledKeepsLegacy` | **P10**（1） |
+| `Lyra.Recoil.Compensation.FrozenAfterRecoveryStarts` | **P10**（1） |
+| `Lyra.Recoil.Compensation.InterpolatedDropConsistency` | **P10**（1） |
 
 ### 关键数值基线（写死在这里，方便一眼看出有没有被改坏）
 
@@ -200,6 +216,11 @@ powershell -ExecutionPolicy Bypass -File "D:\TPSGunsDemo\TPSGunsDemo\Docs\Recoil
 | **`DA_Recoil_Rifle_7` 的 `SingleShotMode`** | **`InstantWrite`**（默认值，参数不激活） |
 | **P9 帧率不变性（60 vs 144fps）** | 相机链 `max trajectory deviation = 0.000000`（严格为零）<br>逻辑偏移 `max accumulated deviation = 0.007500`（容差 1e-2） |
 | **P9 子步常量** | `FixedSubStepSeconds = 1/60`、`MaxSubStepsPerAdvance = 8` |
+| **P10 回正公式** | `终止值 = clamp(峰值 × RecoilReturnRatio + 压枪量, min(峰值, 峰值×Ratio), max(峰值, 峰值×Ratio))` |
+| **P10 压枪量口径** | 以「本轮连发第一发的 ControlRotation」为基准，取差值的**负值**（往下压 / 往左拉为正） |
+| **P10 冻结时机** | `InstantWrite` = Accumulating→Recovering；`Interpolated` = Settle→Drop |
+| **P10 零输入回归** | 压枪量恒为 0 时逐位等于旧公式 —— 既有 30 个用例、3 份 Golden **一个都没改** |
+| **两把枪的 `SingleShotMode`（2026-09-20 起）** | `DA_Recoil_Rifle_S` 与 `DA_Recoil_Rifle_7` **都是 `Interpolated`** |
 
 ---
 
@@ -210,10 +231,10 @@ Source/LyraGame/
 ├── Weapons/
 │   ├── Recoil/
 │   │   ├── LyraRecoilTypes.h          【P0】枚举与结构体契约（已冻结）
-│   │   ├── LyraRecoilProfile.h/.cpp   【P1】【P8】手感配置资产（唯一数值来源；含 Recoil|RollShake 参数组）
-│   │   ├── LyraRecoilState.h/.cpp     【P2/P4】【P8】FRecoilRuntimeState —— 纯算法层，无 UWorld 依赖
-│   │   └── LyraRecoilDebug.h/.cpp     【P2/P5】【P8】CVar + 屏幕面板 + Roll 波形面板 + 世界 DebugDraw + CSV 导出
-│   ├── LyraRangedWeaponInstance.h/.cpp 【改】持有 RecoilProfile + RecoilState；Tick 驱动；相机修改器挂载（三轴）
+│   │   ├── LyraRecoilProfile.h/.cpp   【P1】【P8】【P10】手感配置资产（唯一数值来源；含 Recoil|RollShake 与 bCompensationAwareRecovery）
+│   │   ├── LyraRecoilState.h/.cpp     【P2/P4】【P8】【P10】FRecoilRuntimeState —— 纯算法层，无 UWorld 依赖（含压枪量测量与回正扣减）
+│   │   └── LyraRecoilDebug.h/.cpp     【P2/P5】【P8】【P10】CVar + 屏幕面板（含压枪量一行）+ Roll 波形面板 + 世界 DebugDraw + CSV 导出
+│   ├── LyraRangedWeaponInstance.h/.cpp 【改】持有 RecoilProfile + RecoilState；Tick 驱动；相机修改器挂载（三轴）；【P10】SampleRecoilPlayerAim()
 │   └── LyraGameplayAbility_RangedWeapon.cpp 【改】P2 加 1 行 AddRecoil()；P3 注入弹道偏移
 ├── Camera/
 │   ├── LyraCameraModifier_WeaponRecoil.h/.cpp  【P2】【P8】只改显示层 POV（Pitch/Yaw 带 NormalizeAxis，Roll 不带）
@@ -252,6 +273,8 @@ Docs/Recoil/
 ├── 07_TuningRecipe.md             【P7】两把步枪的后坐力配方 + 手算弹道表 + 怎么改
 ├── 08_CameraRollShake.md          【P8】Roll 震屏策划案 + 实现方案 + 实时调试说明
 ├── 09_SingleShotCurveGap.md       【分析】现状单发模型 vs 参考文档 §2 四段式的逐条差异（未改代码）
+├── 10_SingleShotInterpolation.md  【P9】单发插值模型实现方案（InstantWrite / Interpolated 共存）
+├── 11_RecoveryCompensation.md     【P10】回正扣减压枪量 —— 规则 / 采样口径 / 冻结时机 / 验收
 ├── 后坐力系统调试.html             【P7】给人看的操作手册：测试步骤 / 改后坐力 / 新增枪 / Debug 开关效果
 ├── PROGRESS.md                    ← 你正在看的这份
 ├── Acceptance/P{0..5}_验收请求.md
@@ -324,6 +347,15 @@ Docs/Recoil/
 | 30 | 帧率不稳 / 低帧率怎么保证轨迹一致 | ✅ 固定子步长 `1/60` + 尾段吸附 + **刻意不做尾料冲刷**；实测相机链偏差严格 0.000000 | [10](10_SingleShotInterpolation.md) §4 |
 | 31 | `Settle` 段时长是否新开参数 | ✅ **不开**，复用 `RecoveryDelay`（大祥老师：`把稳定当成 recoverydelay 然后把这个参数干掉`） | [10](10_SingleShotInterpolation.md) §1.2 |
 | 32 | 默认插值曲线取什么形状 | ✅ `LiftCurve` 取 **Ease-Out**（快起慢收，附 5 条理由），`ReboundCurve` 线性 | [10](10_SingleShotInterpolation.md) §6.2 |
+
+### P10 新增待拍板（2026-09-20）
+
+| # | 事项 | 我的默认选择 | 影响面 |
+| --- | --- | --- | --- |
+| 33 | **yaw 轴是否也扣压枪量** —— 你拍板「两轴同规则」 | 已按「一律扣」实现 | 副作用：连发中主动拉枪追目标，回正会把视角拽回开火前的位置。若不想要，把 `bCompensationAwareRecovery` 关掉即可回到旧行为 |
+| 34 | **多轮连发时压枪量会一轮一轮垒进残留偏移**（顶到 `MaxVerticalKick` 后停住） | 先按现状，等你实测 | 见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md) §8：三个可选缓解方向（调小 Ratio / 加零位缓慢衰减 / 关开关） |
+| 35 | **压枪量的采样只认本地玩家** | 远程玩家跳过（压枪量恒 0） | 本项目不做联机，无实际影响 |
+| 36 | **两把枪统一四段式后，是否要分开调时间轴** | 目前两把共用 `0.045 / 0.030 / 0.72`（射速相同，见 §8.10） | 想区分「重枪更沉」就各改各的 `LiftDuration` |
 
 ### P7 新增待拍板（两把步枪落地带来的）
 
@@ -404,5 +436,24 @@ Docs/Recoil/
    - 资产参数在 `DA_Recoil_*` 的 `Recoil | RollShake` 分类下，共 12 个，改完 PIE 立即生效。
    - 临时试量级用 `Lyra.Recoil.RollShake <f>`（**不改资产、不污染 CSV**），满意了再写进资产。
    - 看波形用 `Lyra.Recoil.RollDebug 1`（ASCII 时间轴曲线，能直接看出衰减与回零干不干净）。
-   - **`Lyra.Recoil.RollShake 0` 后 Pitch/Yaw 必须完全不变** —— 这是"Roll 是独立通道"的判据，
-     若变了说明两条通道被意外耦合，属回归，立刻报。
+- **`Lyra.Recoil.RollShake 0` 后 Pitch/Yaw 必须完全不变** —— 这是"Roll 是独立通道"的判据，
+  若变了说明两条通道被意外耦合，属回归，立刻报。
+10. **P10（回正扣减压枪量）的速记**（完整说明见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md)）：
+    - 总闸是每把枪资产上的 `bCompensationAwareRecovery`（`Recoil → Recovery` 分类，默认开）。
+      关掉它 → 退回旧公式（`终止值 = 峰值 × Ratio`），这是最快的 A/B 手段。
+    - **压枪量只在"开始回正"那一刻冻结**：`RecoveryDelay` 之内继续压的枪也算数；
+      回正开始之后再动鼠标**不改变落点**（这是刻意的，别当成 bug）。
+    - 看数用 `Lyra.Recoil.Debug 1` —— 面板多出一行
+      `PushComp / FrozenComp / AimNow`：分别是实时压枪量、冻结快照、当前 ControlRotation。
+    - **压枪量为 0 时行为与改动前逐位一致**。所以"没压枪也觉得准星变飘了"，
+      那一定不是这套逻辑引起的，直接报。
+    - CSV **没有新增列**（7 列契约未动），压枪量只在屏幕面板上看。
+11. **2026-09-20：两把枪的单发模型统一成四段式 `Interpolated`**
+    （此前槽位 1 的 `DA_Recoil_Rifle_7` 是 `InstantWrite`）。
+    四段式的时间轴参数为 `LiftDuration = 0.045` / `ReboundDuration = 0.030` /
+    `ReboundRatio = 0.72` / `LiftCurve = Ease-Out` / `ReboundCurve = 线性`。
+    **改完 `SingleShotMode` 必须重导 Golden**（Golden 的 `singleShotMode` 是元信息字段，
+    不重导会让 `Lyra.Recoil.Pattern.Golden` 报 stale）：
+    ```powershell
+    powershell -ExecutionPolicy Bypass -File "D:\TPSGunsDemo\TPSGunsDemo\Docs\Recoil\Tools\gen-recoil-golden.ps1"
+    ```
