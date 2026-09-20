@@ -14,8 +14,8 @@
 #   powershell -ExecutionPolicy Bypass -File .\gen-recoil-golden.ps1
 
 param(
-    [string]$EngineRoot = "D:\UE_5.8",
-    [string]$Project    = "D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject"
+    [string]$EngineRoot = "E:\UE_5.8",
+    [string]$Project    = "E:\TPSGunsDemo\TPSGunsDemo.uproject"
 )
 
 $editorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"

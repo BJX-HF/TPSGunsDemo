@@ -66,6 +66,42 @@ namespace LyraRecoilAssetGen
 
 		// 垂直 Kick 曲线关键帧 (X, Y) 对
 		TArray<TPair<float, float>> VerticalKickKeys;
+
+		// ---- 散布（姿态-角度直接模型，见 Docs/Recoil/12_SpreadInProfile.md）----
+		//
+		// 结构照抄 ULyraRecoilProfile 的 "Recoil|Spread" 组，字段顺序也保持一致
+		// （这样"照着资产抄一遍"就能补一份新规格，不需要记映射关系）。
+		//
+		// bEnable 默认 false：**忘了配就是关的**。想让某把枪走资产散布必须显式打开，
+		// 这样"新增一把枪"不会因为漏配而意外换掉散布模型。
+		struct FSpreadSpec
+		{
+			bool bEnable = false;
+
+			float SpreadAngle_Standing = 0.35f;
+			float MaxSpreadAngle_Standing = 2.2f;
+			float SpreadAddPerShot_Standing = 0.28f;
+			float SpreadRecoverRate_Standing = 2.0f;
+
+			float SpreadAngle_Crouching = 0.25f;
+			float MaxSpreadAngle_Crouching = 1.6f;
+			float SpreadAddPerShot_Crouching = 0.22f;
+			float SpreadRecoverRate_Crouching = 2.4f;
+
+			float SpreadAngle_JumpingOrFalling = 2.5f;
+			float MaxSpreadAngle_JumpingOrFalling = 4.0f;
+			float SpreadAddPerShot_JumpingOrFalling = 0.35f;
+			float SpreadRecoverRate_JumpingOrFalling = 0.0f;
+
+			float SpreadMultiplier_Aiming = 0.6f;
+			float SpreadMultiplier_StandingStill = 0.5f;
+			float SpreadStandingStillSpeedThreshold = 80.0f;
+			float SpreadStandingStillToMovingRange = 20.0f;
+			float SpreadTransitionRate_StandingStill = 5.0f;
+			float SpreadRecoveryDelay = 0.0f;
+			float SpreadExponent = 1.0f;
+		};
+		FSpreadSpec Spread;
 	};
 
 	/** 用关键帧数组覆盖一条曲线资产 */
@@ -97,6 +133,23 @@ namespace LyraRecoilAssetGen
 		Spec.HorizontalRandomRange = 0.60f;
 		Spec.VerticalKickKeys = { {0.0f, 0.70f}, {4.0f, 1.00f}, {12.0f, 1.35f} };
 
+		// 散布：突击步枪 —— 站定能打、连飞快散、蹲下收紧、空中放弃
+		Spec.Spread.bEnable = true;
+		Spec.Spread.SpreadAngle_Standing = 0.35f;
+		Spec.Spread.MaxSpreadAngle_Standing = 2.20f;
+		Spec.Spread.SpreadAddPerShot_Standing = 0.28f;
+		Spec.Spread.SpreadRecoverRate_Standing = 2.00f;
+		Spec.Spread.SpreadAngle_Crouching = 0.25f;
+		Spec.Spread.MaxSpreadAngle_Crouching = 1.60f;
+		Spec.Spread.SpreadAddPerShot_Crouching = 0.22f;
+		Spec.Spread.SpreadRecoverRate_Crouching = 2.40f;
+		Spec.Spread.SpreadAngle_JumpingOrFalling = 2.50f;
+		Spec.Spread.MaxSpreadAngle_JumpingOrFalling = 4.00f;
+		Spec.Spread.SpreadAddPerShot_JumpingOrFalling = 0.35f;
+		Spec.Spread.SpreadRecoverRate_JumpingOrFalling = 0.00f;
+		Spec.Spread.SpreadMultiplier_Aiming = 0.60f;
+		Spec.Spread.SpreadMultiplier_StandingStill = 0.50f;
+
 		return Spec;
 	}
 
@@ -119,6 +172,23 @@ namespace LyraRecoilAssetGen
 		Spec.PoseMultiplier_Crouching = 0.85f;
 		Spec.PoseMultiplier_JumpingOrFalling = 1.35f;
 		Spec.VerticalKickKeys = { {0.0f, 0.85f}, {3.0f, 1.05f}, {8.0f, 1.20f} };
+
+		// 散布：手枪 —— 基础散布更大、回正更快（点射节奏下"打两枪等一下"就能收回精度）
+		Spec.Spread.bEnable = true;
+		Spec.Spread.SpreadAngle_Standing = 0.50f;
+		Spec.Spread.MaxSpreadAngle_Standing = 3.00f;
+		Spec.Spread.SpreadAddPerShot_Standing = 0.45f;
+		Spec.Spread.SpreadRecoverRate_Standing = 3.50f;
+		Spec.Spread.SpreadAngle_Crouching = 0.35f;
+		Spec.Spread.MaxSpreadAngle_Crouching = 2.20f;
+		Spec.Spread.SpreadAddPerShot_Crouching = 0.35f;
+		Spec.Spread.SpreadRecoverRate_Crouching = 4.00f;
+		Spec.Spread.SpreadAngle_JumpingOrFalling = 3.00f;
+		Spec.Spread.MaxSpreadAngle_JumpingOrFalling = 5.00f;
+		Spec.Spread.SpreadAddPerShot_JumpingOrFalling = 0.50f;
+		Spec.Spread.SpreadRecoverRate_JumpingOrFalling = 0.00f;
+		Spec.Spread.SpreadMultiplier_Aiming = 0.55f;
+		Spec.Spread.SpreadMultiplier_StandingStill = 0.45f;
 
 		return Spec;
 	}
@@ -143,6 +213,25 @@ namespace LyraRecoilAssetGen
 		Spec.PoseMultiplier_Crouching = 0.70f;
 		Spec.PoseMultiplier_JumpingOrFalling = 1.80f;
 		Spec.VerticalKickKeys = { {0.0f, 1.00f}, {2.0f, 1.15f}, {5.0f, 1.25f} };
+
+		// 散布：霰弹枪 —— 基础锥角就很大（"喷子"的本来面目），
+		// 瞄准收益小（0.85，贴脸武器不该靠 ADS 变成狙击枪），站定收益也小。
+		// 每发增量小：打第二枪时玩家基本已经看清了散布圈，不需要它继续膨胀。
+		Spec.Spread.bEnable = true;
+		Spec.Spread.SpreadAngle_Standing = 3.50f;
+		Spec.Spread.MaxSpreadAngle_Standing = 5.00f;
+		Spec.Spread.SpreadAddPerShot_Standing = 0.60f;
+		Spec.Spread.SpreadRecoverRate_Standing = 1.20f;
+		Spec.Spread.SpreadAngle_Crouching = 3.00f;
+		Spec.Spread.MaxSpreadAngle_Crouching = 4.50f;
+		Spec.Spread.SpreadAddPerShot_Crouching = 0.50f;
+		Spec.Spread.SpreadRecoverRate_Crouching = 1.40f;
+		Spec.Spread.SpreadAngle_JumpingOrFalling = 5.00f;
+		Spec.Spread.MaxSpreadAngle_JumpingOrFalling = 6.50f;
+		Spec.Spread.SpreadAddPerShot_JumpingOrFalling = 0.60f;
+		Spec.Spread.SpreadRecoverRate_JumpingOrFalling = 0.00f;
+		Spec.Spread.SpreadMultiplier_Aiming = 0.85f;
+		Spec.Spread.SpreadMultiplier_StandingStill = 0.90f;
 
 		return Spec;
 	}
@@ -180,6 +269,24 @@ namespace LyraRecoilAssetGen
 
 		Spec.VerticalKickKeys = { {0.0f, 0.72f}, {4.0f, 1.00f}, {12.0f, 1.30f} };
 
+		// 散布：与 Rifle 同族，但"插值单发 + 略慢的散布回落"组合起来就是
+		// 「抬枪看得见 + 准星收得回」的连发手感。
+		Spec.Spread.bEnable = true;
+		Spec.Spread.SpreadAngle_Standing = 0.32f;
+		Spec.Spread.MaxSpreadAngle_Standing = 2.10f;
+		Spec.Spread.SpreadAddPerShot_Standing = 0.26f;
+		Spec.Spread.SpreadRecoverRate_Standing = 2.20f;
+		Spec.Spread.SpreadAngle_Crouching = 0.24f;
+		Spec.Spread.MaxSpreadAngle_Crouching = 1.55f;
+		Spec.Spread.SpreadAddPerShot_Crouching = 0.21f;
+		Spec.Spread.SpreadRecoverRate_Crouching = 2.50f;
+		Spec.Spread.SpreadAngle_JumpingOrFalling = 2.50f;
+		Spec.Spread.MaxSpreadAngle_JumpingOrFalling = 4.00f;
+		Spec.Spread.SpreadAddPerShot_JumpingOrFalling = 0.35f;
+		Spec.Spread.SpreadRecoverRate_JumpingOrFalling = 0.00f;
+		Spec.Spread.SpreadMultiplier_Aiming = 0.60f;
+		Spec.Spread.SpreadMultiplier_StandingStill = 0.50f;
+
 		return Spec;
 	}
 
@@ -211,6 +318,23 @@ namespace LyraRecoilAssetGen
 
 		Spec.VerticalKickKeys = { {0.0f, 0.75f}, {4.0f, 1.02f}, {12.0f, 1.32f} };
 
+		// 散布：与 Rifle 同族，回正略快（配合 InstantWrite 的"干脆"定位）
+		Spec.Spread.bEnable = true;
+		Spec.Spread.SpreadAngle_Standing = 0.38f;
+		Spec.Spread.MaxSpreadAngle_Standing = 2.30f;
+		Spec.Spread.SpreadAddPerShot_Standing = 0.30f;
+		Spec.Spread.SpreadRecoverRate_Standing = 2.60f;
+		Spec.Spread.SpreadAngle_Crouching = 0.28f;
+		Spec.Spread.MaxSpreadAngle_Crouching = 1.70f;
+		Spec.Spread.SpreadAddPerShot_Crouching = 0.24f;
+		Spec.Spread.SpreadRecoverRate_Crouching = 2.80f;
+		Spec.Spread.SpreadAngle_JumpingOrFalling = 2.50f;
+		Spec.Spread.MaxSpreadAngle_JumpingOrFalling = 4.00f;
+		Spec.Spread.SpreadAddPerShot_JumpingOrFalling = 0.35f;
+		Spec.Spread.SpreadRecoverRate_JumpingOrFalling = 0.00f;
+		Spec.Spread.SpreadMultiplier_Aiming = 0.60f;
+		Spec.Spread.SpreadMultiplier_StandingStill = 0.50f;
+
 		return Spec;
 	}
 
@@ -237,6 +361,34 @@ namespace LyraRecoilAssetGen
 		Profile.PoseMultiplier_Standing = Spec.PoseMultiplier_Standing;
 		Profile.PoseMultiplier_Crouching = Spec.PoseMultiplier_Crouching;
 		Profile.PoseMultiplier_JumpingOrFalling = Spec.PoseMultiplier_JumpingOrFalling;
+
+		// ---- 散布（姿态-角度直接模型）----
+		//
+		// 逐字段照抄，不做任何换算 —— 与资产上的字段一一对应，改起来不会漏。
+		Profile.bEnableProfileSpread = Spec.Spread.bEnable;
+
+		Profile.SpreadAngle_Standing = Spec.Spread.SpreadAngle_Standing;
+		Profile.MaxSpreadAngle_Standing = Spec.Spread.MaxSpreadAngle_Standing;
+		Profile.SpreadAddPerShot_Standing = Spec.Spread.SpreadAddPerShot_Standing;
+		Profile.SpreadRecoverRate_Standing = Spec.Spread.SpreadRecoverRate_Standing;
+
+		Profile.SpreadAngle_Crouching = Spec.Spread.SpreadAngle_Crouching;
+		Profile.MaxSpreadAngle_Crouching = Spec.Spread.MaxSpreadAngle_Crouching;
+		Profile.SpreadAddPerShot_Crouching = Spec.Spread.SpreadAddPerShot_Crouching;
+		Profile.SpreadRecoverRate_Crouching = Spec.Spread.SpreadRecoverRate_Crouching;
+
+		Profile.SpreadAngle_JumpingOrFalling = Spec.Spread.SpreadAngle_JumpingOrFalling;
+		Profile.MaxSpreadAngle_JumpingOrFalling = Spec.Spread.MaxSpreadAngle_JumpingOrFalling;
+		Profile.SpreadAddPerShot_JumpingOrFalling = Spec.Spread.SpreadAddPerShot_JumpingOrFalling;
+		Profile.SpreadRecoverRate_JumpingOrFalling = Spec.Spread.SpreadRecoverRate_JumpingOrFalling;
+
+		Profile.SpreadMultiplier_Aiming = Spec.Spread.SpreadMultiplier_Aiming;
+		Profile.SpreadMultiplier_StandingStill = Spec.Spread.SpreadMultiplier_StandingStill;
+		Profile.SpreadStandingStillSpeedThreshold = Spec.Spread.SpreadStandingStillSpeedThreshold;
+		Profile.SpreadStandingStillToMovingRange = Spec.Spread.SpreadStandingStillToMovingRange;
+		Profile.SpreadTransitionRate_StandingStill = Spec.Spread.SpreadTransitionRate_StandingStill;
+		Profile.SpreadRecoveryDelay = Spec.Spread.SpreadRecoveryDelay;
+		Profile.SpreadExponent = Spec.Spread.SpreadExponent;
 
 		// ---- 单发后坐力模型 ----
 		Profile.SingleShotMode = Spec.SingleShotMode;

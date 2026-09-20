@@ -153,15 +153,27 @@ namespace LyraRecoilStatePrivate
 		// 本发的关键锚点：
 		//   Base       —— 开火那一刻的逻辑偏移，是本发所有阶段的「地面」
 		//   Peak       —— Base + 完整幅度，上抬段的终点
-		//   ReboundEnd —— 从 Peak 回弹到 Peak × ReboundRatio
-		//   SteadyEnd  —— 从 ReboundEnd 下降到 Peak × RecoilReturnRatio（残留在世界的最终值）
+		//   ReboundEnd —— 从 Peak 回弹到 `Base + 幅度 × ReboundRatio`
+		//   SteadyEnd  —— 从 ReboundEnd 下降到 `Base + 幅度 × RecoilReturnRatio`（本发在世界上的最终贡献）
+		//
+		// ★ 2026-09-20 修复：Rebound / Drop 的终点必须锚在「本发幅度」上，而不是「绝对峰值」。
+		//
+		//   旧写法 `Peak × ReboundRatio` 在**单发**场景下与 `Base + 幅度 × ReboundRatio` 完全等价
+		//   （单发 Base == 0），因此单发手感、既有曲线与全部单发用例一字不变。
+		//   但在**连发**场景下 Base ≠ 0，旧写法等于「把整条已累加偏移也乘 0.72」，
+		//   于是每发的回弹都按几何级数吃掉前面积累的后坐力：
+		//       Base(n) = 0.72 × Peak(n−1)   →   Peak(n) 收敛到 幅度/0.28，不再上涨
+		//   表现为「连发时后坐力失效 / 一动鼠标压枪后坐力就像 0」。
+		//   新写法让回弹量恒为 `幅度 × (1 − ReboundRatio)`（与打了几发无关），
+		//   连发偏移因此单调上涨，与 InstantWrite 的累加语义一致 —— 这正是
+		//   10_SingleShotInterpolation.md §7「逻辑偏移照常累加」想要的行为。
 		const float BasePitch = State.InterpBasePitch;
 		const float BaseYaw = State.InterpBaseYaw;
 		const float PeakPitch = BasePitch + State.InterpShotAmplitudePitch;
 		const float PeakYaw = BaseYaw + State.InterpShotAmplitudeYaw;
 
-		const float ReboundEndPitch = PeakPitch * Profile.ReboundRatio;
-		const float ReboundEndYaw = PeakYaw * Profile.ReboundRatio;
+		const float ReboundEndPitch = BasePitch + State.InterpShotAmplitudePitch * Profile.ReboundRatio;
+		const float ReboundEndYaw = BaseYaw + State.InterpShotAmplitudeYaw * Profile.ReboundRatio;
 
 		// 稳态终点同样要扣压枪量：Drop 段就是"回正"，它的终点必须与
 		// ApplyRecoveryStep 收尾时落的值**完全一致**，否则在 Drop 结束那一帧会跳一下。
@@ -283,20 +295,41 @@ namespace LyraRecoilStatePrivate
 		float TargetYaw = 0.0f;
 		ComputeStageTarget(State, Profile, TargetPitch, TargetYaw);
 
+		// ★ 2026-09-20 修复：上限必须先夹、再同时写进「补间输出」与「逻辑偏移」。
+		//
+		//   旧写法只对逻辑偏移 Clamp，补间输出却拿**未夹**的目标做差分累加。
+		//   一旦累加到上限（长时间连射必然发生），两者就会分叉：
+		//   逻辑偏移停在 MaxVerticalKick，补间输出继续往上涨；
+		//   等这一段走完、回正把它拉回稳态时，相机就会看到一次几度量级的跳变。
+		//   现在夹一次、两处同写，两个输出恒等，上限语义也与 InstantWrite 完全一致
+		//   （InstantWrite 的 ApplyShot 里就是对同一份值 Clamp 后拷贝给两个字段）。
+		//
+		//   这也是云文档 TPS_Recoil_Impl_v2.1 §7 强调的口径：
+		//   「上限 clamp 要作用在**总和**上，而不是逐条叠加时就夹」——
+		//   逐条夹会让后续脉冲的贡献被已饱和的值吞掉，同样表现为「到顶之后新发的后坐力消失」。
+		//
+		// ★ 2026-09-20 追加：垂直上限不再等于 MaxVerticalKick，而是
+		//   `MaxVerticalKick + 玩家压枪抵扣`。钳制的本意是「玩家压不住枪时不让镜头飞太高」，
+		//   所以该被钳的是**镜头实际抬升量（偏移 − 压枪量）**；钳裸偏移会让压枪的人
+		//   不到上限就封顶 → 体感"压着枪打着打着后坐力就没了"。见 11_BurstAccumulationFix.md §12。
+		const float VerticalLimit = State.GetEffectiveVerticalKickLimit(Profile);
+		const float ClampedPitch = FMath::Clamp(TargetPitch, -VerticalLimit, VerticalLimit);
+		const float ClampedYaw = FMath::Clamp(TargetYaw, -Profile.MaxHorizontalKick, Profile.MaxHorizontalKick);
+
 		// 「本帧增量 = 目标值 − 上一帧目标值」—— 参考文档 §2 伪码的核心两行。
 		// 之所以推增量而不是直接写绝对值：相机上玩家自己的鼠标输入也在累积，
 		// 直接设绝对值会把玩家输入冲掉。
-		State.CameraOffsetPitch += (TargetPitch - State.LastTargetPitch);
-		State.CameraOffsetYaw += (TargetYaw - State.LastTargetYaw);
+		State.CameraOffsetPitch += (ClampedPitch - State.LastTargetPitch);
+		State.CameraOffsetYaw += (ClampedYaw - State.LastTargetYaw);
 
-		State.LastTargetPitch = TargetPitch;
-		State.LastTargetYaw = TargetYaw;
+		State.LastTargetPitch = ClampedPitch;
+		State.LastTargetYaw = ClampedYaw;
 
 		// 同步逻辑偏移：让它始终等于「本阶段当前的目标值」。
 		// 这样峰值/回正/弹道链/CSV/Golden 读到的都是「这一刻后坐力应该在哪」，
 		// 语义与 InstantWrite 模式完全一致 —— 两个模式只在**相机怎么跟上**这件事上不同。
-		State.AccumulatedPitch = FMath::Clamp(TargetPitch, -Profile.MaxVerticalKick, Profile.MaxVerticalKick);
-		State.AccumulatedYaw = FMath::Clamp(TargetYaw, -Profile.MaxHorizontalKick, Profile.MaxHorizontalKick);
+		State.AccumulatedPitch = ClampedPitch;
+		State.AccumulatedYaw = ClampedYaw;
 
 		// --- 3) 阶段推进 ---
 		if (State.StageElapsed >= StageDuration)
@@ -321,6 +354,9 @@ namespace LyraRecoilStatePrivate
 				State.StageElapsed = 0.0f;
 				State.RecoveryPeakPitch = PeakPitch;
 				State.RecoveryPeakYaw = PeakYaw;
+				// ★ 基底必须一并带上，否则回正会把整条已累加偏移一起衰减掉（见 ApplyRecoveryStep）。
+				State.RecoveryBasePitch = State.InterpBasePitch;
+				State.RecoveryBaseYaw = State.InterpBaseYaw;
 				State.RecoveryElapsed = Profile.RecoveryTime;
 				State.State = ERecoilState::Recovering;
 				ApplyRecoveryStep(State, Profile);
@@ -443,6 +479,15 @@ float FRecoilRuntimeState::ComputePoseMultiplier(const ULyraRecoilProfile& Profi
 	return PoseMultiplier * AimingMultiplier;
 }
 
+float FRecoilRuntimeState::GetEffectiveVerticalKickLimit(const ULyraRecoilProfile& Profile) const
+{
+	// 抵扣量夹在 [0, MaxVerticalKick]：既不允许负抵扣（负值已在 setter 里被夹成 0），
+	// 也留一个"裸偏移硬顶 = 2 × MaxVerticalKick"的安全阀 ——
+	// 否则玩家把视角一路压到底时，本梭结束后回正要从一个很大的值往回走，会甩镜头。
+	const float Credit = FMath::Min(AimCompensationPitch, Profile.MaxVerticalKick);
+	return Profile.MaxVerticalKick + Credit;
+}
+
 void FRecoilRuntimeState::Reset(const ULyraRecoilProfile* Profile)
 {
 	ShotIndex = 0;
@@ -452,6 +497,11 @@ void FRecoilRuntimeState::Reset(const ULyraRecoilProfile* Profile)
 	CameraOffsetYaw = 0.0f;
 	RecoveryPeakPitch = 0.0f;
 	RecoveryPeakYaw = 0.0f;
+	RecoveryBasePitch = 0.0f;
+	RecoveryBaseYaw = 0.0f;
+	RecoveryCoverPitch = 0.0f;
+	// 压枪抵扣由武器实例每帧重写，这里清零只是保证"没驱动方时 = 旧行为"。
+	AimCompensationPitch = 0.0f;
 	RecoveryElapsed = 0.0f;
 	RecoveryProgress = 0.0f;
 	TimeSinceLastFire = 0.0f;
@@ -488,6 +538,101 @@ void FRecoilRuntimeState::Reset(const ULyraRecoilProfile* Profile)
 	State = ERecoilState::Idle;
 	ActiveSeed = ResolveSeed(Profile);
 	ShotHistory.Reset();
+
+	// 散布：清零后按"站定"给一个合法的初始锥角，而不是留 0。
+	//
+	// 留 0 会导致"刚换枪的那一帧准星显示满精度"——因为状态在 OnEquipped 里
+	// 就 Reset 了，而第一次 AdvanceSpread 要等到下一个 Tick 才跑。虽然只有一帧，
+	// 但换枪瞬间的准星跳变是肉眼可见的（HUD 读的就是这个值）。
+	ResetSpread();
+	if ((Profile != nullptr) && Profile->bEnableProfileSpread)
+	{
+		const FRecoilSpreadParams Params = Profile->GetSpreadParams(EPoseState::Standing);
+		CurrentSpreadParams = Params;
+		CurrentSpreadBaseAngle = Params.BaseAngleDegrees;
+		CurrentSpreadMaxAngle = Params.MaxAngleDegrees;
+		CurrentSpreadAngle = Params.BaseAngleDegrees;
+	}
+}
+
+void FRecoilRuntimeState::ResetSpread()
+{
+	CurrentSpreadAngle = 0.0f;
+	CurrentSpreadBaseAngle = 0.0f;
+	CurrentSpreadMaxAngle = 0.0f;
+	CurrentSpreadParams = FRecoilSpreadParams();
+	SpreadAimingMultiplier = 1.0f;
+	SpreadMovementMultiplier = 1.0f;
+	PendingShotSpreadAngle = 0.0f;
+	LastSpreadAngle = 0.0f;
+}
+
+// ---------------------------------------------------------------------------
+// 散布（姿态-角度直接模型，见 Docs/Recoil/12_SpreadInProfile.md）
+// ---------------------------------------------------------------------------
+
+void FRecoilRuntimeState::ApplySpreadShot(const ULyraRecoilProfile* Profile, EPoseState PoseState)
+{
+	if ((Profile == nullptr) || !Profile->bEnableProfileSpread)
+	{
+		// 未启用资产散布 → 完全不动手，把散布留给 Lyra 原生 heat 链路。
+		return;
+	}
+
+	const FRecoilSpreadParams Params = Profile->GetSpreadParams(PoseState);
+	CurrentSpreadParams = Params;
+	CurrentSpreadBaseAngle = Params.BaseAngleDegrees;
+	CurrentSpreadMaxAngle = Params.MaxAngleDegrees;
+
+	// 基础角是"地板"：第一次开火从基础角起步，而不是从 0 起步。
+	// （Reset 已经给过一次初值，但换姿态后 Base 可能变高，这里再兜一次。）
+	if (CurrentSpreadAngle < CurrentSpreadBaseAngle)
+	{
+		CurrentSpreadAngle = CurrentSpreadBaseAngle;
+	}
+
+	CurrentSpreadAngle = FMath::Clamp(
+		CurrentSpreadAngle + Params.AddPerShotDegrees,
+		CurrentSpreadBaseAngle,
+		CurrentSpreadMaxAngle);
+
+	LastSpreadAngle = GetEffectiveSpreadAngle();
+}
+
+void FRecoilRuntimeState::AdvanceSpread(const ULyraRecoilProfile* Profile, float DeltaSeconds, EPoseState PoseState)
+{
+	if ((Profile == nullptr) || !Profile->bEnableProfileSpread || (DeltaSeconds <= 0.0f))
+	{
+		return;
+	}
+
+	// 姿态每帧重新解析：蹲下 / 起立 / 起跳会立刻换一组 Base/Max/RecoverRate。
+	// 这里是"蹲下马上变准"这条手感的唯一实现点。
+	const FRecoilSpreadParams Params = Profile->GetSpreadParams(PoseState);
+	CurrentSpreadBaseAngle = Params.BaseAngleDegrees;
+	CurrentSpreadMaxAngle = Params.MaxAngleDegrees;
+	CurrentSpreadParams = Params;
+
+	// 换姿态时新基础角可能**高于**当前锥角（例：站起来 Base 0.25 → 0.35，而当前只有 0.3）。
+	// 先抬到新基础角，避免出现"锥角低于基础角"这种自相矛盾的状态。
+	if (CurrentSpreadAngle < CurrentSpreadBaseAngle)
+	{
+		CurrentSpreadAngle = CurrentSpreadBaseAngle;
+	}
+
+	// 停火延迟内不回落：保持连射末端的锥角（点射节奏下这一条是"手感的停顿感"来源）。
+	if (TimeSinceLastFire <= Profile->SpreadRecoveryDelay)
+	{
+		CurrentSpreadAngle = FMath::Clamp(CurrentSpreadAngle, CurrentSpreadBaseAngle, CurrentSpreadMaxAngle);
+		return;
+	}
+
+	if (Params.RecoverRateDegreesPerSecond > 0.0f)
+	{
+		CurrentSpreadAngle -= Params.RecoverRateDegreesPerSecond * DeltaSeconds;
+	}
+
+	CurrentSpreadAngle = FMath::Clamp(CurrentSpreadAngle, CurrentSpreadBaseAngle, CurrentSpreadMaxAngle);
 }
 
 void FRecoilRuntimeState::ClearHistory()
@@ -620,6 +765,11 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 		// 子步累加器清零：新发的时间轴从零开始计时。
 		// 保留旧零头会让第一发莫名其妙地多走一点时间（射速快时尤其明显）。
 		SubStepAccumulator = 0.0f;
+
+		// ★ 本发基底 = 回正基底。回正目标 = 基底 + 本发贡献 × 回正比，
+		//   所以「连发累加出来的偏移」永远不会被本发的回弹/回正吃掉。
+		RecoveryBasePitch = InterpBasePitch;
+		RecoveryBaseYaw = InterpBaseYaw;
 	}
 	else
 	{
@@ -629,13 +779,22 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 		// 这是既有行为，一字未改 —— 既有 24 个测试、3 份 Golden 数据、CSV 契约
 		// 全部建立在这个语义上。
 		// ---------------------------------------------------------------------
-		AccumulatedPitch = FMath::Clamp(AccumulatedPitch + Kick.Vertical, -Profile->MaxVerticalKick, Profile->MaxVerticalKick);
+		// 垂直上限含玩家压枪抵扣（钳的是"镜头实际抬升量"，见 §12）。
+		// InstantWrite 下压枪抵扣同样生效 —— 该模式下连发累加是 100%，
+		// 不抵扣的话压枪的人会一样"到 Max 就封顶"。
+		const float VerticalLimit = GetEffectiveVerticalKickLimit(*Profile);
+		AccumulatedPitch = FMath::Clamp(AccumulatedPitch + Kick.Vertical, -VerticalLimit, VerticalLimit);
 		AccumulatedYaw = FMath::Clamp(AccumulatedYaw + Kick.Horizontal, -Profile->MaxHorizontalKick, Profile->MaxHorizontalKick);
 
 		// 补间输出恒等拷贝：相机链读的是 CameraOffsetPitch/Yaw，
 		// 在瞬时写入模式下它必须与逻辑偏移完全一致，否则手感会凭空变化。
 		CameraOffsetPitch = AccumulatedPitch;
 		CameraOffsetYaw = AccumulatedYaw;
+
+		// 瞬时写入模式的回正基底恒为 0 → 回正目标退化成旧的「峰值 × 回正比」，
+		// 既有行为一字不变（Golden / CSV / 既有用例全部建立在这个模式上）。
+		RecoveryBasePitch = 0.0f;
+		RecoveryBaseYaw = 0.0f;
 	}
 
 	FRecoilShotResult Result;
@@ -647,6 +806,10 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 	Result.TimeSinceFire = TimeSincePreviousShot;
 	Result.PoseState = PoseState;
 	Result.PoseMultiplier = PoseMultiplier;
+	// ★ 散布角取的是弹道侧在**发弹那一刻**留下的快照（PendingShotSpreadAngle），
+	//   不是此刻的 CurrentSpreadAngle —— 因为 AddSpread 已经在本发之后加热过了。
+	//   未启用资产散布时这个中转字段恒为 0，本列即为 0（语义 = "这一发不吃资产散布"）。
+	Result.SpreadAngle = PendingShotSpreadAngle;
 	ShotHistory.Add(Result);
 
 	// ---------------------------------------------------------------------
@@ -757,7 +920,7 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 		//
 		// 注意这里落的是"整条时间轴的终点"，而不是"当前阶段的终点"：
 		// 长帧语义是「这段时间我们放弃实时演算」，那就应该直接呈现
-		// 这段时间走完后的最终姿态 —— 也就是稳态残留（Peak × RecoilReturnRatio）。
+		// 这段时间走完后的最终姿态 —— 也就是稳态残留（本发基底 + 本发幅度 × RecoilReturnRatio − 本梭累计压枪量）。
 		// 只推当前阶段会留下"半路态"，与"收敛"的验收目标不符。
 		if ((SubStepCount >= MaxSubStepsPerAdvance) && (SubStepAccumulator >= FixedSubStepSeconds))
 		{
@@ -776,7 +939,8 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 					*Profile, InterpBaseYaw + InterpShotAmplitudeYaw, RecoveryCompensationYaw);
 
 				// 补间输出直接落到稳态值：已经丢掉了时间，再推增量会让它与逻辑偏移脱节
-				CameraOffsetPitch = FMath::Clamp(SteadyPitch, -Profile->MaxVerticalKick, Profile->MaxVerticalKick);
+				const float VerticalLimit = GetEffectiveVerticalKickLimit(*Profile);
+				CameraOffsetPitch = FMath::Clamp(SteadyPitch, -VerticalLimit, VerticalLimit);
 				CameraOffsetYaw = FMath::Clamp(SteadyYaw, -Profile->MaxHorizontalKick, Profile->MaxHorizontalKick);
 				LastTargetPitch = CameraOffsetPitch;
 				LastTargetYaw = CameraOffsetYaw;
@@ -797,6 +961,9 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 				StageElapsed = 0.0f;
 				RecoveryPeakPitch = PeakPitch;
 				RecoveryPeakYaw = PeakYaw;
+				// ★ 基底一并带上：长帧收敛也不允许把已累加偏移衰减掉。
+				RecoveryBasePitch = InterpBasePitch;
+				RecoveryBaseYaw = InterpBaseYaw;
 				RecoveryElapsed = Profile->RecoveryTime;
 				State = ERecoilState::Recovering;
 				LyraRecoilStatePrivate::ApplyRecoveryStep(*this, *Profile);
@@ -808,6 +975,12 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 		LastSubStepCount = 0;
 	}
 
+	// ◆ 累计本梭压枪量（单调不减、停火后自然冻结）。
+	//   不直接读 AimCompensationPitch 的原因：停火后玩家必然松手，
+	//   ControlRotation 回升 ⇒ AimCompensationPitch 实时缩回 0；回正若读实时值，
+	//   目标会在回正途中跳回旧值（非单调甩镜）。
+	RecoveryCoverPitch = FMath::Max(RecoveryCoverPitch, AimCompensationPitch);
+
 	switch (State)
 	{
 	case ERecoilState::Accumulating:
@@ -818,6 +991,21 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 			// RecoveryElapsed 先补上本帧越过延迟的那部分时间，避免夹具抖动造成的进度台阶。
 			RecoveryPeakPitch = AccumulatedPitch;
 			RecoveryPeakYaw = AccumulatedYaw;
+
+			// ★ 回正基底：InstantWrite 恒为 0（= 旧公式，零行为变化）；
+			//   插值模式取「本发基底」，这样即使 RecoveryDelay 恰好撞上射速间隔、
+			//   在连发中途误触发一次回正，也不会把已累加偏移按比例吃掉。
+			if (Profile->IsInterpolatedSingleShot())
+			{
+				RecoveryBasePitch = InterpBasePitch;
+				RecoveryBaseYaw = InterpBaseYaw;
+			}
+			else
+			{
+				RecoveryBasePitch = 0.0f;
+				RecoveryBaseYaw = 0.0f;
+			}
+
 			RecoveryElapsed = TimeSinceLastFire - Profile->RecoveryDelay;
 			State = ERecoilState::Recovering;
 

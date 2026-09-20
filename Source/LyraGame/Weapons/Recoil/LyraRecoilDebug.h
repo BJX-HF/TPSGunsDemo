@@ -35,6 +35,7 @@ struct FRecoilRuntimeState;
  *   Lyra.Recoil.DebugDraw     0/1   世界内可视化
  *   Lyra.Recoil.RollShake     <f>   Roll 震动实时振幅倍率（0 = 关掉 Roll）
  *   Lyra.Recoil.RollDebug     0/1   Roll 震动的实时曲线/参数面板（独立于 Debug）
+ *   Lyra.Recoil.SpreadDebug   0/1   散布（锥角）实时面板（独立于 Debug / RollDebug）
  *   Lyra.Recoil.Dump                导出本轮连发到 Saved/RecoilDump_<timestamp>.csv
  *   Lyra.Recoil.ReloadProfile       从磁盘强制重载当前武器的资产
  */
@@ -87,6 +88,18 @@ public:
 	static bool IsRollDebugPanelEnabled();
 
 	// ---------------------------------------------------------------------
+	// CVar 取值（散布专用通道）
+	//
+	// 散布与后坐力是两件事（Lyra.Recoil.Enable 关掉后坐力时散布照常工作），
+	// 所以调试入口也独立：想把「散布有问题」和「后坐力有问题」分开排查，
+	// 就必须能只开其中一个面板。
+	// ---------------------------------------------------------------------
+
+	/** Lyra.Recoil.SpreadDebug：是否显示散布（锥角）实时面板。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Debug")
+	static bool IsSpreadDebugPanelEnabled();
+
+	// ---------------------------------------------------------------------
 	// 可视化
 	// ---------------------------------------------------------------------
 
@@ -109,6 +122,36 @@ public:
 	static void DrawRollShakeDebugPanel(const UWorld* World, const ULyraRecoilProfile* Profile, const FRecoilRuntimeState& State);
 
 	/**
+	 * 散布（锥角）实时调试面板（独立于 DrawDebugPanel / DrawRollShakeDebugPanel，
+	 * 由 Lyra.Recoil.SpreadDebug 控制）。
+	 *
+	 * 显示内容分四段：
+	 *   1) 总开关：资产散布是否启用 / 曲线来源（资产 or Lyra 原生 heat）
+	 *   2) 实时锥角：基础角 → 当前角 → 上限角，以及两条玩家倍率（瞄准 / 移动）
+	 *   3) 姿态参数快照：本姿态的 Base / Max / AddPerShot / RecoverRate
+	 *   4) 数值链：最终锥角（喂给变体锥的那个值）与它相对基础角的放大倍数
+	 *
+	 * 为什么单开一个面板：散布的问题是"准星为什么这么大 / 为什么连发到头了还不变大"，
+	 * 与后坐力的"镜头为什么飞了"是两套排查路径，混在一屏反而看不清。
+	 * 尤其是「面板显示的最终锥角」与「玩家看到的准星半径」必须能对上 —— 这一条
+	 * 是散布调试的第一判据（见 Docs/Recoil/后坐力系统调试.html §11）。
+	 *
+	 * @param NativeHeat                  Lyra 原生 heat 链路：当前 heat（资产模型下被忽略）
+	 * @param NativeSpreadAngle           Lyra 原生 heat 链路：当前基础锥角（度，全锥角）
+	 * @param NativeSpreadAngleMultiplier Lyra 原生 heat 链路：玩家侧合并倍率
+	 *
+	 * 三个 Native* 参数带默认值，是为了让"只想看资产散布"的调用方少传三个 0；
+	 * 武器实例会把 heat 链路的实时值传进来，于是同一个面板可以服务两条链路。
+	 */
+	static void DrawSpreadDebugPanel(
+		const UWorld* World,
+		const ULyraRecoilProfile* Profile,
+		const FRecoilRuntimeState& State,
+		float NativeHeat = 0.0f,
+		float NativeSpreadAngle = 0.0f,
+		float NativeSpreadAngleMultiplier = 1.0f);
+
+	/**
 	 * P5：世界内可视化。
 	 *   绿线 = 真实瞄准轴（ControlRotation，永远不受后坐力影响）
 	 *   红线 = 相机链当前偏移后的方向，也就是玩家画面上看到的那条
@@ -128,9 +171,15 @@ public:
 	 * P5：把 ShotHistory 导出成 CSV。
 	 *
 	 * 列顺序（**契约，改动需同步 Golden 数据与所有解析脚本**）：
-	 *   ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake
-	 * 前 6 列来自 FRecoilShotResult（零映射代码），末尾的 RollShake 为**开火瞬间**的
+	 *   ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake,SpreadAngle
+	 *
+	 * 前 6 列来自 FRecoilShotResult（零映射代码），第 7 列 RollShake 为**开火瞬间**的
 	 * Roll 震动值（度）—— 注意它是解析解在 t=0 的采样，不是"本发累计"，语义上与 AccumulatedPitch 不同。
+	 *
+	 * 第 8 列 SpreadAngle（P10 追加）为**本发弹道实际使用的散布锥角**（度，全锥角，含姿态/瞄准/移动倍率）。
+	 * 它同样不是"累计量"，并且是**真实存储**的（FRecoilShotResult::SpreadAngle）而不是回放的 ——
+	 * 因为散布角依赖姿态/移动/瞄准三条链路，事后无法用 ShotIndex 还原。
+	 * 未启用资产散布（ULyraRecoilProfile::bEnableProfileSpread == false）时该列恒为 0。
 	 *
 	 * 落盘路径：Saved/RecoilDump_<YYYYMMDD_HHMMSS_fff>.csv
 	 *

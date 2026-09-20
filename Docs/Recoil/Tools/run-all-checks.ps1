@@ -7,8 +7,8 @@
 #   powershell -ExecutionPolicy Bypass -File .\run-all-checks.ps1 -SkipAssets
 
 param(
-    [string]$EngineRoot = "D:\UE_5.8",
-    [string]$Project    = "D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject",
+    [string]$EngineRoot = "E:\UE_5.8",
+    [string]$Project    = "E:\TPSGunsDemo\TPSGunsDemo.uproject",
     [switch]$SkipAssets
 )
 
