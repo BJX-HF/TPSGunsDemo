@@ -133,6 +133,46 @@ struct FRecoilPatternPoint
 };
 
 /**
+ * 单个姿态下的散布参数（纯数值，角度单位）。
+ *
+ * 这是「姿态-角度直接模型」的参数单元（见 Docs/Recoil/12_SpreadInProfile.md）。
+ * 参数**形状**参考 DLC36 的 FWeaponFireParam 散布族（StandScatteringArea /
+ * StandMaxScatteringArea / StandShootAddScatter / StopFireRecoverScatterSpeed），
+ * 但单位从「0~9 的面积值」改成了**度**：
+ *
+ *   「最大散布 2.0 度」就填 2.0，不需要再做面积 → 角度的换算。
+ *
+ * 由 ULyraRecoilProfile::GetSpreadParams(EPoseState) 解析出来。算法层只认这个结构，
+ * 不认识 Profile —— 与 FCameraRollShakeParams 是同一个范式。
+ *
+ * ★ 角度口径：全部为**全锥角（直径角）**，与 Lyra 原有
+ *   `ULyraRangedWeaponInstance::CurrentSpreadAngle` 一致。
+ *   真正喂给变体锥采样时会在弹道侧 ×0.5 取半角
+ *   （LyraGameplayAbility_RangedWeapon.cpp L419）。
+ */
+USTRUCT(BlueprintType)
+struct FRecoilSpreadParams
+{
+	GENERATED_BODY()
+
+	/** 基础散布角（度，全锥角）。停火足够久之后回落到的值。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float BaseAngleDegrees = 0.0f;
+
+	/** 上限散布角（度，全锥角）。连射累加到此封顶；必须 >= BaseAngleDegrees。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float MaxAngleDegrees = 0.0f;
+
+	/** 每发增量（度）。每扣一次扳机在当前散布角上加这么多。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float AddPerShotDegrees = 0.0f;
+
+	/** 停火后的回落速率（度/秒）。0 = 打完不回正（永久残留）。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float RecoverRateDegreesPerSecond = 0.0f;
+};
+
+/**
  * 单发开火的完整结果记录。
  *
  * 纯数据、无引擎依赖，是以下三处共用的唯一契约：
@@ -178,4 +218,18 @@ struct FRecoilShotResult
 	/** 本发生效时的姿态倍率（含瞄准混合后的总倍率） */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Shot")
 	float PoseMultiplier = 1.0f;
+
+	/**
+	 * 本发弹道**实际使用**的散布角（度，全锥角，已含姿态/瞄准/移动倍率）。
+	 *
+	 * 取的是「这发子弹飞出去时那一刻的锥角」，因此它对应的是**上一次 AddSpread 之后**
+	 * 的值 —— Lyra 的既有顺序是「先按当前散布打出去，再 AddSpread 加热」（见
+	 * LyraGameplayAbility_RangedWeapon.cpp：TraceBulletsInCartridge 在前，
+	 * OnTargetDataReadyCallback 里的 AddSpread 在后），这个顺序本项目刻意保持不变。
+	 *
+	 * 未启用资产散布（ULyraRecoilProfile::bEnableProfileSpread == false）时恒为 0 ——
+	 * 此时散布由 Lyra 原生 heat 模型驱动，本字段不参与记录（见 Docs/Recoil/12_SpreadInProfile.md）。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Shot")
+	float SpreadAngle = 0.0f;
 };

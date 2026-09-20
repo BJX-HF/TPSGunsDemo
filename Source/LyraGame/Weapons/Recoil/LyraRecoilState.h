@@ -170,6 +170,64 @@ public:
 	float LastHorizontalKick = 0.0f;
 
 	// ---------------------------------------------------------------------
+	// 散布状态（Spread）—— 姿态-角度直接模型
+	//
+	// 与 Pitch/Yaw 累加链互相独立，但**共用同一个时序**（都在 Tick → UpdateRecoil 里推进），
+	// 这样一帧之内「后坐力偏移」与「散布锥角」看到的是同一个姿态与同一个 DeltaSeconds。
+	//
+	// 完整模型（详见 Docs/Recoil/12_SpreadInProfile.md）：
+	//
+	//   CurrentSpreadAngle ──每发 +AddPerShot──► 钳到 [Base, Max]
+	//                      ◄──停火 -RecoverRate×dt──
+	//
+	//   最终锥角 = CurrentSpreadAngle × SpreadAimingMultiplier × SpreadMovementMultiplier
+	//
+	// 注意 CurrentSpreadAngle 存的是**绝对角度**（不是"相对基础角的增量"）：
+	// 因为 Base/Max 会随姿态切换，存增量的话换姿态时要重新解释，容易出错。
+	// ---------------------------------------------------------------------
+
+	/** 当前散布角（度，全锥角）。含连射累加，**不含**玩家侧倍率（瞄准/移动）。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float CurrentSpreadAngle = 0.0f;
+
+	/** 当前姿态的基础散布角（度）。回落目标。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float CurrentSpreadBaseAngle = 0.0f;
+
+	/** 当前姿态的上限散布角（度）。连射封顶值。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float CurrentSpreadMaxAngle = 0.0f;
+
+	/** 最近一次开火时解析出的姿态散布参数快照（调试面板显示用）。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	FRecoilSpreadParams CurrentSpreadParams;
+
+	/** 当前瞄准倍率（由武器实例每帧写入）。调试显示用，计算最终锥角时也用它。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float SpreadAimingMultiplier = 1.0f;
+
+	/** 当前移动倍率（由武器实例每帧写入）。调试显示用，计算最终锥角时也用它。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float SpreadMovementMultiplier = 1.0f;
+
+	/**
+	 * 待记录的本发散布角（度）。
+	 *
+	 * 由弹道链（LyraGameplayAbility_RangedWeapon::TraceBulletsInCartridge）在发射前写入，
+	 * ApplyShot 时搬到 FRecoilShotResult::SpreadAngle 落进 ShotHistory。
+	 *
+	 * 为什么需要这个"中转字段"：Lyra 的既有顺序是「先按当前散布打出去 → 再 AddSpread 加热」，
+	 * 而 AddRecoil/ApplyShot 发生在 AddSpread **之后**，此刻的 CurrentSpreadAngle 已经被
+	 * 本发加热过了。直接用它会记错（记成"下一发用的值"），所以必须由弹道侧在发弹那一刻取一次快照。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float PendingShotSpreadAngle = 0.0f;
+
+	/** 本发开火瞬间的最终散布角（度，含倍率）。供面板显示与落差排查。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Spread")
+	float LastSpreadAngle = 0.0f;
+
+	// ---------------------------------------------------------------------
 	// Roll 震屏状态（独立通道，与上面的 Pitch/Yaw 累加-回正无关）
 	//
 	// 对应《FPS 相机镜头设计与实现》§2.1：开火瞬间的爆发震颤 + 后续释放。
@@ -185,13 +243,61 @@ public:
 	// 内部推进状态
 	// ---------------------------------------------------------------------
 
-	/** 进入 Recovering 时的垂直峰值，回正目标 = 本值 × RecoilReturnRatio。 */
+	/** 进入 Recovering 时的垂直峰值。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
 	float RecoveryPeakPitch = 0.0f;
 
 	/** 进入 Recovering 时的水平峰值。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
 	float RecoveryPeakYaw = 0.0f;
+
+	/**
+	 * 进入 Recovering 时「本发开始那一刻已经累加好的偏移」（度）。
+	 *
+	 * 回正目标 = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio，
+	 * 也就是「**只把本发这一下的贡献衰减掉，不衰减之前连发累加出来的偏移**」。
+	 *
+	 * ★ 2026-09-20 修复引入（见 Docs/Recoil/11_BurstAccumulationFix.md）：
+	 * 旧公式是 `RecoveryPeak × RecoilReturnRatio`（把**整条已累加偏移**乘一次回正比）。
+	 * 连发时每发的 Rebound 与回正都按这个口径把**总偏移**往低压，
+	 * 于是偏移变成「每发 × 0.72」的几何衰减、几发后就不再上涨 ——
+	 * 玩家看到的就是「连发时后坐力失效 / 变成 0」。
+	 *
+	 * InstantWrite 模式下本值恒为 0，旧公式 = 新公式，既有行为零变化；
+	 * Golden 与既有 30 个自动化用例全部建立在该模式下，不受影响。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float RecoveryBasePitch = 0.0f;
+
+	/** 进入 Recovering 时的水平基底（度）。语义同 RecoveryBasePitch。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float RecoveryBaseYaw = 0.0f;
+
+	/**
+	 * 本梭的玩家压枪量（度，向下压枪为正，恒 ≥ 0）。
+	 *
+	 * === 为什么钳制要减掉它 ===
+	 *
+	 * 垂直钳制（`MaxVerticalKick`）的本意是「**玩家压不住枪的时候，不让镜头飞太高**」——
+	 * 那被钳的量就应该是「**镜头实际抬升量**」：
+	 *
+	 *     镜头实际抬升 = 起枪点 + 偏移 − 当前瞄准 = 偏移 − 压枪量
+	 *
+	 * 所以正确形式是钳制**净值** `偏移 − 压枪量 ≤ MaxVerticalKick`，
+	 * 等价于把裸偏移的允许上限抬到 `MaxVerticalKick + 压枪量`。
+	 *
+	 * 旧代码钳的是**裸偏移**，于是压枪的人实际只拿到 `MaxVerticalKick − 压枪量` 的净抬升：
+	 * 一压枪就**不到上限就封顶**，封顶后镜头不再上抬 —— 体感就是
+	 * 「压着枪连发，打着打着后坐力就没了」。
+	 *
+	 * ★ 2026-09-20 追加（见 Docs/Recoil/11_BurstAccumulationFix.md §12）。
+	 *
+	 * 这个值由武器实例每帧写入（只有它拿得到 Pawn / Controller），算法层**只消费不推导** ——
+	 * 保持「纯数值层无 UWorld 依赖」这条硬性规则。
+	 * 默认 0 ⇒ 新旧公式逐位一致，既有 30 个用例零回归。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float AimCompensationPitch = 0.0f;
 
 	/** 回正已经进行的秒数（不含 RecoveryDelay）。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
@@ -312,11 +418,88 @@ public:
 	void SetGlobalScale(float InScale) { GlobalScale = FMath::Max(0.0f, InScale); }
 
 	/**
+	 * 设置本梭的玩家压枪量（度，向下压为正）。负值按 0 处理。
+	 *
+	 * 由武器实例每帧写入，算法层只消费（见 AimCompensationPitch 的说明）。
+	 * 默认 0 ⇒ 垂直钳制退化成旧的「裸偏移 ≤ MaxVerticalKick」，零行为变化。
+	 */
+	void SetAimCompensationPitch(float InCompensationDegrees)
+	{
+		AimCompensationPitch = FMath::Max(0.0f, InCompensationDegrees);
+	}
+
+	/**
+	 * 垂直钳制**实际生效**的上限（度）= `MaxVerticalKick + 压枪抵扣`。
+	 *
+	 * 钳制净值 `偏移 − 压枪量 ≤ MaxVerticalKick` 的等价实现。
+	 * 抵扣量夹在「1 个 MaxVerticalKick」以内，于是裸偏移的硬顶 = `2 × MaxVerticalKick` ——
+	 * 保留一个安全阀，避免本梭结束后的回正从一个离谱的值开始回落。
+	 *
+	 * 定义在 .cpp：`ULyraRecoilProfile` 在本头文件里只有前向声明。
+	 */
+	float GetEffectiveVerticalKickLimit(const ULyraRecoilProfile& Profile) const;
+
+	/**
 	 * 设置当前姿态倍率。
 	 * 弹道链（GetShotDirectionOffset）走的是"这一刻"的倍率，所以调用方在取弹道偏移
 	 * 之前必须先刷新它，否则第一发会用到上一发缓存的值。
 	 */
 	void SetPoseMultiplier(float InMultiplier) { CurrentPoseMultiplier = FMath::Max(0.0f, InMultiplier); }
+
+	// ---------------------------------------------------------------------
+	// 散布（Spread）
+	// ---------------------------------------------------------------------
+
+	/**
+	 * 设置玩家侧的两个散布倍率（瞄准 / 移动）。由武器实例每帧写入，算法层只消费。
+	 *
+	 * 做成"外部写入"而不是"内部推导"，理由与 AimCompensationPitch 完全相同：
+	 * 这两个倍率要读 Pawn 的速度与相机栈混合权重，而本结构体必须保持无 UWorld 依赖。
+	 */
+	void SetSpreadPlayerMultipliers(float InAimingMultiplier, float InMovementMultiplier)
+	{
+		SpreadAimingMultiplier = FMath::Max(0.0f, InAimingMultiplier);
+		SpreadMovementMultiplier = FMath::Max(0.0f, InMovementMultiplier);
+	}
+
+	/**
+	 * 弹道侧在发弹前取一次"本发实际使用的锥角"快照。
+	 * 见 PendingShotSpreadAngle 的说明 —— 不这样做会记成下一发的值。
+	 */
+	void SetPendingShotSpreadAngle(float InAngleDegrees)
+	{
+		PendingShotSpreadAngle = FMath::Max(0.0f, InAngleDegrees);
+	}
+
+	/**
+	 * 当前生效的**最终散布角**（度，全锥角）= CurrentSpreadAngle × 瞄准倍率 × 移动倍率。
+	 *
+	 * 这是喂给 VRandConeNormalDistribution 的值（再 ×0.5 转半角）。
+	 * 未启用资产散布时 CurrentSpreadAngle 恒为 0，本函数返回 0 —— 此时散布由
+	 * Lyra 原生 heat 链路负责，武器实例会走另一条分支。
+	 */
+	float GetEffectiveSpreadAngle() const
+	{
+		return CurrentSpreadAngle * SpreadAimingMultiplier * SpreadMovementMultiplier;
+	}
+
+	/** 记录一次开火的散布加热。Profile 为空或未启用资产散布时不改动任何状态。 */
+	void ApplySpreadShot(const ULyraRecoilProfile* Profile, EPoseState PoseState);
+
+	/**
+	 * 推进散布回落。
+	 *
+	 * 基准时刻用 TimeSinceLastFire（须先由 Advance 更新）：
+	 *   停火时间 <= SpreadRecoveryDelay → 不回落（保持当前锥角）
+	 *   之后 → 按当前姿态的 RecoverRate 线性回落，钳到 [Base, Max]
+	 *
+	 * 姿态每帧传入（而不是沿用 LastPoseState）：蹲下/起立会立刻换一组
+	 * Base/Max/RecoverRate，这正是"蹲下马上变准"这条手感的实现点。
+	 */
+	void AdvanceSpread(const ULyraRecoilProfile* Profile, float DeltaSeconds, EPoseState PoseState);
+
+	/** 清零散布状态。由 Reset 统一调用。 */
+	void ResetSpread();
 
 	// ---------------------------------------------------------------------
 	// 推进

@@ -339,6 +339,165 @@ public:
 	float PoseMultiplier_JumpingOrFalling = 1.5f;
 
 	// ---------------------------------------------------------------------
+	// 散布（Spread）—— 姿态-角度直接模型
+	//
+	// === 这一组参数在做什么 ===
+	//
+	// Lyra 原生散布是「heat → 三曲线」的间接模型：
+	//   每发把 CurrentHeat 加一点（HeatToHeatPerShotCurve）→
+	//   heat 查 HeatToSpreadCurve 得到角度 → 停火按 HeatToCoolDownPerSecondCurve 降温。
+	// 想配「最大散布 2 度」得反推曲线端点，想配「每发加 0.3 度」得反推 heat 增量，
+	// 而且**中间那层 heat 会在换枪（OnEquipped）时被初始化成 range 中点**，
+	// 于是第一发的散布不是基础值 —— 这些都不直观。
+	//
+	// 本组参数把中间层删掉，直接配角度：
+	//
+	//     CurrentSpreadAngle ──每发 +AddPerShot──► 封顶 Max
+	//                       ◄──停火 -RecoverRate×dt── Base
+	//
+	// 参数形状参考 DLC36 的 FWeaponFireParam 散布族（Stand/Move/Rush/Aim 四套），
+	// 但姿态沿用 Lyra 原有的 EPoseState 三态（站定 / 蹲伏 / 空中），
+	// 移动（站定 ↔ 跑动）不走独立姿态，而是用一组速度 ramp 倍率做插值 ——
+	// 这样不必新增枚举、不必改 FRecoilRuntimeState::ResolvePoseState，
+	// 也就不会碰任何既有测试的基线。
+	//
+	// === 开关语义 ===
+	// bEnableProfileSpread == false（默认）时，本组参数**完全不参与计算**，
+	// 散布 100% 走 Lyra 原生 heat 模型 —— 保证既有资产、既有手感零回归。
+	// 打开它，则武器实例上的 Lyra 原生散布字段（HeatToSpreadCurve 等）全部被忽略，
+	// 仅作为「关掉本开关后的回退配置」保留（标了 DeprecationMessage）。
+	//
+	// 详细设计、调参建议与验收口径见 Docs/Recoil/12_SpreadInProfile.md。
+	// ---------------------------------------------------------------------
+
+	/**
+	 * 资产散布总开关（默认 false）。
+	 *
+	 *  false = 走 Lyra 原生 heat 散布模型，本组参数全部不生效（零回归）
+	 *  true  = 走本资产的姿态-角度直接模型，武器实例上的 heat 三曲线被忽略
+	 *
+	 * 与 Lyra.Recoil.Enable 是**两件事**：那个关的是后坐力，这个管的是散布。
+	 * 所以你可以「关掉后坐力、只调散布」做 A/B 对比。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread",
+		meta = (DisplayName = "Enable Profile Spread"))
+	bool bEnableProfileSpread = false;
+
+	// ---------------- 站定（Standing）----------------
+
+	/** 站定基础散布角（度，全锥角）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float SpreadAngle_Standing = 0.35f;
+
+	/** 站定上限散布角（度，全锥角）。必须 >= SpreadAngle_Standing。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float MaxSpreadAngle_Standing = 2.2f;
+
+	/** 站定每发增量（度）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float SpreadAddPerShot_Standing = 0.28f;
+
+	/** 站定回落速率（度/秒）。0 = 永不下落。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0"))
+	float SpreadRecoverRate_Standing = 2.0f;
+
+	// ---------------- 蹲伏（Crouching）----------------
+
+	/** 蹲伏基础散布角（度，全锥角）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float SpreadAngle_Crouching = 0.25f;
+
+	/** 蹲伏上限散布角（度，全锥角）。必须 >= SpreadAngle_Crouching。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float MaxSpreadAngle_Crouching = 1.6f;
+
+	/** 蹲伏每发增量（度）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float SpreadAddPerShot_Crouching = 0.22f;
+
+	/** 蹲伏回落速率（度/秒）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0"))
+	float SpreadRecoverRate_Crouching = 2.4f;
+
+	// ---------------- 空中（JumpingOrFalling）----------------
+
+	/** 空中基础散布角（度，全锥角）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float SpreadAngle_JumpingOrFalling = 2.5f;
+
+	/** 空中上限散布角（度，全锥角）。必须 >= SpreadAngle_JumpingOrFalling。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float MaxSpreadAngle_JumpingOrFalling = 4.0f;
+
+	/** 空中每发增量（度）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+	float SpreadAddPerShot_JumpingOrFalling = 0.35f;
+
+	/** 空中回落速率（度/秒）。落地后才有意义；空中通常给 0 让它不回落。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0"))
+	float SpreadRecoverRate_JumpingOrFalling = 0.0f;
+
+	// ---------------- 玩家侧（瞄准 / 移动）----------------
+	//
+	// 这两条链路是**倍率**，乘在最终锥角上；与原 Lyra 的对应关系：
+	//   瞄准   ← SpreadAngleMultiplier_Aiming        （混合权重来自相机栈，逐帧连续）
+	//   移动   ← SpreadAngleMultiplier_StandingStill + 速度阈值 + 过渡速率
+	// 原字段有 4 个（含 3 个 TransitionRate_*），这里只保留**站定**这一路过渡，
+	// 蹲伏与空中的姿态切换是瞬时的（与后坐力侧的姿态倍率口径一致：
+	// 「每发按当下的姿态取值」，不做插值，P4 的比值断言才成立）。
+
+	/** 瞄准满时的散布倍率。实际值 = Lerp(1, 本值, AimingAlpha)，AimingAlpha 为相机混合权重。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	float SpreadMultiplier_Aiming = 0.6f;
+
+	/** 站定（速度 <= 阈值）时的散布倍率。速度升高后线性插值到 1.0。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	float SpreadMultiplier_StandingStill = 0.5f;
+
+	/** 速度阈值（cm/s）。不超过它算「站定」。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "cm/s", ClampMin = "0.0"))
+	float SpreadStandingStillSpeedThreshold = 80.0f;
+
+	/** 阈值之上的过渡带宽（cm/s）。达到 阈值+带宽 时倍率回到 1.0。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "cm/s", ClampMin = "0.0"))
+	float SpreadStandingStillToMovingRange = 20.0f;
+
+	/** 站定倍率的过渡速率（1/FInterpTo 的 InterpSpeed）。越大越跟手，0 = 瞬时。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
+		meta = (EditCondition = "bEnableProfileSpread", ClampMin = "0.0"))
+	float SpreadTransitionRate_StandingStill = 5.0f;
+
+	/** 停火后延迟多久开始回落（秒）。0 = 立即回落。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = s, ClampMin = "0.0"))
+	float SpreadRecoveryDelay = 0.0f;
+
+	/**
+	 * 散布收敛指数。喂给 VRandConeNormalDistribution 的形状参数：
+	 *   1.0 = 锥内均匀分布；> 1 = 更向中心聚拢（弹着更密集）。
+	 * 只在 bEnableProfileSpread == true 时生效（关闭时用武器实例上的同名旧字段）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
+		meta = (EditCondition = "bEnableProfileSpread", ClampMin = "0.1"))
+	float SpreadExponent = 1.0f;
+
+	// ---------------------------------------------------------------------
 	// 随机（Random）
 	// ---------------------------------------------------------------------
 
@@ -436,6 +595,37 @@ public:
 	/** 瞄准混合后的倍率：Lerp(1, PoseMultiplier_Aiming, AimingAlpha)。AimingAlpha 为 [0,1] 的相机混合权重。 */
 	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
 	float GetAimingBlendedMultiplier(float AimingAlpha) const;
+
+	// ---------------------------------------------------------------------
+	// 散布查询（姿态-角度直接模型）
+	// ---------------------------------------------------------------------
+
+	/**
+	 * 取某个姿态下的散布参数（基础角 / 上限角 / 每发增量 / 回落速率）。
+	 *
+	 * 出口处会把 Max 兜到 >= Base：资产填错时宁可让连射「一上来就顶到上限」，
+	 * 也不要让第一发被钳到一个比基础角还小的值（那会出现「开火反而更准」的怪现象）。
+	 * 资产校验（ValidateProfile）会独立报出这种配置错误。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Spread|Query")
+	FRecoilSpreadParams GetSpreadParams(EPoseState PoseState) const;
+
+	/** 瞄准倍率：Lerp(1, SpreadMultiplier_Aiming, AimingAlpha)。语义与 GetAimingBlendedMultiplier 一致。 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Spread|Query")
+	float GetSpreadAimingMultiplier(float AimingAlpha) const;
+
+	/**
+	 * 按 Pawn 速度求「站定 ↔ 移动」倍率的**目标值**（纯函数，无状态）。
+	 *
+	 * 实际值由调用方用自己的 FInterpTo 状态逼近这个目标（过渡速率见
+	 * SpreadTransitionRate_StandingStill）—— 目标值本身是纯函数才可单测。
+	 *
+	 *   速度 <= 阈值                → SpreadMultiplier_StandingStill
+	 *   阈值 < 速度 < 阈值+带宽     → 线性插值到 1.0
+	 *   速度 >= 阈值+带宽           → 1.0
+	 */
+	UFUNCTION(BlueprintPure, Category = "Recoil|Spread|Query")
+	float GetSpreadMovementMultiplierTarget(float PawnSpeed) const;
 
 	/**
 	 * 校验资产配置是否自洽。由 Lyra.Recoil.Profile.Validation 自动化测试与资产生成

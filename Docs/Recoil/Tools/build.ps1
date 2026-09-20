@@ -12,8 +12,8 @@
 #   powershell -ExecutionPolicy Bypass -File .\build.ps1 -Target LyraEditor -Config Development
 
 param(
-    [string]$EngineRoot = "D:\UE_5.8",
-    [string]$Project    = "D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject",
+    [string]$EngineRoot = "E:\UE_5.8",
+    [string]$Project    = "E:\TPSGunsDemo\TPSGunsDemo.uproject",
     [string]$Target     = "LyraEditor",
     [string]$Platform   = "Win64",
     [string]$Config     = "Development"

@@ -19,11 +19,18 @@
 
 ### 1.1 现状盘点
 
+> ⚠️ **2026-09-20 更新**：下表是 **P0（2026-09-17）立档时的勘察结果**，保留作为历史基线。
+> 其中与**散布（Spread）**相关的四行已被 **P13** 推翻 —— 散布的配置已从武器实例搬进
+> `DA_Recoil_*`，模型换成「姿态-角度直接模型」。现行口径见
+> [Recoil/12_SpreadInProfile.md](Recoil/12_SpreadInProfile.md) 与
+> [Recoil/后坐力系统调试.html §11](Recoil/后坐力系统调试.html#spread)。
+
 | 能力 | 现状 | 位置 |
 | --- | --- | --- |
-| 武器扩散/热量模型 | ✅ 已有 | `ULyraRangedWeaponInstance`：`HeatToSpreadCurve`、`HeatToHeatPerShotCurve`、`HeatToCoolDownPerSecondCurve`、`SpreadExponent` |
-| 姿态/移动精度倍率 | ✅ 已有 | 同上：`SpreadAngleMultiplier_Aiming / _StandingStill / _Crouching / _JumpingOrFalling` |
-| 首枪精准 | ✅ 已有 | `bAllowFirstShotAccuracy` |
+| 武器扩散/热量模型 | ✅ 已有 <br>**[P13] ⛔ 已废弃（标 `Spread (deprecated)`，仅作回退）** | `ULyraRangedWeaponInstance`：`HeatToSpreadCurve`、`HeatToHeatPerShotCurve`、`HeatToCoolDownPerSecondCurve`、`SpreadExponent` |
+| 姿态/移动精度倍率 | ✅ 已有 <br>**[P13] ⛔ 已废弃（迁为 `Recoil\|Spread` 的姿态角度 + ramp 倍率）** | 同上：`SpreadAngleMultiplier_Aiming / _StandingStill / _Crouching / _JumpingOrFalling` |
+| 首枪精准 | ✅ 已有 <br>**[P13] ⛔ 已废弃（新模型刻意不提供该开关）** | `bAllowFirstShotAccuracy` |
+| **散布数值进资产** | **[P13] ✅ 新增** | `ULyraRecoilProfile` → `Recoil\|Spread` 组（20 个字段）+ `FRecoilRuntimeState` 散布通道 |
 | 相机 Kick（视觉后坐力） | ❌ 缺失 | 无 CameraModifier 实现 |
 | 弹道 Pattern（可复现弹道） | ❌ 缺失 | 发射方向只有 `VRandCone` 随机扩散 |
 | 后坐力累加 / 恢复曲线 | ❌ 缺失 | 无状态机、无恢复逻辑 |
@@ -550,9 +557,20 @@ D:\TPSGunsDemo\TPSGunsDemo\Docs\RecoilDevelopmentPlan.md
 | P5 | 调试与可视化工具链 | 待验收 | ✅ 6/6 PASS | ⏳ 待确认 | 2026-09-17 | 六个交付项全部落地；新增 CSV→HTML 曲线工具；命令注册钉成断言 |
 | ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 | 决定：本项目为单机 Demo，不做联机；详见 §5「P6 — 已剔除」 |
 | P7 | 手感调参 + 固化 | 未开始 | — | — | — | 可选 |
+| **P8** | **相机镜头 Roll 震屏 + 镜头模式** | **待验收** | ✅ 编译 + 5 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/08_CameraRollShake.md](Recoil/08_CameraRollShake.md) |
+| **P9** | **单发插值模型（InstantWrite / Interpolated 两套并存）** | **待验收** | ✅ 编译 + 6 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/10_SingleShotInterpolation.md](Recoil/10_SingleShotInterpolation.md) |
+| **P10** | **连发累积失效修复（Interpolated 锚点）** | **待 PIE 手测** | ✅ 编译 + 全绿 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/11_BurstAccumulationFix.md](Recoil/11_BurstAccumulationFix.md) |
+| **P12** | **垂直钳制实时抵扣压枪量** | **待 PIE 手测** | ✅ 编译 + 37/37 全绿 | ⏳ 待确认 | 2026-09-20 | 同上 §12（编号未占 P11） |
+| **P13** | **散布并入后坐力配置表（姿态-角度直接模型）** | **待 PIE 手测** | ✅ 编译 + 37/37 全绿 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/12_SpreadInProfile.md](Recoil/12_SpreadInProfile.md)；验收请求 [Recoil/Acceptance/P13_验收请求.md](Recoil/Acceptance/P13_验收请求.md) |
 
-**累计自动化测试：19 个用例全绿**（`Lyra.Recoil.*`）。一键复跑：
-`Docs/Recoil/Tools/run-all-checks.ps1`
+**累计自动化测试：37 个用例全绿**（`Lyra.Recoil.*` = P0–P5 的 19 + P8 的 5 + P9 的 6 + P13 的 7）。
+实测证据：`Saved/Logs/TPSGunsDemo.log` 里
+`LogAutomationCommandLine: Display: ...Automation Test Queue Empty 37 tests performed.`
+一键复跑：`Docs/Recoil/Tools/run-all-checks.ps1`
+
+> **P13 的散布不体现在这 37 个用例的"后坐力"部分**：它是一套独立特性（7 个用例挂在
+> `Lyra.Recoil.Spread.*` 下）。且 **磁盘上的 5 份 `DA_Recoil_*` 资产尚未重新生成**，
+> 所以 PIE 里跑的还是旧 heat 散佈链路 —— 这是刻意的零回归默认，不是漏配。
 
 **P4 实测姿态倍率（Rifle，10 发累计垂直位移）**：站 2.9661 / 蹲 2.3729 / 空中 4.4492 / 瞄准 2.2246，
 比值与配置倍率（1.0 / 0.8 / 1.5 / 0.75）最大偏差 5e-5。

@@ -46,6 +46,24 @@ void ULyraRangedWeaponInstance::PostEditChangeProperty(struct FPropertyChangedEv
 
 void ULyraRangedWeaponInstance::UpdateDebugVisualization()
 {
+	// 资产散布模型下，调试量直接从 RecoilState 读。
+	//
+	// heat 在该模型里根本不存在，所以 Debug_MinHeat / Debug_MaxHeat 刻意写 0 ——
+	// 在 Details 面板上「MinHeat=0 MaxHeat=0 而 MinSpread 非 0」就是
+	// 「这把枪走的是资产散布」的识别特征，不用再去翻 bEnableProfileSpread。
+	if (UsesProfileSpread())
+	{
+		Debug_MinHeat = 0.0f;
+		Debug_MaxHeat = 0.0f;
+		Debug_MinSpreadAngle = RecoilState.CurrentSpreadBaseAngle;
+		Debug_MaxSpreadAngle = RecoilState.CurrentSpreadMaxAngle;
+		Debug_CurrentHeat = 0.0f;
+		Debug_CurrentSpreadAngle = RecoilState.CurrentSpreadAngle;
+		Debug_CurrentSpreadAngleMultiplier =
+			RecoilState.SpreadAimingMultiplier * RecoilState.SpreadMovementMultiplier;
+		return;
+	}
+
 	ComputeHeatRange(/*out*/ Debug_MinHeat, /*out*/ Debug_MaxHeat);
 	ComputeSpreadRange(/*out*/ Debug_MinSpreadAngle, /*out*/ Debug_MaxSpreadAngle);
 	Debug_CurrentHeat = CurrentHeat;
@@ -54,18 +72,75 @@ void ULyraRangedWeaponInstance::UpdateDebugVisualization()
 }
 #endif
 
+//////////////////////////////////////////////////////////////////////////
+// 散布查询（两条链路的唯一分叉点）
+//////////////////////////////////////////////////////////////////////////
+
+bool ULyraRangedWeaponInstance::UsesProfileSpread() const
+{
+	return (RecoilProfile != nullptr) && RecoilProfile->bEnableProfileSpread;
+}
+
+float ULyraRangedWeaponInstance::GetCalculatedSpreadAngle() const
+{
+	// 资产散布：锥角由 RecoilState 维护（含连射累加，不含玩家侧倍率）；
+	// 玩家侧倍率走 GetCalculatedSpreadAngleMultiplier()，两者在弹道侧相乘 ——
+	// 与原生链路的口径完全一致，所以 GA 与准星代码一行都不用改。
+	if (UsesProfileSpread())
+	{
+		return RecoilState.CurrentSpreadAngle;
+	}
+
+	return CurrentSpreadAngle;
+}
+
+float ULyraRangedWeaponInstance::GetCalculatedSpreadAngleMultiplier() const
+{
+	if (UsesProfileSpread())
+	{
+		// 资产模型刻意不提供"首发绝对精准"（bAllowFirstShotAccuracy 已废弃）：
+		// 想要 0 散布就把基础角配成 0，而不是靠一个隐藏开关把倍率清空 ——
+		// 后者会让「为什么准星忽然缩到 0」这类问题无从排查。
+		return RecoilState.SpreadAimingMultiplier * RecoilState.SpreadMovementMultiplier;
+	}
+
+	return bHasFirstShotAccuracy ? 0.0f : CurrentSpreadAngleMultiplier;
+}
+
+float ULyraRangedWeaponInstance::GetSpreadExponent() const
+{
+	if (UsesProfileSpread())
+	{
+		return RecoilProfile->SpreadExponent;
+	}
+
+	return SpreadExponent;
+}
+
 void ULyraRangedWeaponInstance::OnEquipped()
 {
 	Super::OnEquipped();
 
-	// Start heat in the middle
-	float MinHeatRange;
-	float MaxHeatRange;
-	ComputeHeatRange(/*out*/ MinHeatRange, /*out*/ MaxHeatRange);
-	CurrentHeat = (MinHeatRange + MaxHeatRange) * 0.5f;
+	if (UsesProfileSpread())
+	{
+		// 资产散布：锥角初值由 FRecoilRuntimeState::Reset 统一给出（见那里的说明），
+		// 这里只需要把移动倍率复位成 1.0，避免上一把枪的站定加成带过来。
+		//
+		// 刻意**不做** Lyra 那套 "heat 从 range 中点开始"的初始化 ——
+		// 那正是本项目要干掉的行为：换个弹匣第一发的散布不是基础值，无法解释。
+		SpreadMovementMultiplier = 1.0f;
+	}
+	else
+	{
+		// Start heat in the middle
+		float MinHeatRange;
+		float MaxHeatRange;
+		ComputeHeatRange(/*out*/ MinHeatRange, /*out*/ MaxHeatRange);
+		CurrentHeat = (MinHeatRange + MaxHeatRange) * 0.5f;
 
-	// Derive spread
-	CurrentSpreadAngle = HeatToSpreadCurve.GetRichCurveConst()->Eval(CurrentHeat);
+		// Derive spread
+		CurrentSpreadAngle = HeatToSpreadCurve.GetRichCurveConst()->Eval(CurrentHeat);
+	}
 
 	// Default the multipliers to 1x
 	CurrentSpreadAngleMultiplier = 1.0f;
@@ -100,7 +175,9 @@ void ULyraRangedWeaponInstance::Tick(float DeltaSeconds)
 	const bool bMinSpread = UpdateSpread(DeltaSeconds);
 	const bool bMinMultipliers = UpdateMultipliers(DeltaSeconds);
 
-	bHasFirstShotAccuracy = bAllowFirstShotAccuracy && bMinMultipliers && bMinSpread;
+	// 资产散布模型刻意不提供"首发绝对精准"，因此这里强制关掉 FSA 判定。
+	// 不这样做的话，bMinSpread 恒为 true（见 UpdateSpread）会让旧开关意外生效。
+	bHasFirstShotAccuracy = !UsesProfileSpread() && bAllowFirstShotAccuracy && bMinMultipliers && bMinSpread;
 
 	// 后坐力：推进时间轴（回正）→ 把结果推给相机链 → 数值面板
 	UpdateRecoil(DeltaSeconds);
@@ -135,6 +212,30 @@ void ULyraRangedWeaponInstance::ComputeSpreadRange(float& MinSpread, float& MaxS
 
 void ULyraRangedWeaponInstance::AddSpread()
 {
+	// ---------------------------------------------------------------------
+	// 资产散布链路（姿态-角度直接模型，见 Docs/Recoil/12_SpreadInProfile.md）
+	//
+	// ★ 注意本函数的**调用时机在 TraceBulletsInCartridge 之后**
+	//   （GA 的 OnTargetDataReadyCallback 里：TraceBulletsInCartridge 在发射流程前段，
+	//    AddSpread 在扣弹成功之后）。也就是说这里加热的是**下一发**要用的锥角，
+	//    本发用的是"加热前"的值 —— 这是 Lyra 原生语义，本项目刻意保持不变，
+	//    否则"第一发按基础散布打出去"这条最基本的手感会变。
+	//
+	//   也正因如此，FRecoilShotResult::SpreadAngle 不能在这里取，必须由弹道侧
+	//   在发弹那一刻留下快照（RecoilState.PendingShotSpreadAngle）。
+	// ---------------------------------------------------------------------
+	if (UsesProfileSpread())
+	{
+		RecoilState.ApplySpreadShot(RecoilProfile, ComputeRecoilPoseState());
+
+#if WITH_EDITOR
+		UpdateDebugVisualization();
+#endif
+		return;
+	}
+
+	// --- Lyra 原生 heat 链路（保留作为回退，见头文件里的迁移对照表）---
+
 	// Sample the heat up curve
 	const float HeatPerShot = HeatToHeatPerShotCurve.GetRichCurveConst()->Eval(CurrentHeat);
 	CurrentHeat = ClampHeat(CurrentHeat + HeatPerShot);
@@ -172,6 +273,15 @@ float ULyraRangedWeaponInstance::GetPhysicalMaterialAttenuation(const UPhysicalM
 
 bool ULyraRangedWeaponInstance::UpdateSpread(float DeltaSeconds)
 {
+	// 资产散布：加热在 AddSpread()、回落在 UpdateRecoil()，本函数无事可做。
+	//
+	// 恒返回 true 是"已到最小散布"的语义 —— 资产模型没有 FSA 开关，
+	// Tick 里已经用 !UsesProfileSpread() 把 FSA 判定整体关掉了，所以这个返回值不会被消费。
+	if (UsesProfileSpread())
+	{
+		return true;
+	}
+
 	const float TimeSinceFired = GetWorld()->TimeSince(LastFireTime);
 
 	if (TimeSinceFired > SpreadRecoveryCooldownDelay)
@@ -228,6 +338,24 @@ bool ULyraRangedWeaponInstance::UpdateMultipliers(float DeltaSeconds)
 	StandingStillMultiplier = FMath::FInterpTo(StandingStillMultiplier, MovementTargetValue, DeltaSeconds, TransitionRate_StandingStill);
 	const bool bStandingStillMultiplierAtMin = FMath::IsNearlyEqual(StandingStillMultiplier, SpreadAngleMultiplier_StandingStill, SpreadAngleMultiplier_StandingStill*0.1f);
 
+	// --- 资产散布的"移动倍率"（独立一份，不并进上面的 CombinedMultiplier）---
+	//
+	// 为什么不复用 StandingStillMultiplier：那一个会被乘进 CurrentSpreadAngleMultiplier，
+	// 而后者在资产模型下已经不再被读取（锥角走 RecoilState）。两套模型各存一份，
+	// 好处是"切换开关"这件事只影响一行判定，两个状态都不会互相污染。
+	//
+	// 阈值 / 带宽 / 过渡速率全部来自 Profile（不是本类的成员），
+	// 所以在资产上改完立刻生效，不需要重启 PIE。
+	if (UsesProfileSpread())
+	{
+		const float ProfileMovementTarget = RecoilProfile->GetSpreadMovementMultiplierTarget(PawnSpeed);
+		SpreadMovementMultiplier = FMath::FInterpTo(
+			SpreadMovementMultiplier,
+			ProfileMovementTarget,
+			DeltaSeconds,
+			RecoilProfile->SpreadTransitionRate_StandingStill);
+	}
+
 	// See if we are crouching, and if so, smoothly apply the bonus
 	const bool bIsCrouching = (CharMovementComp != nullptr) && CharMovementComp->IsCrouching();
 	const float CrouchingTargetValue = bIsCrouching ? SpreadAngleMultiplier_Crouching : 1.0f;
@@ -275,6 +403,17 @@ void ULyraRangedWeaponInstance::AddRecoil()
 	}
 
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+
+	// 新一梭的第一个：记录"起枪点"的瞄准俯仰，作为本梭压枪量的基线。
+	// 判据与 ApplyShot 内部"是否为新连发"完全一致（State == Idle ⇒ 索引归零）。
+	// 基线必须在这里取：ApplyShot 之后 State 已变成 Accumulating，而那一刻的俯仰
+	// 就是"还没被自己压枪、也没被后坐力推高"的基准。
+	if (RecoilState.State == ERecoilState::Idle)
+	{
+		float AimPitch = 0.0f;
+		BurstStartAimPitch = TryGetAimPitch(AimPitch) ? AimPitch : 0.0f;
+	}
+
 	RecoilState.ApplyShot(Profile, ComputeRecoilPoseMultiplier(), ComputeRecoilPoseState());
 }
 
@@ -295,15 +434,52 @@ FRecoilShotKick ULyraRangedWeaponInstance::GetRecoilShotDirectionOffset(int32 Sh
 		ULyraRecoilDebug::IsRecoilEnabled());
 }
 
+void ULyraRangedWeaponInstance::NotifyShotSpreadUsed(float SpreadAngleDegrees)
+{
+	RecoilState.SetPendingShotSpreadAngle(SpreadAngleDegrees);
+}
+
 void ULyraRangedWeaponInstance::UpdateRecoil(float DeltaSeconds)
 {
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+
+	// 压枪抵扣必须在 Advance 之前刷新：Advance 里的钳制（Interp 子步 / 长帧保护）
+	// 以及 ApplyShot 里的 InstantWrite 钳制都要用到它。
+	// 钳制的本意是"玩家压不住枪时不让镜头飞太高"，所以被钳的是镜头实际抬升量
+	// （偏移 − 压枪量），而不是裸偏移 —— 见 11_BurstAccumulationFix.md §12。
+	RecoilState.SetAimCompensationPitch(ComputeAimCompensationPitch());
+
 	RecoilState.Advance(RecoilProfile, DeltaSeconds);
+
+	// ---------------------------------------------------------------------
+	// 散布推进（资产模型专用）
+	//
+	// 顺序有讲究：
+	//   1) 先写玩家侧倍率 —— 这样"本帧最终生效锥角"在面板/CSV 上读到的是同一个值；
+	//   2) 再推回落 —— AdvanceSpread 依赖 TimeSinceLastFire，而它刚刚被 Advance 更新过，
+	//      所以必须排在 Advance 之后，否则用的会是上一帧的停火时长。
+	//
+	// 姿态取"当下"的姿态（与后坐力 P4 口径一致，不做插值）：蹲下/起跳立刻换一组
+	// Base/Max/RecoverRate，这正是"蹲下马上变准、跳起来立刻散"的实现点。
+	// ---------------------------------------------------------------------
+	if (UsesProfileSpread())
+	{
+		RecoilState.SetSpreadPlayerMultipliers(
+			RecoilProfile->GetSpreadAimingMultiplier(ComputeAimingAlpha()),
+			SpreadMovementMultiplier);
+
+		RecoilState.AdvanceSpread(RecoilProfile, DeltaSeconds, ComputeRecoilPoseState());
+	}
 
 	UpdateRecoilCameraModifier();
 
 	// 工具层：屏幕面板（Lyra.Recoil.Debug）+ 世界内可视化（Lyra.Recoil.DebugDraw）
 	ULyraRecoilDebug::DrawDebugPanel(GetWorld(), RecoilProfile, RecoilState);
+	// 散布面板（Lyra.Recoil.SpreadDebug）：两条链路都能显示 ——
+	// 走资产时读 RecoilState，走 Lyra 原生 heat 时读本实例上的三个成员。
+	ULyraRecoilDebug::DrawSpreadDebugPanel(
+		GetWorld(), RecoilProfile, RecoilState,
+		CurrentHeat, CurrentSpreadAngle, CurrentSpreadAngleMultiplier);
 	DrawRecoilDebug();
 }
 
@@ -341,10 +517,53 @@ float ULyraRangedWeaponInstance::ComputeRecoilPoseMultiplier() const
 	return FRecoilRuntimeState::ComputePoseMultiplier(*Profile, ComputeRecoilPoseState(), ComputeAimingAlpha());
 }
 
+bool ULyraRangedWeaponInstance::TryGetAimPitch(float& OutPitchDegrees) const
+{
+	const APawn* Pawn = GetPawn();
+	if (Pawn == nullptr)
+	{
+		return false;
+	}
+
+	const AController* Controller = Pawn->GetController();
+	if (Controller == nullptr)
+	{
+		return false;
+	}
+
+	// ControlRotation 只由玩家输入 + 相机模式驱动，**不含**后坐力偏移
+	// （偏移只在 UCameraModifier_WeaponRecoil::ModifyCamera 里加到显示层 POV）。
+	// 所以它就是"玩家自己瞄到哪"——压枪量的正确来源。
+	OutPitchDegrees = Controller->GetControlRotation().Pitch;
+	return true;
+}
+
+float ULyraRangedWeaponInstance::ComputeAimCompensationPitch() const
+{
+	// 非本梭：不抵扣。避免上一梭留下的旧基线在休火期继续放宽上限，
+	// 也保证"没开火时状态与旧行为完全一致"。
+	if (RecoilState.State == ERecoilState::Idle)
+	{
+		return 0.0f;
+	}
+
+	float AimPitch = 0.0f;
+	if (!TryGetAimPitch(AimPitch))
+	{
+		return 0.0f;
+	}
+
+	// 向下压枪 → Pitch 变小 → 差值为正（压枪量）。抬头则为负，按 0 处理。
+	return FMath::Max(0.0f, BurstStartAimPitch - AimPitch);
+}
+
 void ULyraRangedWeaponInstance::ResetRecoilState()
 {
 	RecoilState.Reset(RecoilProfile);
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
+
+	// 基线一并清零：下一梭的第一个会在 AddRecoil 里重新取。
+	BurstStartAimPitch = 0.0f;
 }
 
 ALyraPlayerCameraManager* ULyraRangedWeaponInstance::GetOwningPlayerCameraManager() const

@@ -27,6 +27,9 @@ namespace LyraRecoilDebugPrivate
 	/** Roll 面板用另一个 key，这样它与主面板可以同时显示、互不覆盖 */
 	static constexpr uint64 RollPanelMessageKey = 0x525452434F494C32ull;
 
+	/** 散布面板再用一个 key，三块面板可以同时显示（各占一小块屏幕区域） */
+	static constexpr uint64 SpreadPanelMessageKey = 0x525452434F494C33ull;
+
 	/** Roll 曲线采样的段数（时间轴 ASCII 折线用） */
 	static constexpr int32 RollCurveSamples = 48;
 
@@ -141,6 +144,23 @@ namespace LyraRecoilCVars
 		TEXT("Independent from Lyra.Recoil.Debug so both panels can be shown side by side.\n")
 		TEXT("Default: 0"),
 		ECVF_Default);
+
+	/**
+	 * 散布（锥角）实时面板。
+	 *
+	 * 同样与主面板分开：主面板回答"后坐力把镜头推到哪了"，本面板回答
+	 * "这一发的锥角是多少、它为什么这么大"。调散布时只看这一块就够了。
+	 */
+	static bool bSpreadDebugPanel = false;
+	static FAutoConsoleVariableRef CVarRecoilSpreadDebug(
+		TEXT("Lyra.Recoil.SpreadDebug"),
+		bSpreadDebugPanel,
+		TEXT("Show the live spread panel: base/current/max cone angle, aim & movement multipliers,\n")
+		TEXT("active pose params (base/max/add-per-shot/recover-rate) and the final cone angle fed to the trace.\n")
+		TEXT("Works for both models: the profile-driven one (ULyraRecoilProfile.bEnableProfileSpread)\n")
+		TEXT("and the legacy Lyra heat model (the panel then reports heat-based numbers).\n")
+		TEXT("Default: 0"),
+		ECVF_Default);
 }
 
 bool ULyraRecoilDebug::IsRecoilEnabled()
@@ -171,6 +191,11 @@ float ULyraRecoilDebug::GetRollShakeScale()
 bool ULyraRecoilDebug::IsRollDebugPanelEnabled()
 {
 	return LyraRecoilCVars::bRollDebugPanel;
+}
+
+bool ULyraRecoilDebug::IsSpreadDebugPanelEnabled()
+{
+	return LyraRecoilCVars::bSpreadDebugPanel;
 }
 
 FString ULyraRecoilDebug::GetLastDumpPath()
@@ -205,12 +230,18 @@ void ULyraRecoilDebug::DrawDebugPanel(const UWorld* World, const ULyraRecoilProf
 		State.LastVerticalKick,
 		State.LastHorizontalKick);
 
+	// CapV = 垂直钳制**实际生效**的上限（= MaxVerticalKick + 压枪抵扣，见 11_BurstAccumulationFix.md §12），
+	// aimComp = 本梭玩家压枪量。排查"压着枪打到顶之后镜头不再抬"就盯这两个数：
+	//   CapV 应该随 aimComp 一起变大，Accum Pitch 应该能超过 MaxVerticalKick。
+	// 面板刻意只用 ASCII —— 引擎默认字体没有中日韩字形，中文会渲染成空白/方框。
 	const FString AccumLine = FString::Printf(
-		TEXT("  Accum Pitch=%.3f Yaw=%.3f   Cam Pitch=%.3f Yaw=%.3f"),
+		TEXT("  Accum Pitch=%.3f Yaw=%.3f   Cam Pitch=%.3f Yaw=%.3f   CapV=%.3f (aimComp +%.3f)"),
 		State.AccumulatedPitch,
 		State.AccumulatedYaw,
 		State.GetCameraPitchOffset(),
-		State.GetCameraYawOffset());
+		State.GetCameraYawOffset(),
+		(Profile != nullptr) ? State.GetEffectiveVerticalKickLimit(*Profile) : 0.0f,
+		State.AimCompensationPitch);
 
 	// 单发模型一行：模式 / 阶段 / 本帧子步数 / 阶段进度。
 	// 插值模式下这几个量是排查"轨迹为什么和预期不一样"的第一现场：
@@ -239,9 +270,25 @@ void ULyraRecoilDebug::DrawDebugPanel(const UWorld* World, const ULyraRecoilProf
 		State.ActiveSeed,
 		State.ShotHistory.Num());
 
+	// 散布一行。
+	//
+	// 为什么塞进主面板（它已经有专用面板了）：调后坐力时经常要顺带确认"这一发锥角变了没有"，
+	// 来回切 CVar 太烦。这里只给结论（当前锥角 + 两条倍率），细节留给 Lyra.Recoil.SpreadDebug。
+	const bool bProfileSpread = (Profile != nullptr) && Profile->bEnableProfileSpread;
+	const FString SpreadLine = bProfileSpread
+		? FString::Printf(
+			TEXT("  Spread cone=%.3f deg (base %.3f / max %.3f)  Aim x%.2f  Move x%.2f  ThisShot=%.3f"),
+			State.GetEffectiveSpreadAngle(),
+			State.CurrentSpreadBaseAngle,
+			State.CurrentSpreadMaxAngle,
+			State.SpreadAimingMultiplier,
+			State.SpreadMovementMultiplier,
+			State.LastSpreadAngle)
+		: FString(TEXT("  Spread cone=<Lyra native heat model>  (turn on ULyraRecoilProfile.bEnableProfileSpread to move it into the asset)"));
+
 	const FString PanelText = FString::Printf(
-		TEXT("%s\n%s\n%s\n%s\n%s\n%s"),
-		*Header, *ShotLine, *AccumLine, *InterpLine, *StateLine, *PoseLine);
+		TEXT("%s\n%s\n%s\n%s\n%s\n%s\n%s"),
+		*Header, *ShotLine, *AccumLine, *InterpLine, *StateLine, *PoseLine, *SpreadLine);
 
 	const FColor PanelColor = bEnabled ? FColor::Yellow : FColor::Silver;
 
@@ -425,6 +472,140 @@ void ULyraRecoilDebug::DrawRollShakeDebugPanel(const UWorld* World, const ULyraR
 }
 
 //////////////////////////////////////////////////////////////////////////
+// 可视化：散布（锥角）实时面板
+//////////////////////////////////////////////////////////////////////////
+
+void ULyraRecoilDebug::DrawSpreadDebugPanel(
+	const UWorld* World,
+	const ULyraRecoilProfile* Profile,
+	const FRecoilRuntimeState& State,
+	float NativeHeat,
+	float NativeSpreadAngle,
+	float NativeSpreadAngleMultiplier)
+{
+#if !UE_BUILD_SHIPPING
+	if (!LyraRecoilCVars::bSpreadDebugPanel || (World == nullptr) || (GEngine == nullptr))
+	{
+		return;
+	}
+
+	const bool bProfileSpread = (Profile != nullptr) && Profile->bEnableProfileSpread;
+	const bool bRecoilOn = LyraRecoilCVars::bRecoilEnabled;
+
+	// --- 1) 头部：哪条链路 / 资产是否启用 / 后坐力总开关 ---
+	//
+	// 这两条链路的面板值来源不同，必须先说清走的是哪一条，否则数字没有可比性：
+	//   Profile ：基础角/上限角是资产里的**直接配置值**，heat 不存在
+	//   Lyra    ：基础角来自 HeatToSpreadCurve 在 CurrentHeat 处的取值
+	const FString Header = FString::Printf(
+		TEXT("[Spread] %s   Model=%s   AssetSpread=%s   Recoil=%s"),
+		(Profile != nullptr) ? *Profile->GetName() : TEXT("<none>"),
+		bProfileSpread ? TEXT("Profile(per-pose angle)") : TEXT("Lyra(heat curves)"),
+		bProfileSpread ? TEXT("on") : TEXT("off"),
+		bRecoilOn ? TEXT("ON") : TEXT("OFF"));
+
+	// --- 2) 实时锥角 ---
+	//
+	// RawAngle   = 姿态基础角 + 连射累加（**不含**玩家倍率）—— 这就是"散布积累到哪了"
+	// Effective  = RawAngle × 瞄准倍率 × 移动倍率 —— 这才是真正喂给变体锥的值
+	//
+	// 两个都显示的理由：如果玩家看到的准星大小对不上，先看 Effective 对不对；
+	// 如果 Effective 对但准星不对，问题在 HUD 侧（准星半径 = tan(Effective × 0.5°) × 距离），
+	// 不在散布系统里 —— 这条分界线是排查的第一刀。
+	const float RawAngle = bProfileSpread ? State.CurrentSpreadAngle : NativeSpreadAngle;
+	const float BaseAngle = bProfileSpread ? State.CurrentSpreadBaseAngle : 0.0f;
+	const float MaxAngle = bProfileSpread ? State.CurrentSpreadMaxAngle : 0.0f;
+	const float AimMultiplier = bProfileSpread ? State.SpreadAimingMultiplier : 1.0f;
+	const float MoveMultiplier = bProfileSpread ? State.SpreadMovementMultiplier : 1.0f;
+	const float EffectiveCone = bProfileSpread
+		? State.GetEffectiveSpreadAngle()
+		: (NativeSpreadAngle * NativeSpreadAngleMultiplier);
+
+	const FString LiveLine = FString::Printf(
+		TEXT("  Cone: raw=%.4f deg -> effective=%.4f deg   (aim x%.3f  move x%.3f)   Heat=%.4f"),
+		RawAngle,
+		EffectiveCone,
+		AimMultiplier,
+		MoveMultiplier,
+		bProfileSpread ? 0.0f : NativeHeat);
+
+	// --- 3) 锥角条：'=' 连射累加出的部分，'b' 基础角刻度，'.' 剩余到上限的空间 ---
+	FString Bar;
+	{
+		constexpr int32 BarWidth = 32;
+		const float Reference = (MaxAngle > KINDA_SMALL_NUMBER)
+			? MaxAngle
+			: FMath::Max(EffectiveCone, KINDA_SMALL_NUMBER);
+
+		const int32 Filled = FMath::Clamp(FMath::RoundToInt((RawAngle / Reference) * BarWidth), 0, BarWidth);
+		const int32 BaseMark = FMath::Clamp(FMath::RoundToInt((BaseAngle / Reference) * BarWidth), 0, BarWidth);
+
+		for (int32 Index = 0; Index < BarWidth; ++Index)
+		{
+			if (Index == BaseMark)
+			{
+				Bar.AppendChar(TEXT('b'));
+			}
+			else if (Index < Filled)
+			{
+				Bar.AppendChar(TEXT('='));
+			}
+			else
+			{
+				Bar.AppendChar(TEXT('.'));
+			}
+		}
+	}
+
+	const FString BarLine = FString::Printf(
+		TEXT("  base=%.3f  max=%.3f   [%s]  (b=base, ==accumulated, .=headroom)"),
+		BaseAngle,
+		MaxAngle,
+		*Bar);
+
+	// --- 4) 本姿态参数快照 + 每发增量 ---
+	//
+	// 这四个数就是"手感旋钮本身"，直接摊出来可以免去"我配的到底是哪个字段"的来回翻资产。
+	// 未启用资产散布时它们没有意义（走的是曲线），所以打一行提示而不是显示 0。
+	const FString ParamLine = bProfileSpread
+		? FString::Printf(
+			TEXT("  Pose params: base=%.4f max=%.4f addPerShot=%.4f recover=%.4f deg/s (delay=%.4fs)"),
+			State.CurrentSpreadParams.BaseAngleDegrees,
+			State.CurrentSpreadParams.MaxAngleDegrees,
+			State.CurrentSpreadParams.AddPerShotDegrees,
+			State.CurrentSpreadParams.RecoverRateDegreesPerSecond,
+			(Profile != nullptr) ? Profile->SpreadRecoveryDelay : 0.0f)
+		: FString(TEXT("  Pose params: <n/a — this weapon uses the Lyra heat curves on the weapon instance>"));
+
+	// --- 5) 结算行：把"喂给变体锥的那个数"与"再转半角"写清楚 ---
+	//
+	// 单位口径是散布调试最常踩的坑：这里显示的是**全锥角（直径角）**，
+	// 而 VRandConeNormalDistribution 收的是**半角（弧度）**，
+	// 转换点就在 GA 的 `ActualSpreadAngle * 0.5f`（LyraGameplayAbility_RangedWeapon.cpp L419）。
+	// 面板直接把半角也打出来，省得每次都要在脑子里除 2。
+	const FString FinalLine = FString::Printf(
+		TEXT("  Fed to cone: %.4f deg (diametrical) = %.4f deg half-angle (%.5f rad)   Exponent=%.2f"),
+		EffectiveCone,
+		EffectiveCone * 0.5f,
+		FMath::DegreesToRadians(EffectiveCone * 0.5f),
+		(bProfileSpread && (Profile != nullptr)) ? Profile->SpreadExponent : 1.0f);
+
+	const FString PanelText = FString::Printf(
+		TEXT("%s\n%s\n%s\n%s\n%s"),
+		*Header, *LiveLine, *BarLine, *ParamLine, *FinalLine);
+
+	// 颜色：绿 = 资产散布生效中；银 = 没走资产散布（此时面板只是提示性质）
+	const FColor PanelColor = bProfileSpread ? FColor::Green : FColor::Silver;
+
+	GEngine->AddOnScreenDebugMessage(
+		static_cast<int32>(LyraRecoilDebugPrivate::SpreadPanelMessageKey),
+		0.0f,
+		PanelColor,
+		PanelText);
+#endif // !UE_BUILD_SHIPPING
+}
+
+//////////////////////////////////////////////////////////////////////////
 // 可视化：世界内 DebugDraw（P5）
 //////////////////////////////////////////////////////////////////////////
 
@@ -549,11 +730,17 @@ bool ULyraRecoilDebug::DumpShotHistoryToCsv(const ULyraRecoilProfile* Profile, c
 	Csv.Reserve(64 + History.Num() * 64);
 
 	// 表头顺序（**契约**：改动须同步所有解析脚本与 Golden 数据）
-	// 前 6 列 = FRecoilShotResult 字段顺序；第 7 列 RollShake 来自运行时状态的瞬时解。
-	Csv += TEXT("ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake\n");
+	// 前 6 列 = FRecoilShotResult 字段顺序；第 7 列 RollShake 来自运行时状态的瞬时解；
+	// 第 8 列 SpreadAngle 同样来自运行时状态的瞬时快照（弹道侧在发弹那一刻取的值）。
+	Csv += TEXT("ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake,SpreadAngle\n");
 
 	// Roll 是"每发重置时钟"的独立通道，历史里没有它 —— 但可以把每发开火瞬间的
 	// 解析解回放出来（ShotIndex 是确定性的），这样 CSV 能完整描述一次连发的三轴表现。
+	//
+	// SpreadAngle 与 RollShake 的区别：RollShake 是**回放**出来的（历史里没存），
+	// 而 SpreadAngle 是**真存了**的（FRecoilShotResult::SpreadAngle，由弹道侧在发弹那一刻
+	// 留下快照）。因为散布角依赖姿态、移动、瞄准三条链路，事后无法用 ShotIndex 还原，
+	// 必须在当时记下来。
 	for (const FRecoilShotResult& Shot : History)
 	{
 		float RollAtFire = 0.0f;
@@ -569,14 +756,15 @@ bool ULyraRecoilDebug::DumpShotHistoryToCsv(const ULyraRecoilProfile* Profile, c
 		}
 
 		Csv += FString::Printf(
-			TEXT("%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n"),
+			TEXT("%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n"),
 			Shot.ShotIndex,
 			Shot.VerticalKick,
 			Shot.HorizontalKick,
 			Shot.AccumulatedPitch,
 			Shot.AccumulatedYaw,
 			Shot.TimeSinceFire,
-			RollAtFire);
+			RollAtFire,
+			Shot.SpreadAngle);
 	}
 
 	// 带毫秒，避免同一秒内连续导出两次互相覆盖。

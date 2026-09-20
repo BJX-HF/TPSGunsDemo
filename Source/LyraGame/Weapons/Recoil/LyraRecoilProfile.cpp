@@ -185,6 +185,73 @@ float ULyraRecoilProfile::GetAimingBlendedMultiplier(float AimingAlpha) const
 }
 
 // ---------------------------------------------------------------------------
+// 散布（姿态-角度直接模型，见 Docs/Recoil/12_SpreadInProfile.md）
+// ---------------------------------------------------------------------------
+
+FRecoilSpreadParams ULyraRecoilProfile::GetSpreadParams(EPoseState PoseState) const
+{
+	FRecoilSpreadParams Params;
+
+	switch (PoseState)
+	{
+	case EPoseState::Crouching:
+		Params.BaseAngleDegrees = SpreadAngle_Crouching;
+		Params.MaxAngleDegrees = MaxSpreadAngle_Crouching;
+		Params.AddPerShotDegrees = SpreadAddPerShot_Crouching;
+		Params.RecoverRateDegreesPerSecond = SpreadRecoverRate_Crouching;
+		break;
+
+	case EPoseState::JumpingOrFalling:
+		Params.BaseAngleDegrees = SpreadAngle_JumpingOrFalling;
+		Params.MaxAngleDegrees = MaxSpreadAngle_JumpingOrFalling;
+		Params.AddPerShotDegrees = SpreadAddPerShot_JumpingOrFalling;
+		Params.RecoverRateDegreesPerSecond = SpreadRecoverRate_JumpingOrFalling;
+		break;
+
+	case EPoseState::Standing:
+	default:
+		Params.BaseAngleDegrees = SpreadAngle_Standing;
+		Params.MaxAngleDegrees = MaxSpreadAngle_Standing;
+		Params.AddPerShotDegrees = SpreadAddPerShot_Standing;
+		Params.RecoverRateDegreesPerSecond = SpreadRecoverRate_Standing;
+		break;
+	}
+
+	// 自洽性兜底（资产校验会独立报错，这里只是不让错误配置把运行时搞成负区间）
+	Params.BaseAngleDegrees = FMath::Max(0.0f, Params.BaseAngleDegrees);
+	Params.MaxAngleDegrees = FMath::Max(Params.MaxAngleDegrees, Params.BaseAngleDegrees);
+	Params.AddPerShotDegrees = FMath::Max(0.0f, Params.AddPerShotDegrees);
+	Params.RecoverRateDegreesPerSecond = FMath::Max(0.0f, Params.RecoverRateDegreesPerSecond);
+
+	return Params;
+}
+
+float ULyraRecoilProfile::GetSpreadAimingMultiplier(float AimingAlpha) const
+{
+	const float Alpha = FMath::Clamp(AimingAlpha, 0.0f, 1.0f);
+	return FMath::Lerp(1.0f, SpreadMultiplier_Aiming, Alpha);
+}
+
+float ULyraRecoilProfile::GetSpreadMovementMultiplierTarget(float PawnSpeed) const
+{
+	const float Threshold = FMath::Max(0.0f, SpreadStandingStillSpeedThreshold);
+	const float Range = FMath::Max(0.0f, SpreadStandingStillToMovingRange);
+	const float StillMultiplier = SpreadMultiplier_StandingStill;
+
+	// 退化区间（带宽为 0）必须显式处理 —— FMath::GetMappedRangeValueClamped 面对
+	// min == max 的输入区间会得到一个无意义的映射值。
+	if (Range <= KINDA_SMALL_NUMBER)
+	{
+		return (PawnSpeed <= Threshold) ? StillMultiplier : 1.0f;
+	}
+
+	return FMath::GetMappedRangeValueClamped(
+		/*InputRange=*/ FVector2D(Threshold, Threshold + Range),
+		/*OutputRange=*/ FVector2D(StillMultiplier, 1.0f),
+		/*Alpha=*/ PawnSpeed);
+}
+
+// ---------------------------------------------------------------------------
 // Roll 震屏（独立通道，见 LyraCameraShakeTypes.h / LyraCameraRollShake.h）
 //
 // 注意：这里**没有** GetRollShakeDecayAlpha。
@@ -388,6 +455,91 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 	CheckMultiplier(TEXT("PoseMultiplier_Standing"), PoseMultiplier_Standing);
 	CheckMultiplier(TEXT("PoseMultiplier_Crouching"), PoseMultiplier_Crouching);
 	CheckMultiplier(TEXT("PoseMultiplier_JumpingOrFalling"), PoseMultiplier_JumpingOrFalling);
+
+	// --- 散布（只在总开关打开时校验）---
+	//
+	// 与 SingleShot 的处理口径一致：开关关闭时这组参数不参与任何计算，
+	// 报了错只会误导策划去改一个不影响手感的旋钮。
+	if (bEnableProfileSpread)
+	{
+		auto CheckSpreadPose = [&](const TCHAR* PoseName, const FRecoilSpreadParams& Params)
+		{
+			if (Params.BaseAngleDegrees < 0.0f)
+			{
+				OutErrors.Add(FString::Printf(TEXT("%s SpreadAngle_%s = %.4f must not be negative"),
+					*Prefix, PoseName, Params.BaseAngleDegrees));
+			}
+			if (Params.MaxAngleDegrees < Params.BaseAngleDegrees)
+			{
+				// 上限低于基础角时，连射第一发就会被钳到上限以下 —— 表现为「开枪反而更准」
+				OutErrors.Add(FString::Printf(TEXT("%s MaxSpreadAngle_%s = %.4f must be >= SpreadAngle_%s = %.4f, "
+					"otherwise the first shot would be clamped below the base spread"),
+					*Prefix, PoseName, Params.MaxAngleDegrees, PoseName, Params.BaseAngleDegrees));
+			}
+			if (Params.AddPerShotDegrees < 0.0f)
+			{
+				OutErrors.Add(FString::Printf(TEXT("%s SpreadAddPerShot_%s = %.4f must not be negative"),
+					*Prefix, PoseName, Params.AddPerShotDegrees));
+			}
+			if (Params.RecoverRateDegreesPerSecond < 0.0f)
+			{
+				OutErrors.Add(FString::Printf(TEXT("%s SpreadRecoverRate_%s = %.4f must not be negative"),
+					*Prefix, PoseName, Params.RecoverRateDegreesPerSecond));
+			}
+		};
+
+		// 注意：这里传的是**原始字段**，不是 GetSpreadParams() 的返回值 ——
+		// 后者已经在出口处把 Max 兜到了 >= Base，直接拿它校验会把配置错误吃掉。
+		FRecoilSpreadParams RawStanding;
+		RawStanding.BaseAngleDegrees = SpreadAngle_Standing;
+		RawStanding.MaxAngleDegrees = MaxSpreadAngle_Standing;
+		RawStanding.AddPerShotDegrees = SpreadAddPerShot_Standing;
+		RawStanding.RecoverRateDegreesPerSecond = SpreadRecoverRate_Standing;
+		CheckSpreadPose(TEXT("Standing"), RawStanding);
+
+		FRecoilSpreadParams RawCrouching;
+		RawCrouching.BaseAngleDegrees = SpreadAngle_Crouching;
+		RawCrouching.MaxAngleDegrees = MaxSpreadAngle_Crouching;
+		RawCrouching.AddPerShotDegrees = SpreadAddPerShot_Crouching;
+		RawCrouching.RecoverRateDegreesPerSecond = SpreadRecoverRate_Crouching;
+		CheckSpreadPose(TEXT("Crouching"), RawCrouching);
+
+		FRecoilSpreadParams RawJumping;
+		RawJumping.BaseAngleDegrees = SpreadAngle_JumpingOrFalling;
+		RawJumping.MaxAngleDegrees = MaxSpreadAngle_JumpingOrFalling;
+		RawJumping.AddPerShotDegrees = SpreadAddPerShot_JumpingOrFalling;
+		RawJumping.RecoverRateDegreesPerSecond = SpreadRecoverRate_JumpingOrFalling;
+		CheckSpreadPose(TEXT("JumpingOrFalling"), RawJumping);
+
+		CheckMultiplier(TEXT("SpreadMultiplier_Aiming"), SpreadMultiplier_Aiming);
+		CheckMultiplier(TEXT("SpreadMultiplier_StandingStill"), SpreadMultiplier_StandingStill);
+
+		if (SpreadStandingStillSpeedThreshold < 0.0f)
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s SpreadStandingStillSpeedThreshold = %.4f must not be negative"),
+				*Prefix, SpreadStandingStillSpeedThreshold));
+		}
+		if (SpreadStandingStillToMovingRange < 0.0f)
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s SpreadStandingStillToMovingRange = %.4f must not be negative"),
+				*Prefix, SpreadStandingStillToMovingRange));
+		}
+		if (SpreadTransitionRate_StandingStill < 0.0f)
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s SpreadTransitionRate_StandingStill = %.4f must not be negative"),
+				*Prefix, SpreadTransitionRate_StandingStill));
+		}
+		if (SpreadRecoveryDelay < 0.0f)
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s SpreadRecoveryDelay = %.4f must not be negative"),
+				*Prefix, SpreadRecoveryDelay));
+		}
+		if (!(SpreadExponent >= 0.1f))
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s SpreadExponent = %.4f must be >= 0.1 "
+				"(lower values push bullets to the very edge of the cone)"), *Prefix, SpreadExponent));
+		}
+	}
 
 	return OutErrors.Num() == StartNum;
 }

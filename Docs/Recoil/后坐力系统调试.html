@@ -63,8 +63,7 @@
 <header>
   <h1>后坐力系统调试</h1>
   <div class="sub">
-    工程 <b>TPSGunsDemo</b> · UE 5.8.2 / Lyra 派生 · 关卡 <b>L_ShooterPerf</b><br>
-    适用版本：2026-09-17（两把步枪 S 型 / 7 字型落地后）
+    工程 <b>TPSGunsDemo</b> · UE 5.8.2 / Lyra 派生 · 关卡 <b>L_ShooterPerf</b>
   </div>
 </header>
 
@@ -75,18 +74,17 @@
     <li><a href="#test">完整测试步骤</a></li>
     <li><a href="#debug">Debug 开关与效果</a></li>
     <li><a href="#tune">怎么改一把枪的后坐力</a></li>
-    <li><a href="#add">怎么新增一把枪</a></li>
-    <li><a href="#ammo">射速 / 弹容 / 备弹</a></li>
     <li><a href="#trouble">排错对照表</a></li>
     <li><a href="#files">相关文件索引</a></li>
-    <li><a href="#roll"><b>Roll 震屏与实时调试</b>（P8）</a></li>
-    <li><a href="#model"><b>单发模型：现状 vs 参考文档</b>（分析，未改代码）</a></li>
+    <li><a href="#roll"><b>Roll 震屏与实时调试</b></a></li>
+    <li><a href="#model"><b>单发模型：两套并存</b>（InstantWrite / Interpolated）</a></li>
+    <li><a href="#spread"><b>散布（Spread）调试</b></a></li>
   </ol>
 </div>
 
 <h2 id="quick">1 · 30 秒速查</h2>
 
-<p>控制台（PIE 里按 <code>~</code> 打开）一共 6 个开关 + 2 个命令，全部长这样：</p>
+<p>控制台（PIE 里按 <code>~</code> 打开）里，<strong>后坐力</strong>一共 6 个开关 + 2 个命令，全部长这样：</p>
 
 <table>
   <tr><th>命令</th><th>默认</th><th>作用</th></tr>
@@ -112,7 +110,46 @@
   <span class="t">最短验证路径</span>
   重启编辑器 → 落在 <code>L_ShooterPerf</code> → PIE → <code>Lyra.Recoil.DebugDraw 1</code> → 长按左键打满 12 发 → 看黄点画出来的是不是「S」。<br>
   切到快捷栏第 2 格再打一轮 → 黄点应该变成「7」。<br>
-  Roll 震屏的验证路径见 <a href="#roll">第 9 节</a>。
+  Roll 震屏的验证路径见 <a href="#roll">第 7 节</a>。<br>
+  <strong>散布</strong>的验证路径：<code>Lyra.Recoil.SpreadDebug 1</code> → 连发 → 看
+  <code>Cone: raw</code> 是不是"每发涨 <code>addPerShot</code>、到 <code>max</code> 封顶"。
+  详见 <a href="#spread">第 9 节</a>。
+</div>
+
+<p><strong>散布（Spread）是另一套东西</strong>。它的<strong>数值配置</strong>已经并入
+<code>DA_Recoil_*</code> 的 <code>Recoil | Spread</code> 分类（和后坐力同一张表），
+但<strong>屏幕可视化</strong>仍然分两拨 —— 新面板跟着 <code>Lyra.Recoil.*</code>，
+画弹道还是得用 Lyra 原生的（<b>小写</b>）<code>lyra.Weapon.*</code>：</p>
+
+<table>
+  <tr><th>命令</th><th>默认</th><th>作用</th></tr>
+  <tr><td><code>Lyra.Recoil.SpreadDebug 0/1</code></td><td>0</td>
+      <td><strong>散布实时面板</strong>：走的是哪条链路 / 裸锥角 → 最终锥角 /
+          瞄准与移动倍率 / 当前姿态四参数 / 换算好的半角。独立于 <code>Debug</code> 与 <code>RollDebug</code>，可同开。
+          详见 <a href="#spread">§9.4</a>。</td></tr>
+  <tr><td><code>lyra.Weapon.DrawBulletTraceDuration &lt;秒&gt;</code></td><td>0</td>
+      <td><strong>看真实弹道的主要手段</strong>：把每颗弹丸的<strong>弹道</strong>画成红线（一颗一条），
+          并在发射点画一根 100cm 的黄色短参考线。散布 = 红线相对黄线的离散程度。
+          （另有"看准星张开幅度"的实时读法，见 <a href="#spread">§9.4</a>。）</td></tr>
+  <tr><td><code>lyra.Weapon.DrawBulletHitDuration &lt;秒&gt;</code></td><td>0</td>
+      <td>在弹着点画红点。</td></tr>
+  <tr><td><code>lyra.Weapon.DrawBulletHitRadius &lt;cm&gt;</code></td><td>3</td>
+      <td>上面那个红点的半径。</td></tr>
+</table>
+
+<div class="box ok">
+  <span class="t">散布最省事的一条路</span>
+  <code>Lyra.Recoil.SpreadDebug 1</code> → 面板第二行直接写着
+  <code>Cone: raw=… -&gt; effective=…</code>。准星看起来多大、弹道散成什么样，跟这两个数对不上就是有问题。<br>
+  <strong>要数值化验证"每发 +0.28°、第 7 发到顶"这类设计意图，看 CSV 第 8 列</strong>
+  （<code>Lyra.Recoil.Dump</code>），不用靠眼睛估。
+</div>
+
+<div class="box warn">
+  <span class="t">颜色会撞，先知道再开</span>
+  开了 <code>lyra.Weapon.DrawBulletTraceDuration</code> 之后，世界里会同时有<strong>两套红线、两种黄</strong>：
+  后坐力的红/黄来自 <code>Lyra.Recoil.DebugDraw</code>，Lyra 的红/黄来自上面这条命令。
+  怎么区分见 <a href="#drawcolor">§3.2 末尾的对照</a>；散布本身的调试手段全量清单在 <a href="#spread">第 9 节</a>。
 </div>
 
 <h2 id="test">2 · 完整测试步骤</h2>
@@ -133,7 +170,7 @@
   点工具栏 ▶ Play。等角色落地（这张图有 20 只 bot，第一帧会卡一下）。
   <div class="kv">
     <dt>应该看到</dt><dd>角色手上<strong>已经有枪</strong>（不用捡），准星 + 弹药 HUD 正常。</dd>
-    <dt>不通过</dt><dd>手上空着 → 见 §6 排错「A1」。</dd>
+    <dt>不通过</dt><dd>手上空着 → 见第 5 节排错「A1」。</dd>
   </div>
 </div>
 
@@ -144,7 +181,7 @@
   面板第一行会打印当前武器用的资产名。
   <div class="kv">
     <dt>应该看到</dt><dd><code>Profile=DA_Recoil_Rifle_S</code>，并且 <code>[Recoil] ON</code> 是<strong>黄色</strong>字。</dd>
-    <dt>不通过</dt><dd>显示 <code>Profile=&lt;none&gt;</code> → 武器实例没接上资产，见 §5.3。</dd>
+    <dt>不通过</dt><dd>显示 <code>Profile=&lt;none&gt;</code> → 武器实例没接上资产，见第 5 节排错。</dd>
   </div>
 </div>
 
@@ -187,8 +224,8 @@
   <div class="h"><em>6</em>导出 CSV，出对比图</div>
   <pre><code>Lyra.Recoil.Dump</code></pre>
   换枪再打一轮、再 <code>Lyra.Recoil.Dump</code> 一次，然后：
-  <pre><code>python "D:/TPSGunsDemo/TPSGunsDemo/Docs/Recoil/Tools/plot-recoil-csv.py" ^
-  "D:/TPSGunsDemo/TPSGunsDemo/Saved/RecoilDump_*.csv" -o "对比.html"</code></pre>
+  <pre><code>python "E:/TPSGunsDemo/Docs/Recoil/Tools/plot-recoil-csv.py" ^
+  "E:/TPSGunsDemo/Saved/RecoilDump_*.csv" -o "对比.html"</code></pre>
   <div class="kv">
     <dt>应该看到</dt><dd>浏览器里两条曲线明显分开，7 字型那条整体更陡、水平摆幅更大。</dd>
     <dt>注意</dt><dd><code>Dump</code> 导出的是<strong>本轮连发</strong>；开新的一轮（换枪/停火后重开）历史会清空，所以要"打一轮 → Dump 一次"。</dd>
@@ -243,7 +280,7 @@
 
 <h3>3.1 屏幕数值面板 <code>Lyra.Recoil.Debug</code></h3>
 
-<p>面板固定刷在屏幕左上角，一共 <strong>6 行</strong>（第 4 行是 2026-09-17 新增的单发模型行）：</p>
+<p>面板固定刷在屏幕左上角，一共 <strong>6 行</strong>（第 4 行是单发模型行）：</p>
 
 <pre><code>[Recoil] ON   Scale=x1.00   Profile=DA_Recoil_Rifle_S
   ShotIndex=5   Kick V=0.193 H=0.036
@@ -264,10 +301,10 @@
       <td><strong>逻辑偏移</strong>（度）。峰值 / 回正 / CSV / Golden / 测试读的都是它</td></tr>
   <tr><td><code>Cam Pitch/Yaw</code></td>
       <td><strong>相机实际偏了多少</strong>（补间输出）。<code>InstantWrite</code> 下与左边<strong>完全相等</strong>；
-          <code>Interpolated</code> 下会有斜坡，<strong>左右两个值对不上是正常的</strong>（见第 10.4 节）</td></tr>
+          <code>Interpolated</code> 下会有斜坡，<strong>左右两个值对不上是正常的</strong>（见第 8.4 节）</td></tr>
   <tr><td rowspan="4">第 4 行<br><span style="opacity:.65">（单发模型）</span></td><td><code>Mode</code></td>
       <td>这把枪用哪套单发模型：<code>InstantWrite</code> / <code>Interpolated</code>。
-          <strong>切枪对比两把枪的模型差异，就看这里</strong>（见第 10 节）</td></tr>
+          <strong>切枪对比两把枪的模型差异，就看这里</strong>（见第 8 节）</td></tr>
   <tr><td><code>Stage</code></td>
       <td>当前处于哪一段：<code>-</code>（无 · 瞬时模式下恒为 -）/ <code>Lift</code> / <code>Rebound</code> / <code>Settle</code> / <code>Drop</code></td></tr>
   <tr><td><code>SubSteps</code></td>
@@ -288,7 +325,7 @@
   <span class="t">顺手能做的两个验证</span>
   ① <strong>蹲下开火</strong> → 第 5 行 <code>x</code> 应该变 <code>0.800</code>；<br>
   ② <strong>右键瞄准时开火</strong> → 应该变 <code>0.750</code>，同一发的 <code>Kick</code> 明显更小。<br>
-  倍率是<strong>瞬时切换、不做插值</strong>，这是刻意设计（见 PROGRESS §6 第 10 条）。
+  倍率是<strong>瞬时切换、不做插值</strong>，这是刻意设计。
 </div>
 
 <h3>3.2 世界内可视化 <code>Lyra.Recoil.DebugDraw</code></h3>
@@ -314,8 +351,26 @@
 
 <div class="box warn">
   <span class="t">两个已知的"不是 bug"</span>
-  ① 绿线用的是 <code>ControlRotation</code>，不是 GA 里的 <code>CameraTowardsFocus</code>，所以是<strong>近似</strong>瞄准轴（PROGRESS §6 第 18 条）。<br>
+  ① 绿线用的是 <code>ControlRotation</code>，不是 GA 里的 <code>CameraTowardsFocus</code>，所以是<strong>近似</strong>瞄准轴。<br>
   ② DrawDebug 只在非 Shipping 构建里存在（<code>ENABLE_DRAW_DEBUG</code>），打包版没有。
+</div>
+
+<div class="box warn" id="drawcolor">
+  <span class="t">再开一条命令就撞色：Lyra 原有的弹道调试</span>
+  只要敲了 <code>lyra.Weapon.DrawBulletTraceDuration 2</code>（散布调试的唯一手段，见 <a href="#spread">第 9 节</a>），
+  世界里就会出现<strong>第二套红线与黄色图元</strong>。两者的区分办法：
+  <table style="margin-top:8px;background:transparent">
+    <tr><th>颜色</th><th>后坐力（<code>Lyra.Recoil.DebugDraw</code>）</th><th>Lyra 散布（<code>lyra.Weapon.*</code>）</th></tr>
+    <tr><td><span class="swatch" style="background:#c00"></span>红</td>
+        <td><strong>一条</strong>：相机链当前朝向，起点 = 眼睛高度，
+            长度固定 <code>1500</code>cm，粗细 <code>2.5</code></td>
+        <td><strong>每颗弹丸一条</strong>：真实弹道，起点 = 相机焦点投影处的发射点，
+            长度 = <code>MaxDamageRange</code>（默认 <code>25000</code>cm），粗细 <code>1.0</code></td></tr>
+    <tr><td><span class="swatch" style="background:#cc0"></span>黄</td>
+        <td><strong>一串点</strong>（Pin，半径 6）：<code>PatternLength</code> 发的弹道方向点阵</td>
+        <td><strong>一段短线</strong>（100cm）：发射点沿瞄准方向的参考线，粗细 <code>2.0</code></td></tr>
+  </table>
+  <strong>一句话记法：跟着枪口一起跳、且永远是同一条的是后坐力；一颗弹丸一条、乱飞的是散布。</strong>
 </div>
 
 <h3>3.3 怎么"看"后坐力而不靠感觉</h3>
@@ -381,7 +436,7 @@
   <tr><td><code>RandomSeedMode</code> / <code>FixedRandomSeed</code></td>
       <td>随机种子模式。<strong>测试与 Golden 必须用 Fixed</strong></td>
       <td>Random 模式手感更"活"，但序列不可复现</td></tr>
-  <tr><td colspan="3" style="opacity:.7"><strong>── 以下 6 项在 <code>Recoil | SingleShot</code> 分组，属于"单发模型"，详见第 10 节 ──</strong></td></tr>
+  <tr><td colspan="3" style="opacity:.7"><strong>── 以下 6 项在 <code>Recoil | SingleShot</code> 分组，属于"单发模型"，详见第 8 节 ──</strong></td></tr>
   <tr><td><code>SingleShotMode</code></td>
       <td><strong>单发模型总开关</strong>。<code>InstantWrite</code>（瞬时写入，默认）/ <code>Interpolated</code>（插值，带四段顿挫）</td>
       <td>切到 <code>Interpolated</code> 才有下面 5 项；<strong>改完要重导 Golden</strong></td></tr>
@@ -423,7 +478,7 @@
   <tr><td>更依赖压枪（竞技向）</td><td><code>RecoilReturnRatio</code> → 0</td></tr>
   <tr><td>蹲下更稳 / 跳着更飘</td><td><code>PoseMultiplier_Crouching</code> / <code>PoseMultiplier_JumpingOrFalling</code></td></tr>
   <tr><td>只想临时试个量级，不想动资产</td><td><code>Lyra.Recoil.Scale 0.5</code>，满意了再写进资产</td></tr>
-  <tr><td colspan="2" style="opacity:.7"><strong>── 单发模型相关（第 10 节） ──</strong></td></tr>
+  <tr><td colspan="2" style="opacity:.7"><strong>── 单发模型相关（第 8 节） ──</strong></td></tr>
   <tr><td>单发想要「抬起来 → 回弹一下 → 稳住」的顿挫</td>
       <td><code>SingleShotMode = Interpolated</code> → 再调 <code>ReboundRatio</code>（越小越深）+ <code>ReboundDuration</code></td></tr>
   <tr><td>斜坡抬得太慢 / 太急</td><td><code>LiftDuration</code>（0.02 ~ 0.06 区间试手感）+ <code>LiftCurve</code></td></tr>
@@ -436,230 +491,15 @@
   <li><strong>不用</strong>敲 <code>Lyra.Recoil.ReloadProfile</code> —— PIE 和编辑器同进程共享同一个 UObject，改完下一帧就生效。</li>
   <li>如果改的是 <code>DA_Recoil_Rifle</code>（Golden 基准那份），必须重导 Golden，否则
       <code>Lyra.Recoil.Pattern.Golden</code> 会 FAIL 并提示 stale：
-      <pre><code>powershell -ExecutionPolicy Bypass -File "D:\TPSGunsDemo\TPSGunsDemo\Docs\Recoil\Tools\gen-recoil-golden.ps1"</code></pre>
+      <pre><code>powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\gen-recoil-golden.ps1"</code></pre>
       改 <code>DA_Recoil_Rifle_S</code> / <code>_7</code> <strong>不需要</strong>（它们不进 Golden）。</li>
   <li>如果改了姿态倍率或单发基准，<code>Docs/Recoil/04_PoseMatrix.md</code> 的实测表要重跑更新。</li>
   <li>改完跑一遍自动化测试（编辑器开着就行）：
       <pre><code>AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")</code></pre>
-      预期 <strong>19/19</strong>。</li>
+      预期 <strong>37/37</strong>。</li>
 </ol>
 
-<h2 id="add">5 · 怎么新增一把枪</h2>
-
-<p>先分清两种需求，工作量差一个数量级：</p>
-
-<table>
-  <tr><th>需求</th><th>做法</th><th>要动几个资产</th></tr>
-  <tr><td><strong>A. 只换后坐力</strong>（模型/动画/伤害/开火方式全沿用现有步枪）</td>
-      <td>复制「后坐力资产 + 武器链」三件套</td><td>3 个（复制品）+ 1 个新后坐力资产</td></tr>
-  <tr><td><strong>B. 真·新枪</strong>（不同模型/动画/伤害/弹匣）</td>
-      <td>A 的基础上再换 <code>B_Rifle</code> 模型、<code>AbilitySet</code>、伤害 GE</td><td>6~10 个</td></tr>
-</table>
-
-<p>下面走 <strong>A</strong>，用"再加一把 7 字型但更飘的枪"当例子。全程在编辑器的内容浏览器里右键复制即可。</p>
-
-<h3>5.1 理清一条武器链的四层</h3>
-
-<pre><code>ID_xxx         InventoryItemDefinition       快捷栏里"那件东西"（图标、显示名、指向装备定义）
-  └─ WID_xxx   EquipmentDefinition            装备定义：生成哪个 Instance、挂哪些 Actor、授哪些能力
-       ├─ InstanceType  → B_WeaponInstance_xxx   武器实例（★ 后坐力资产就挂在这一层）
-       └─ ActorsToSpawn → B_Rifle              枪本体（模型 + 动画 + 挂点武器插槽）
-
-后坐力资产 DA_Recoil_xxx    ← 挂在 B_WeaponInstance_xxx 的 RecoilProfile 属性上</code></pre>
-
-<h3>5.2 步骤</h3>
-
-<div class="step">
-  <div class="h"><em>1</em>建后坐力资产</div>
-  内容浏览器 → <code>Content/Weapons/Recoil/</code> → 右键 → Miscellaneous → Data Asset → 选
-  <strong>Lyra Recoil Profile</strong> → 命名 <code>DA_Recoil_Rifle_Fast</code>。<br>
-  打开，按 §4.2 调好数值。（最快的方式：先复制一份现成的再改，比如复制 <code>DA_Recoil_Rifle_7</code>。）
-</div>
-
-<div class="step">
-  <div class="h"><em>2</em>复制武器实例蓝图</div>
-  <code>ShooterCore/Weapons/Rifle/B_WeaponInstance_Rifle</code> → 右键 Duplicate →
-  <code>B_WeaponInstance_Rifle_Fast</code>。<br>
-  打开它 → Details → <strong>Recoil → Recoil Profile</strong> 指到刚建的 <code>DA_Recoil_Rifle_Fast</code>。<br>
-  <em>这一格就是全部工作</em>：不填 = 该武器静默不使用后坐力系统。
-</div>
-
-<div class="step">
-  <div class="h"><em>3</em>复制装备定义</div>
-  <code>WID_Rifle</code> → Duplicate → <code>WID_Rifle_Fast</code>。<br>
-  打开 → <strong>Instance Type</strong> 改成 <code>B_WeaponInstance_Rifle_Fast</code>；
-  <code>Actors To Spawn</code> / <code>Ability Sets To Grant</code> <strong>保持不动</strong>（还是原来那把枪的本体与能力）。
-</div>
-
-<div class="step">
-  <div class="h"><em>4</em>复制物品定义</div>
-  <code>ID_Rifle</code> → Duplicate → <code>ID_Rifle_Fast</code>。<br>
-  打开 → 找到 <code>Fragments</code> 里的 <strong>InventoryFragment_EquippableItem</strong> →
-  <code>Equipment Definition</code> 改成 <code>WID_Rifle_Fast</code>。<br>
-  顺手把 <code>Display Name</code> 改成 <code>Rifle Fast</code>（HUD 武器名用的就是它，方便一眼区分）。
-</div>
-
-<div class="step">
-  <div class="h"><em>5</em>塞进初始装备</div>
-  打开 <code>ShooterCore/Game/B_Hero_ShooterMannequin</code> → 左侧 My Blueprint →
-  选中 <code>InitialInventoryItems</code> 变量 → Details 面板的默认值数组里
-  <strong>加一项</strong> <code>ID_Rifle_Fast</code>。<br>
-  加入顺序 = 快捷栏槽位顺序（0、1、2…），快捷栏一共 3 格（<code>NumSlots = 3</code>）。<br>
-  变量被 <code>AddInitialInventory</code> 遍历，逐个 <code>AddItemToSlot</code> 后
-  <code>SetActiveSlotIndex</code> 到第 0 格。
-</div>
-
-<div class="step">
-  <div class="h"><em>6</em>验证</div>
-  PIE → <code>Lyra.Recoil.Debug 1</code> → 切到新槽位 → 第一行应该显示
-  <code>Profile=DA_Recoil_Rifle_Fast</code>。<br>
-  <code>Lyra.Recoil.DebugDraw 1</code> 看黄点形状对不对。
-</div>
-
-<div class="box warn">
-  <span class="t">三个容易踩的坑</span>
-  ① <strong>复制蓝图后确认父类没跑偏</strong>：复制品应该仍是 <code>B_WeaponInstance_Base</code> 的子类。
-  复制完打开看一眼 Class Settings 就行。<br>
-  ② <strong>只改 <code>WID</code> 不改 <code>ID</code> 是没用的</strong>：<code>ID</code> 里的
-  <code>InventoryFragment_EquippableItem</code> 才是"这件物品装备成什么"的入口。<br>
-  ③ <strong><code>B_Hero_ShooterMannequin</code> 是玩家和 20 只 bot 共用的</strong>：往
-  <code>InitialInventoryItems</code> 里加东西，bot 也会一起拿到。只想给玩家，就得改代码或给 bot 换英雄蓝图。
-</div>
-
-<h3>5.3 换成真·新枪（路径 B）还要改什么</h3>
-
-<table>
-  <tr><th>想换的</th><th>改哪</th></tr>
-  <tr><td>枪的模型 / 动画 / 挂点</td><td>复制 <code>B_Rifle</code> → 换 <code>SkeletalMesh</code>、<code>AnimLayer</code>、<code>MuzzleSocket</code></td></tr>
-  <tr><td>开火节奏 / 连发</td><td>改 <code>GA_Weapon_Fire_Rifle_Auto</code> 的 <code>Auto Rate</code> 与
-      <code>Fire Delay Time Secs</code>（详见 §6.1）；要两把枪不同则复制 GA + <code>AbilitySet_ShooterRifle</code>，
-      在 <code>WID</code> 的 <code>AbilitySetsToGrant</code> 里换成新的</td></tr>
-  <tr><td>伤害</td><td>复制 <code>GE_Damage_RifleAuto</code></td></tr>
-  <tr><td>HUD（准星 / 弹药条）</td><td>改 <code>ID</code> 里 <code>InventoryFragment_ReticleConfig</code> / <code>InventoryFragment_QuickBarIcon</code></td></tr>
-  <tr><td>弹匣容量 / 备弹</td><td>改 <code>ID</code> 里 <code>InventoryFragment_SetStats</code> 的
-      <code>Lyra.ShooterGame.Weapon.MagazineSize</code> / <code>MagazineAmmo</code> / <code>SpareAmmo</code>
-      （详见 §6.2）</td></tr>
-</table>
-
-<h2 id="ammo">6 · 射速 / 弹容 / 备弹</h2>
-
-<p>这三个数值<strong>不在同一个地方</strong>，这是最容易找错的地方。先记住一句话：</p>
-
-<div class="box warn">
-  <span class="t">一句话定位</span>
-  <strong>射速</strong>在<strong>能力层</strong>（<code>GA_Weapon_Fire_Rifle_Auto</code>），
-  <strong>弹容与备弹</strong>在<strong>物品定义层</strong>（<code>ID_Rifle</code> 的 <code>InventoryFragment_SetStats</code>）。<br>
-  注意：Lyra 原版的 <code>ULyraRangedWeaponInstance</code> 里<strong>没有</strong>「RoundsPerSecond」这类射速字段，
-  别去 <code>B_WeaponInstance_Rifle</code> 里翻，翻不到。
-</div>
-
-<h3>6.1 射速 —— 改 <code>GA_Weapon_Fire_Rifle_Auto</code></h3>
-
-<p>射速由连发能力的两个属性共同决定（<code>ShooterCore/Weapons/Rifle/GA_Weapon_Fire_Rifle_Auto</code>）：</p>
-
-<table>
-  <tr><th>属性</th><th>当前值</th><th>含义</th></tr>
-  <tr><td><code>Auto Rate</code></td><td><code>1</code></td>
-      <td>是否连发（按住不放持续开火）。<code>1</code> = 全自动，<code>0</code> = 单发。</td></tr>
-  <tr><td><code>Fire Delay Time Secs</code></td><td><code>0.12</code></td>
-      <td><strong>每发之间的间隔秒数</strong>。这是实际的射速旋钮。</td></tr>
-  <tr><td><code>Fire Delay Time Secs</code> 换算</td><td>≈ <b>8.33 发/秒</b></td>
-      <td>公式：<code>射速(RPS) = 1 / FireDelayTimeSecs</code>。<code>0.12 → 8.33</code>。</td></tr>
-  <tr><td><code>Character Fire Montage</code></td><td><code>AM_MM_Rifle_Fire</code></td>
-      <td>开火动画。间隔改太快时动画会被打断，属正常。</td></tr>
-</table>
-
-<p>常用射速对照（把 <code>Fire Delay Time Secs</code> 改成左列即可）：</p>
-
-<table>
-  <tr><th>想要的手感</th><th>FireDelayTimeSecs</th><th>实际射速</th></tr>
-  <tr><td>慢速步枪</td><td>0.20</td><td>5.0 发/秒</td></tr>
-  <tr><td>中速（AK 类）</td><td>0.15</td><td>6.7 发/秒</td></tr>
-  <tr><td><strong>当前默认</strong></td><td><strong>0.12</strong></td><td><strong>8.3 发/秒</strong></td></tr>
-  <tr><td>高速（M4 类）</td><td>0.083</td><td>12.0 发/秒</td></tr>
-  <tr><td>极速（冲锋枪）</td><td>0.067</td><td>15.0 发/秒</td></tr>
-</table>
-
-<div class="box warn">
-  <span class="t">改射速前必须知道</span>
-  ① 这两把枪<strong>共用同一个</strong> <code>AbilitySet_ShooterRifle</code>，也就共用同一个
-  <code>GA_Weapon_Fire_Rifle_Auto</code>。<strong>直接改它 = 两把枪射速一起变。</strong><br>
-  ② 想让两把枪射速不同，必须<strong>复制</strong>一套：<code>GA_Weapon_Fire_Rifle_Auto</code> →
-  复制并改名 → 再复制 <code>AbilitySet_ShooterRifle</code>，把里面 <code>GrantedAbilities</code> 的该项换成新 GA →
-  最后在 <code>WID_Rifle_7</code> 的 <code>Ability Sets To Grant</code> 里挂这个新 AbilitySet。<br>
-  ③ 射速改快后<strong>后坐力感受会明显变强</strong>（同样 12 发打得快了）。若觉得飘，先调
-  <code>RecoveryTime</code> / <code>RecoveryDelay</code>，而不是急着实数减后坐力。
-</div>
-
-<h3>6.2 弹容 / 备弹 —— 改 <code>ID_Rifle</code> 的 SetStats</h3>
-
-<p>打开 <code>ShooterCore/Weapons/Rifle/ID_Rifle</code>（第二把是 <code>ID_Rifle_7</code>）→
-<code>Fragments</code> → <strong>InventoryFragment_SetStats</strong> → <code>InitialItemStats</code>：</p>
-
-<table>
-  <tr><th>GameplayTag</th><th>含义</th><th>ID_Rifle 当前</th><th>ID_Rifle_7 当前</th></tr>
-  <tr><td><code>Lyra.ShooterGame.Weapon.MagazineSize</code></td>
-      <td><strong>弹匣容量上限</strong>（一个弹匣最多几发，重装能补到多少）</td><td><b>30</b></td><td><b>30</b></td></tr>
-  <tr><td><code>Lyra.ShooterGame.Weapon.MagazineAmmo</code></td>
-      <td><strong>出生时弹匣里装了多少</strong>（≤ MagazineSize）</td><td><b>30</b></td><td><b>30</b></td></tr>
-  <tr><td><code>Lyra.ShooterGame.Weapon.SpareAmmo</code></td>
-      <td><strong>备弹总数</strong>（不含弹匣内，重装从这里扣）</td><td><b>60</b></td><td><b>60</b></td></tr>
-</table>
-
-<div class="box">
-  <span class="t">三者关系</span>
-  <code>MagazineSize</code> = 弹匣上限（改大了，一次重装就能装更多）；<br>
-  <code>MagazineAmmo</code> = 出生时弹匣里的实数（通常 = MagazineSize，也可以故意给小一点，做出"开局需要先重装"的效果）；<br>
-  <code>SpareAmmo</code> = 背包里的散装子弹，只减不增（本 Demo 没有拾取补充弹药的逻辑）。<br>
-  <strong>三个都给 0 或不填 = 枪打不出子弹</strong>，而且是静默失败，HUD 弹药条会显示 0。
-</div>
-
-<p>各武器当前基线（都在各自的 <code>ID_*</code> 上，<strong>互相独立</strong>）：</p>
-
-<table>
-  <tr><th>武器</th><th>MagazineSize</th><th>MagazineAmmo</th><th>SpareAmmo</th><th>位置</th></tr>
-  <tr><td>Rifle（S 型）</td><td>30</td><td>30</td><td>60</td><td><code>Weapons/Rifle/ID_Rifle</code></td></tr>
-  <tr><td>Rifle 7（7 字型）</td><td>30</td><td>30</td><td>60</td><td><code>Weapons/Rifle/ID_Rifle_7</code></td></tr>
-  <tr><td>Pistol</td><td>12</td><td>12</td><td>48</td><td><code>Weapons/Pistol/ID_Pistol</code></td></tr>
-  <tr><td>Shotgun</td><td>8</td><td>8</td><td>16</td><td><code>Weapons/Shotgun/ID_Shotgun</code></td></tr>
-</table>
-
-<div class="box ok">
-  <span class="t">好消息</span>
-  弹容/备弹是<strong>每把枪各自一份</strong>的（各在各自 <code>ID_*</code> 的 SetStats 里），
-  不像射速那样共用能力，<strong>改一把不影响另一把</strong>，不需要复制任何东西。
-</div>
-
-<h3>6.3 重装相关（顺带一提）</h3>
-
-<table>
-  <tr><th>想改的</th><th>改哪</th><th>当前值</th></tr>
-  <tr><td>重装速度</td><td><code>GA_Weapon_Reload_Rifle</code> 的 <code>Play Rate</code></td><td><code>1</code>（越大越快）</td></tr>
-  <tr><td>重装动画</td><td><code>GA_Weapon_Reload_Rifle</code> 的 <code>Reload Montage</code></td><td><code>AM_MM_Rifle_Reload</code></td></tr>
-  <tr><td>弹匣内每发打出几颗弹丸</td><td><code>B_WeaponInstance_Rifle</code> 的 <code>Bullets Per Cartridge</code></td><td><code>1</code></td></tr>
-  <tr><td>空仓时能否自动重装</td><td><code>GA_Weapon_AutoReload</code> 是否在 AbilitySet 里</td><td>已授予</td></tr>
-</table>
-
-<h3>6.4 改完怎么验证</h3>
-
-<ol>
-  <li>改完 <strong>保存资产</strong>（Ctrl+S）。改的是 DataAsset / 蓝图默认值，<strong>不需要重新编译 C++</strong>。</li>
-  <li>PIE → 看 HUD 右下角弹药条：左边是弹匣内，右边是备弹。数字应该立刻对得上。</li>
-  <li>按住左键连发 → 数 HUD 数字下降速度，换算回射速（例如 1 秒掉 8~9 发 ≈ 8.33 发/秒）。</li>
-  <li>打空弹匣 → 按 <code>R</code> 重装 → 弹匣应回到 <code>MagazineSize</code>，备弹按差额扣减。</li>
-  <li>配合 <code>Lyra.Recoil.Debug 1</code>：面板里的 <code>Shot #</code> 会跟着实际开火节奏跳，能直观看出射速变化。</li>
-</ol>
-
-<div class="box warn">
-  <span class="t">两个常见误解</span>
-  ① <strong>改 <code>B_WeaponInstance_Rifle</code> 里的任何东西都改不了射速</strong>——
-  那个类里只有 spread / heat / 伤害射程 / 后坐力配置。<br>
-  ② <strong>改 <code>ID_Rifle</code> 的 SetStats 也不会影响已经拿在手上的那把枪</strong>——
-  <code>InitialItemStats</code> 只在 <code>OnInstanceCreated</code> 时写入一次。
-  改完必须<strong>重新 PIE</strong>（或重新给一次装备）才生效。
-</div>
-
-<h2 id="trouble">7 · 排错对照表</h2>
+<h2 id="trouble">5 · 排错对照表</h2>
 
 <table>
   <tr><th>现象</th><th>可能原因</th><th>怎么查</th></tr>
@@ -696,23 +536,30 @@
   <tr><td>绿线跟着抖</td>
       <td><strong>回归 bug</strong>：相机偏移污染了 <code>ControlRotation</code></td>
       <td>立刻报。设计约束是"只改显示层 POV"，源码里不该出现 <code>AddPitchInput</code> / <code>AddYawInput</code></td></tr>
-  <tr><td><code>Lyra.Recoil.Scale.AffectsDump</code> 偶发 FAIL</td>
-      <td>（已修）两次 Dump 落在同一毫秒 → 文件名撞车 → 第二次覆盖第一次</td>
-      <td>（2026-09-17 已修）现在落盘前会自动顺延编号（<code>_2</code> / <code>_3</code>…），
-          重复路径不可达。实测撞车那次产出 <code>..._285.csv</code> 与 <code>..._285_2.csv</code> 两份独立文件</td></tr>
-  <tr><td>改了两把枪里的一把射速，另一把也变了</td>
-      <td><strong>正常现象</strong>：两把枪共用同一个 <code>AbilitySet_ShooterRifle</code> →
-      同一个 <code>GA_Weapon_Fire_Rifle_Auto</code></td>
-      <td>要分开就得复制 GA + AbilitySet，见 §6.1 的坑②</td></tr>
-  <tr><td>枪打不出子弹，HUD 弹药显示 0</td>
-      <td><code>InventoryFragment_SetStats</code> 缺 <code>MagazineSize</code> / <code>MagazineAmmo</code>（静默失败）</td>
-      <td>打开对应 <code>ID_*</code> 看 <code>InitialItemStats</code> 三个 Tag 是否都在且非 0</td></tr>
-  <tr><td>改了弹容但游戏里没变</td>
-      <td><code>InitialItemStats</code> 只在 <code>OnInstanceCreated</code> 写一次，已装备的实例不吃新值</td>
-      <td>重新 PIE（或换枪再换回来）</td></tr>
-  <tr><td>重装后弹匣补不满</td>
-      <td><code>MagazineAmmo</code> &gt; <code>MagazineSize</code>，或 <code>SpareAmmo</code> 不够</td>
-      <td><code>MagazineAmmo</code> 应 ≤ <code>MagazineSize</code>；<code>SpareAmmo</code> 是重装的唯一来源</td></tr>
+  <tr><td><strong>弹道永远笔直，一点不散</strong></td>
+      <td>该姿态 <code>Base = Add = 0</code>，或 <code>bEnableProfileSpread</code> 没勾</td>
+      <td><code>Lyra.Recoil.SpreadDebug 1</code>，看 <code>AssetSpread=</code> 与
+          <code>Cone: raw=</code>。都是 0 就去查对应姿态的四参数。详见 <a href="#spread">第 9 节</a></td></tr>
+  <tr><td><strong>改了散布数值一点变化都没有</strong></td>
+      <td>资产上的 <code>bEnableProfileSpread</code> 没勾 → 散布没走资产配置</td>
+      <td>面板 <code>AssetSpread=</code> 是不是 <code>off</code>；是就打开（<a href="#spread">§9.3</a>）</td></tr>
+  <tr><td><strong>连发时锥角到顶就不涨了</strong></td>
+      <td><strong>正常</strong>：被 <code>MaxSpreadAngle_&lt;姿态&gt;</code> 钳住了</td>
+      <td>面板锥角条满格即到顶。要更散抬 <code>Max</code>，要更晚到顶减小 <code>addPerShot</code></td></tr>
+  <tr><td><strong>松手之后准星不收回</strong></td>
+      <td><code>SpreadRecoverRate_&lt;姿态&gt;</code> 是 0（<strong>空中默认就是 0</strong>）</td>
+      <td>面板 <code>recover=</code> 看数值。空中不回落是刻意设计，落地即恢复</td></tr>
+  <tr><td>蹲下 / 瞄准 / 站定，精度没变化</td>
+      <td><code>SpreadMultiplier_Aiming</code> / <code>_StandingStill</code> 还是 <code>1.0</code>（= 不给任何加成）</td>
+      <td>看面板 <code>aim x</code> / <code>move x</code> 会不会下滑；
+          <strong>瞄准还额外要求相机模式带 <code>Lyra.Weapon.SteadyAimingCamera</code> 标签</strong></td></tr>
+  <tr><td>开 <code>lyra.Weapon.DrawBulletTraceDuration</code> 什么都没画</td>
+      <td>不是本地玩家 / 没真的开火 / Shipping 构建</td>
+      <td>只在 <code>ENABLE_DRAW_DEBUG</code> 下存在；且<strong>必须真开火</strong>才画（不是每帧画）</td></tr>
+  <tr><td>散布想进 Golden / 想复现</td>
+      <td><strong>做不到（不是 bug）</strong>：<code>VRandConeNormalDistribution</code> 用的是 <code>FMath::FRand()</code>，没有种子</td>
+      <td>要可复现的弹道用后坐力那条链（<code>Lyra.Recoil.Pattern.*</code> 有 Golden 基准）。
+          <strong>但"每发的锥角"是可复现的</strong> —— 在 CSV 第 8 列 <code>SpreadAngle</code> 里</td></tr>
 </table>
 
 <div class="box bad">
@@ -726,7 +573,7 @@
   <code>ControlRotation</code>，回正时把玩家视角一起拽走。
 </div>
 
-<h2 id="files">8 · 相关文件索引</h2>
+<h2 id="files">6 · 相关文件索引</h2>
 
 <h3>资产</h3>
 <pre><code>Content/Weapons/Recoil/
@@ -744,45 +591,24 @@ Plugins/GameFeatures/ShooterCore/Content/
 
 Config/DefaultEngine.ini        EditorStartupMap = /ShooterCore/Maps/L_ShooterPerf</code></pre>
 
-<h3>射速 / 弹药（本文第 6 节）</h3>
-<pre><code>射速（能力层，两把枪共用 —— 改它两把一起变）
-  ShooterCore/Weapons/Rifle/GA_Weapon_Fire_Rifle_Auto
-    Auto Rate               = 1        （1 = 全自动）
-    Fire Delay Time Secs    = 0.12     （射速 = 1 / 该值 ≈ 8.33 发/秒）
-  ShooterCore/Weapons/Rifle/AbilitySet_ShooterRifle
-    → 两把枪都从它拿 GA_Weapon_Fire_Rifle_Auto
-
-弹容 / 备弹（物品层，每把枪各自独立）
-  ShooterCore/Weapons/Rifle/ID_Rifle     → InventoryFragment_SetStats_0
-  ShooterCore/Weapons/Rifle/ID_Rifle_7   → InventoryFragment_SetStats_0
-      Lyra.ShooterGame.Weapon.MagazineSize  = 30   （弹匣上限）
-      Lyra.ShooterGame.Weapon.MagazineAmmo  = 30   （出生时弹匣内）
-      Lyra.ShooterGame.Weapon.SpareAmmo     = 60   （备弹总数）
-  （Pistol: 12/12/48   Shotgun: 8/8/16，位置见 §6.2 表）
-
-重装
-  ShooterCore/Weapons/Rifle/GA_Weapon_Reload_Rifle
-    Play Rate               = 1        （越大重装越快）
-    Reload Montage          = AM_MM_Rifle_Reload
-
-代码依据（只读，不用改）
-  Source/LyraGame/Inventory/InventoryFragment_SetStats.h/.cpp
-      InitialItemStats 在 OnInstanceCreated 时写入 → 改完必须重新 PIE
-  Source/LyraGame/Weapons/LyraRangedWeaponInstance.h
-      「Weapon Config」里只有 BulletsPerCartridge / MaxDamageRange 等，无射速字段</code></pre>
-
 <h3>代码</h3>
 <pre><code>Source/LyraGame/Weapons/Recoil/
-  LyraRecoilTypes.h       枚举与结构体契约（含 ERecoilSingleShotMode）
-  LyraRecoilProfile.h/.cpp  手感配置资产，唯一数值来源（含 Recoil|SingleShot 六项）
+  LyraRecoilTypes.h       枚举与结构体契约（含 ERecoilSingleShotMode、FRecoilSpreadParams）
+  LyraRecoilProfile.h/.cpp  手感配置资产，唯一数值来源
+                            Recoil|SingleShot 六项（第 8 节）
+                            Recoil|Spread 二十项（第 9 节）
   LyraRecoilState.h/.cpp    FRecoilRuntimeState —— 纯算法层，无 UWorld 依赖
-                            四段插值 + 固定子步 1/60 + 尾段吸附（第 10 节）
-  LyraRecoilDebug.h/.cpp    CVar + 屏幕面板 + 世界 DebugDraw + CSV 导出
+                            四段插值 + 固定子步（第 8 节）
+                            散布累加 / 回落 / 玩家倍率结算（第 9 节）
+  LyraRecoilDebug.h/.cpp    CVar + 屏幕面板 + Roll 波形面板 + 散布面板 + 世界 DebugDraw + CSV 导出
 
 Source/LyraGame/Weapons/LyraRangedWeaponInstance.h/.cpp   持 RecoilProfile + RecoilState，Tick 驱动
+                                                           两条散布链路的分叉点 UsesProfileSpread()（第 9 节）
+Source/LyraGame/Weapons/LyraGameplayAbility_RangedWeapon.cpp  发弹前留散布快照 NotifyShotSpreadUsed()
 Source/LyraGame/Camera/LyraCameraModifier_WeaponRecoil.*  只改显示层 POV（读 CameraOffset*）
-Source/LyraGame/Tests/LyraRecoil*.spec.cpp                30 个自动化测试（含 6 个 Interp 用例）
-Source/LyraEditor/Commandlets/LyraRecoilAssetGenCommandlet.cpp    批量生成资产（含插值参数）
+Source/LyraGame/UI/Weapons/LyraReticleWidgetBase.h/.cpp   准星只读接口（本次未改动，自动跟随新链路）
+Source/LyraGame/Tests/LyraRecoil*.spec.cpp                37 个自动化测试
+Source/LyraEditor/Commandlets/LyraRecoilAssetGenCommandlet.cpp    批量生成资产（含插值参数 + 散布参数）
 Source/LyraEditor/Commandlets/LyraRecoilGoldenDumpCommandlet.cpp Golden 导出（含 mode 元信息）</code></pre>
 
 <h3>文档与工具</h3>
@@ -790,21 +616,14 @@ Source/LyraEditor/Commandlets/LyraRecoilGoldenDumpCommandlet.cpp Golden 导出�
 Docs/Recoil/PROGRESS.md            总状态看板（先看这份）
 Docs/Recoil/00_Recon.md            接入点勘察（带文件:行号）
 Docs/Recoil/04_PoseMatrix.md       姿态倍率实测表
-Docs/Recoil/08_CameraRollShake.md  Roll 震屏方案（本文第 9 节）
-Docs/Recoil/09_SingleShotCurveGap.md    单发曲线差距分析（已被 10 号落地覆盖）
-Docs/Recoil/10_SingleShotInterpolation.md  单发插值方案 ← 本文第 10 节的完整依据
+Docs/Recoil/08_CameraRollShake.md  Roll 震屏方案（本文第 7 节）
+Docs/Recoil/10_SingleShotInterpolation.md  单发插值方案（本文第 8 节的完整依据）
 Docs/Recoil/Tools/plot-recoil-csv.py   CSV → 曲线图（多份可叠加）
 Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试（命令行，需要关编辑器）</code></pre>
 
-<h2 id="roll">9 · Roll 震屏与实时调试（P8）</h2>
+<h2 id="roll">7 · Roll 震屏与实时调试</h2>
 
-<div class="box">
-  <span class="t">这一节是 2026-09-17 新增的（P8）</span>
-  依据《FPS 相机镜头设计与实现（脱敏版）》§1/§2/§2.1/§2.2/§7。<br>
-  完整策划案 + 实现方案见 <code>Docs/Recoil/08_CameraRollShake.md</code>。
-</div>
-
-<h3>9.1 一句话：Roll 和后坐力是两套东西</h3>
+<h3>7.1 一句话：Roll 和后坐力是两套东西</h3>
 
 <p>这是本节最重要的一条，先看清楚再往下看：</p>
 
@@ -816,14 +635,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   <tr><td>长连发表现</td><td>弹道持续上抬，越打越偏</td><td>每发重新起震，始终围绕零点</td></tr>
 </table>
 
-<div class="box warn">
-  <span class="t">为什么不能把 Roll 塞进 Pitch/Yaw</span>
-  试过，会坏：Roll 会像 Pitch 一样<strong>单向漂移、永远回不到零点</strong>，看起来是"镜头歪了"而不是"抖了一下"。
-  更严重的是它会污染回正逻辑 —— 回正曲线是给"弹道上抬"设计的，套在往复震动上毫无意义。<br>
-  <strong>两者除了"都作用在相机 POV 上"以外，没有任何共享逻辑。</strong>
-</div>
-
-<h3>9.2 手感是什么样</h3>
+<h3>7.2 手感是什么样</h3>
 
 <ul>
   <li><strong>短</strong>：一次震动总时长 <code>0.22</code> 秒，比回正（0.3~0.4 秒）还短。它是"开火瞬间的爆点"。</li>
@@ -834,7 +646,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   <li><strong>带一点随机</strong>：每发相位有 <code>±0.35 rad</code> 的小扰动。不加的话连发时震动会完全同步叠加，看起来像机械振动，很假。</li>
 </ul>
 
-<h3>9.3 实时调试面板 <code>Lyra.Recoil.RollDebug 1</code></h3>
+<h3>7.3 实时调试面板 <code>Lyra.Recoil.RollDebug 1</code></h3>
 
 <pre><code>[RollShake] ON  Scale=x1.00  Profile=DA_Recoil_Rifle_S  AssetRoll=on
   Active=yes  Roll=+0.4123 deg  Envelope=0.6871  t=0.0689/0.2200 (left 69%)
@@ -882,7 +694,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   </ul>
 </div>
 
-<h3>9.4 世界内可视化 <code>Lyra.Recoil.DebugDraw 1</code> 的品红弧</h3>
+<h3>7.4 世界内可视化 <code>Lyra.Recoil.DebugDraw 1</code> 的品红弧</h3>
 
 <p>Roll 是<strong>绕视线轴的旋转</strong>，在 3D 里没法用"方向线"表达（它不改朝向，只改倾斜）。
 所以改用<strong>绕瞄准轴的一段圆弧</strong>来示意：</p>
@@ -897,7 +709,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
       <td>标签里新增了 <code>Roll=+0.412</code> 一栏</td></tr>
 </table>
 
-<h3>9.5 实时调参：怎么试 Roll 的手感</h3>
+<h3>7.5 实时调参：怎么试 Roll 的手感</h3>
 
 <div class="step">
   <div class="h"><em>1</em>开面板，打一枪看波形</div>
@@ -953,7 +765,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   两者都不需要重新编译。
 </div>
 
-<h3>9.6 CSV 的 RollShake 列</h3>
+<h3>7.6 CSV 的 RollShake 列</h3>
 
 <p><code>Lyra.Recoil.Dump</code> 导出的表头现在有 <strong>7 列</strong>：</p>
 
@@ -967,7 +779,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   要看完整波形请用 <code>Lyra.Recoil.RollDebug</code> 面板。
 </div>
 
-<h3>9.7 Roll 相关代码与文档索引</h3>
+<h3>7.7 Roll 相关代码与文档索引</h3>
 
 <pre><code>代码
   Source/LyraGame/Camera/LyraCameraShakeTypes.h      参数/状态契约 + 镜头模式枚举
@@ -990,17 +802,9 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   Lyra.Recoil.RollShake.AmplitudeRampAndCap         连射增量走势 + 封顶
   Lyra.Recoil.RollShake.DecayCurveOverride          曲线覆盖线性 / 极端参数不产生 NaN</code></pre>
 
-<h2 id="model">10 · 单发模型：两套并存（InstantWrite / Interpolated）</h2>
+<h2 id="model">8 · 单发模型：两套并存（InstantWrite / Interpolated）</h2>
 
-<div class="box ok">
-  <span class="t">这一节 2026-09-17 更新：两套单发模型<strong>已经落地</strong></span>
-  上一版这一节是「现状 vs 参考文档」的分析，结论是「要改就得重建全部测试基线」。
-  现在<strong>不用重建了</strong> —— 做法改成了<strong>两套模型共存、按枪切换</strong>：
-  老模型原封不动（<code>InstantWrite</code>），新模型作为可选开关（<code>Interpolated</code>）。<br>
-  完整方案见 <code>Docs/Recoil/10_SingleShotInterpolation.md</code>。
-</div>
-
-<h3>10.1 一句话：现在有两套，按枪选</h3>
+<h3>8.1 一句话：现在有两套，按枪选</h3>
 
 <p>每把枪的后坐力资产上多了一个开关 <code>SingleShotMode</code>，二选一：</p>
 
@@ -1023,7 +827,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   PIE 里切枪，面板第 4 行 <code>Mode=</code> 会跟着变 —— 这是「哪把枪用了哪套模型」最快的验证据。
 </div>
 
-<h3>10.2 四段阶段与三条曲线</h3>
+<h3>8.2 四段阶段与三条曲线</h3>
 
 <p><code>Interpolated</code> 模式下，一发子弹的时间轴被切成四段。每段有<strong>独立时长</strong>和<strong>独立目标值</strong>：</p>
 
@@ -1065,7 +869,7 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
       <td>回弹本身只有 30ms，人眼分辨不出形状，线性够了</td></tr>
   <tr><td><code>RecoveryCurve</code></td><td><code>Drop</code></td>
       <td>线性（原有参数，两套模型共用）</td>
-      <td>老参数不动，保 Golden 基线</td></tr>
+      <td>一种参数，两种模型共用</td></tr>
 </table>
 
 <div class="box warn">
@@ -1075,10 +879,10 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   <strong>一个管「越打越跳」，一个管「单发内形状」，不能互相套。</strong>
 </div>
 
-<h3>10.3 <code>Recoil|SingleShot</code> 配置项（资产上新增的 6 项）</h3>
+<h3>8.3 <code>Recoil|SingleShot</code> 配置项（6 项）</h3>
 
 <p>在 <code>DA_Recoil_*</code> 资产的 <strong>Recoil | SingleShot</strong> 分组下。<strong>只有 <code>SingleShotMode = Interpolated</code> 时后 5 项才激活</strong>
-（UE 细节面板里会变灰/隐藏，用 <code>EditCondition</code> 控制）—— 所以 <code>Rifle_7</code> 上看不到它们，这是正常的。</p>
+（UE 细节面板里会变灰/隐藏）—— 所以 <code>Rifle_7</code> 上看不到它们，这是正常的。</p>
 
 <table>
   <tr><th>参数</th><th>类型 / 默认值</th><th>作用</th><th>调大的后果</th></tr>
@@ -1100,90 +904,23 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
       <td>Rebound 段形状</td><td>—</td></tr>
 </table>
 
-<h3>10.4 两个「偏移」是什么意思（为什么加了插值却没改坏老数据）</h3>
+<h3>8.4 两个「偏移」是什么意思</h3>
 
-<p>这是整个改动<strong>最关键的架构决定</strong>：状态里现在有<strong>两套</strong> Pitch/Yaw。</p>
+<p>状态里有<strong>两套</strong> Pitch/Yaw，调参和排查时必须先分清自己看的是哪一套。</p>
 
 <table>
   <tr><th></th><th>字段</th><th>谁读它</th><th>两套模式下的差别</th></tr>
   <tr><td><strong>逻辑偏移</strong></td><td><code>AccumulatedPitch</code> / <code>AccumulatedYaw</code></td>
-      <td>峰值判定 / 回正 / 姿态 / <strong>CSV / Golden / 全部自动化测试</strong></td>
-      <td>基本不变 —— <strong>这是老基线能活下来的原因</strong></td></tr>
+      <td>峰值判定 / 回正 / 姿态 / <strong>CSV / 自动化测试</strong></td>
+      <td>累加值本身，两种模式下都<b>不变</b></td></tr>
   <tr><td><strong>补间输出</strong></td><td><code>CameraOffsetPitch</code> / <code>CameraOffsetYaw</code></td>
       <td><strong>只有相机链</strong>（<code>GetCameraPitchOffset()</code> / <code>GetCameraYawOffset()</code>）</td>
-      <td><code>InstantWrite</code> 下<strong>恒等于逻辑偏移</strong>（零回归）；<code>Interpolated</code> 下是平滑后的斜坡</td></tr>
+      <td><code>InstantWrite</code> 下<strong>恒等于逻辑偏移</strong>；<code>Interpolated</code> 下是平滑后的斜坡</td></tr>
 </table>
 
-<p>所以：<strong>老模式行为逐帧不变，新模式只多了一条平滑输出</strong>。3 份 Golden 和 24 个老测试一个都没动。</p>
+<p>所以：<strong><code>InstantWrite</code> 行为逐帧不变，<code>Interpolated</code> 只多了一条平滑输出</strong>。</p>
 
-<h3>10.5 低帧率怎么处理（<code>Lyra.Recoil.*</code> 相关的实现约束）</h3>
-
-<p>验收标准是「<strong>采样轨迹一样</strong>」—— 60fps 和 144fps 下同一发的曲线必须重合。做法三条：</p>
-
-<table>
-  <tr><th>手段</th><th>具体值</th><th>解决什么问题</th></tr>
-  <tr><td><strong>固定子步长</strong></td><td><code>FixedSubStepSeconds = 1/60</code></td>
-      <td>不管你显示器多少帧，内部一律按 1/60 秒为最小步推进。
-          帧率只影响<strong>一帧推几个子步</strong>，不影响轨迹本身</td></tr>
-  <tr><td><strong>子步上限</strong></td><td><code>MaxSubStepsPerAdvance = 8</code></td>
-      <td>防「死亡螺旋」：卡顿时本帧最多推 8 步，超出的时间<strong>丢弃</strong>并直接推整条轴到稳态。
-          宁可长帧吞掉一点时间，也不能让一帧里无限循环</td></tr>
-  <tr><td><strong>尾段吸附</strong></td><td>见下方伪码</td>
-      <td>修掉 off-by-one：若不吸附，阶段终值可能永远不被采样到，
-          导致 60 / 144fps 的终点差一点点</td></tr>
-</table>
-
-<p>尾段吸附的关键意思（策划版）：<strong>「如果这一小步跨过了段的终点，就直接落在终点上」</strong>。</p>
-
-<pre><code>// AdvanceInterpolatedSubStepBy() —— 尾段吸附
-StageDuration = 这一段的时长
-Advanced      = 已过时间 + 一个子步
-
-if (Advanced &lt; StageDuration &amp;&amp; (StageDuration - Advanced) &lt; 一个子步)
-    已过时间 = StageDuration        // ← 离终点不足一步：直接吸附，保证终值被采样
-else
-    已过时间 = min(Advanced, StageDuration)</code></pre>
-
-<div class="box bad">
-  <span class="t">刻意<strong>没做</strong>的一件事：不冲刷「零头」</span>
-  每帧算完子步循环后，累加器里通常会剩一个<strong>不足 1/60 秒的零头</strong>。
-  按直觉应该「顺便把它推完」，但<strong>不行</strong> —— 零头的大小和帧率强相关，
-  冲刷就等于让帧率影响轨迹，直接违反「采样轨迹一样」。<br>
-  <strong>实测：冲刷会让 60fps 与 144fps 产生约 0.006 的偏差；不冲刷则相机链偏差严格为 0。</strong>
-  代码里这段有显式注释标明「刻意不做」，别当成漏写。
-</div>
-
-<div class="box">
-  <span class="t">Roll 震屏<strong>不</strong>走子步循环（刻意区分）</span>
-  Roll 是解析解（衰减包络 × 周期项），帧率只影响<strong>采样密度</strong>，怎么采都对；<br>
-  Pitch/Yaw 是逐帧增量累加，帧率一变就漂移 —— 所以只有它需要固定子步。<br>
-  Roll 的细节见本文第 9 节。
-</div>
-
-<h3>10.6 验收数据（2026-09-17 实测）</h3>
-
-<pre><code>自动化测试   Lyra.Recoil  →  Succeeded=30   Failed=0
-             其中新增 6 个插值用例全部通过：
-               Lyra.Recoil.Interp.ModeIsolation        两模式互不干扰
-               Lyra.Recoil.Interp.LiftTiming           Lift 耗时精确
-               Lyra.Recoil.Interp.FrameRateInvariance  ← 帧率不变性（就是本条验收）
-               Lyra.Recoil.Interp.StageShape           四段形状正确
-               Lyra.Recoil.Interp.LongFrameSafety      长帧不炸、不死亡螺旋
-               Lyra.Recoil.Interp.RefireContinuity     连发不跳变
-
-帧率不变性实测（60 / 144fps 对比）：
-  max trajectory deviation across frame rates = 0.000000   ← 相机链：严格零偏差
-  max accumulated deviation across frame rates = 0.007500  ← 逻辑偏移：仅阶段边界的相位差
-
-Golden 基线   Written=5  Failed=0
-  Rifle_S  mode=Interpolated    lift=0.045  rebound=0.030  ratio=0.72
-  Rifle_7  mode=InstantWrite
-  Rifle / Pistol / Shotgun      mode=InstantWrite（未动）</code></pre>
-
-<p><strong>「采样轨迹一样」这条验收标准达成</strong>：相机链（玩家真正感知到的画面）偏差严格为 0；
-逻辑偏移的 0.0075 是阶段切换瞬间的相位差，在测试容差 <code>1e-2</code> 之内，且玩家不可感知。</p>
-
-<h3>10.7 现在调单发手感该动什么</h3>
+<h3>8.5 现在调单发手感该动什么</h3>
 
 <table>
   <tr><th>想要的效果</th><th>动哪个</th></tr>
@@ -1208,11 +945,352 @@ Golden 基线   Written=5  Failed=0
   只改数值（不改模式）走正常流程即可，Golden 本身不受影响。
 </div>
 
+<h2 id="spread">9 · 散布（Spread）调试</h2>
+
+<h3>9.1 一句话：模型换了，但"散布 = 随机圆锥"这件事没变</h3>
+
+<table>
+  <tr><th></th><th>散布 Spread</th><th>后坐力 Recoil</th></tr>
+  <tr><td>是什么</td><td><strong>随机圆锥</strong>采样：每颗弹丸在锥内随机取方向</td>
+      <td><strong>确定性 Pattern</strong>：弹道整体被推成一个固定形状</td></tr>
+  <tr><td>配置在哪</td><td><code>DA_Recoil_*</code> → <code>Recoil | Spread</code> 分类</td>
+      <td><code>DA_Recoil_*</code> → <code>Recoil</code> 分类</td></tr>
+  <tr><td>每发方向怎么来</td><td><code>FMath::FRand()</code> 抽两次 → <strong>不可复现</strong></td>
+      <td><code>HashCombine(Seed, ShotIndex)</code> → <strong>可复现</strong></td></tr>
+  <tr><td>总开关</td><td><code>bEnableProfileSpread</code>（资产上）<br>
+      <span class="muted">注意它<strong>不听</strong> <code>Lyra.Recoil.Enable</code></span></td>
+      <td><code>Lyra.Recoil.Enable 0/1</code></td></tr>
+  <tr><td>调试倍率</td><td><strong>没有</strong>（<code>Lyra.Recoil.Scale</code> 只乘后坐力）</td>
+      <td><code>Lyra.Recoil.Scale</code>（三轴都乘）</td></tr>
+  <tr><td>屏幕数值面板</td><td><code>Lyra.Recoil.SpreadDebug 1</code><br>
+      另外 <code>Lyra.Recoil.Debug 1</code> 底部也带一行散布摘要</td>
+      <td><code>Lyra.Recoil.Debug</code></td></tr>
+  <tr><td>世界内可视化</td><td>借 <code>lyra.Weapon.DrawBulletTraceDuration</code>（画弹道，不画锥）</td>
+      <td><code>Lyra.Recoil.DebugDraw</code></td></tr>
+  <tr><td>数值导出</td><td>CSV 第 8 列 <code>SpreadAngle</code></td>
+      <td><code>Lyra.Recoil.Dump</code> → CSV</td></tr>
+  <tr><td>自动化测试</td><td><strong>7 个</strong>（<code>Lyra.Recoil.Spread.*</code>）</td>
+      <td>30 个</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">在弹道链上的顺序（这条决定了"顺序不能换"）</span>
+  <code>AimDir</code> → <strong>叠后坐力偏移</strong> → <strong>走散布随机圆</strong>
+  （<code>LyraGameplayAbility_RangedWeapon.cpp</code>：叠偏移在 L405–L411，散布采样在 L432–L438）。<br>
+  所以最终弹着点 = <strong>后坐力画出来的形状</strong> + <strong>散布的随机离散</strong>，两者是叠加关系。
+  调手感时必须<strong>一次只动一边</strong>，否则两个变量一起变，永远说不清是谁的问题。
+</div>
+
+<h3>9.2 新模型：姿态-角度直接模型（计算链）</h3>
+
+<p>把中间那层 heat 删掉，直接算角。每一把枪在<strong>每个姿态</strong>下各有一组参数：</p>
+
+<pre><code>① 开火加热（每扣一次扳机）        CurrentSpreadAngle += SpreadAddPerShot_&lt;姿态&gt;
+                                 CurrentSpreadAngle  = clamp(它, Base, Max)
+
+② 停火回落（每帧）               停火时长 &lt;= SpreadRecoveryDelay   → 不动
+                                否则 CurrentSpreadAngle -= SpreadRecoverRate_&lt;姿态&gt; × dt
+                                 CurrentSpreadAngle  = clamp(它, Base, Max)
+
+③ 结算最终锥角（发弹那一刻）      最终锥角 = CurrentSpreadAngle
+                                          × SpreadAimingMultiplier（瞄准，[0,1] 混合权重）
+                                          × SpreadMovementMultiplier（站定↔跑动，按速度 ramp）
+
+④ 喂给圆锥采样                    半角(弧度) = 最终锥角 × 0.5 × π/180
+                                 VRandConeNormalDistribution(AimDirWithRecoil, 半角, SpreadExponent)
+</code></pre>
+
+<div class="box">
+  <span class="t">三个必须记住的口径</span>
+  <strong>① 单位是"全锥角（直径角），度"</strong> —— 不是半角，也不是面积。
+  第 ④ 步的 <code>× 0.5</code> 是唯一的换算点（<code>LyraGameplayAbility_RangedWeapon.cpp</code> L419）。<br>
+  <strong>② 基础角是"地板"，不是"起点"</strong> —— <code>CurrentSpreadAngle</code> 永远不会低于
+  当前姿态的 Base。所以 <code>SpreadAngle_Standing = 0.35</code> 意味着"站定静止时，锥角最小就是 0.35°"。<br>
+  <strong>③ 姿态是瞬时的</strong> —— 蹲下 / 起跳立刻换一组参数（不插值），与后坐力姿态倍率的口径一致。
+  只有"站定 ↔ 跑动"这一路是连续的（走 <code>SpreadTransitionRate_StandingStill</code> 的 <code>FInterpTo</code>）。
+</div>
+
+<h4>姿态 → 参数组对照</h4>
+
+<table>
+  <tr><th>姿态来源（代码判定）</th><th>取哪一组参数</th><th>什么时候会发生</th></tr>
+  <tr><td><code>IsFalling()</code></td><td><code>*_JumpingOrFalling</code></td>
+      <td>跳跃 / 下落中。<strong>优先级最高</strong>——蹲着跳算空中不算蹲</td></tr>
+  <tr><td><code>IsCrouching()</code></td><td><code>*_Crouching</code></td><td>蹲伏</td></tr>
+  <tr><td>其余</td><td><code>*_Standing</code></td>
+      <td>站立（含跑动；跑动额外乘 <code>SpreadMovementMultiplier</code>）</td></tr>
+</table>
+
+<p>判定函数是 <code>FRecoilRuntimeState::ResolvePoseState()</code>——<strong>和后坐力用的是同一个</strong>，
+两个系统不会出现"后坐力认为你在蹲、散布认为你在站"这种不一致。</p>
+
+<h3>9.3 开关与回退：<code>bEnableProfileSpread</code></h3>
+
+<table>
+  <tr><th>取值</th><th>行为</th><th>什么时候用</th></tr>
+  <tr><td><code>false</code>（<strong>新建资产的默认</strong>）</td>
+      <td>散布 100% 走 Lyra 原生 heat 模型。<br>
+          <code>Recoil | Spread</code> 整组参数<strong>完全不参与计算</strong>，
+          <code>CurrentSpreadAngle</code> 恒为 0，CSV 的 <code>SpreadAngle</code> 列恒为 0。</td>
+      <td>回归验证；还没迁过来的枪</td></tr>
+  <tr><td><code>true</code></td>
+      <td>散布走本资产的姿态-角度模型。<br>
+          武器实例上的 <code>HeatToSpreadCurve</code> / <code>HeatToHeatPerShotCurve</code> /
+          <code>HeatToCoolDownPerSecondCurve</code> / <code>SpreadAngleMultiplier_*</code>
+          <strong>全部被忽略</strong>（它们是回退配置，仅在开关关闭时生效）。</td>
+      <td>正常调参</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">开关关闭时"逐位不变"是硬承诺，不是"差不多"</span>
+  关闭后 <code>AddSpread()</code> / <code>UpdateSpread()</code> / <code>UpdateMultipliers()</code>
+  走的还是原来那几行代码，<code>RecoilState</code> 上的散布字段一个都不读。
+  这一点由 <code>Lyra.Recoil.Spread.DisabledIsNoOp</code> 与
+  <code>Lyra.Recoil.Spread.ToggleBackIsClean</code> 两个用例守着。<br>
+  <strong>另外</strong>：<code>Lyra.Recoil.Enable 0</code> <strong>不会</strong>关掉散布。
+  这是刻意的——"关掉后坐力、只调散布"是常用操作，两个系统不该互相绑架。
+</div>
+
+<h3>9.4 实时面板 <code>Lyra.Recoil.SpreadDebug 1</code></h3>
+
+<p>这是调散布时<strong>唯一需要盯的东西</strong>，面板长这样：</p>
+
+<pre><code>[Spread] DA_Recoil_Rifle   Model=Profile(per-pose angle)   AssetSpread=on   Recoil=ON
+  Cone: raw=1.9000 deg -&gt; effective=0.8550 deg   (aim x0.750  move x0.600)   Heat=0.0000
+  base=0.350  max=2.200   [b==========================.....]  (b=base, ==accumulated, .=headroom)
+  Pose params: base=0.3500 max=2.2000 addPerShot=0.2800 recover=2.0000 deg/s (delay=0.0000s)
+  Fed to cone: 0.8550 deg (diametrical) = 0.4275 deg half-angle (0.00746 rad)   Exponent=1.00
+</code></pre>
+
+<table>
+  <tr><th>行</th><th>读什么</th></tr>
+  <tr><td><code>Model=</code></td>
+      <td>走的是哪条链路。<code>Profile(per-pose angle)</code> = 新模型；<code>Lyra(heat curves)</code> = 回退路径。<br>
+      <strong>这一行是归因的第一刀</strong>：数字对不上时先确认走的是不是你配的那条</td></tr>
+  <tr><td><code>AssetSpread=</code></td><td>资产上的 <code>bEnableProfileSpread</code> 实际值</td></tr>
+  <tr><td><code>Cone: raw -&gt; effective</code></td>
+      <td><code>raw</code> = 姿态角 + 连射累加（<strong>不含</strong>玩家倍率）；
+      <code>effective</code> = 乘完瞄准/移动倍率之后的<strong>真正喂给圆锥的值</strong>。
+      <strong>准星大小对不上时，先看这两个数对不对</strong></td></tr>
+  <tr><td><code>aim x</code> / <code>move x</code></td>
+      <td>两条玩家倍率的当前值。<code>aim</code> 从 1.0 随开镜滑到 <code>SpreadMultiplier_Aiming</code>；
+      <code>move</code> 从 <code>SpreadMultiplier_StandingStill</code> 随速度滑到 1.0</td></tr>
+  <tr><td><code>[b=====.....]</code></td>
+      <td>锥角条。<code>b</code> = 基础角所在刻度，<code>=</code> = 已经积累出来的部分，<code>.</code> = 到上限还剩多少</td></tr>
+  <tr><td><code>Pose params:</code></td>
+      <td>当前姿态解析出来的四个参数 + 停火延迟。改成"我配的到底是哪个字段"时看这一行</td></tr>
+  <tr><td><code>Fed to cone:</code></td>
+      <td>最终锥角 + <strong>换算好的半角（度与弧度都给了）</strong>。跟代码里的 <code>HalfSpreadAngleInRadians</code> 对得上就说明链路没问题</td></tr>
+</table>
+
+<div class="box ok">
+  <span class="t">三条面板判据（照着看就能定位大半问题）</span>
+  <strong>① <code>effective</code> 对了但准星不对</strong> → 问题在 HUD（准星半径 ≈ <code>tan(effective×0.5°) × 距离</code>），
+  不在散布系统里。<br>
+  <strong>② <code>raw</code> 打到 <code>max</code> 还在涨</strong> → 不可能，被钳住了。
+  如果观感上"还在散"，去看 <code>addPerShot</code> 是不是配得太大（1~2 发就到顶）。<br>
+  <strong>③ <code>raw</code> 一直等于 <code>base</code>，连发不涨</strong> →
+  ① 看 <code>addPerShot</code> 是不是 0；② 看 <code>base == max</code>（那就是配成了一个常量）；
+  ③ 看 <code>AssetSpread</code> 是不是 off。
+</div>
+
+<p><code>Lyra.Recoil.Debug 1</code> 的主面板底部也会多一行摘要，方便"调后坐力时顺带瞄一眼锥角"：</p>
+
+<pre><code>  Spread cone=0.855 deg (base 0.350 / max 2.200)  Aim x0.75  Move x0.60  ThisShot=0.855
+</code></pre>
+
+<p>若该武器没走资产散布，这一行会明确写出来：</p>
+
+<pre><code>  Spread cone=&lt;Lyra native heat model&gt;  (turn on ULyraRecoilProfile.bEnableProfileSpread to move it into the asset)
+</code></pre>
+
+<h3>9.5 实操：怎么把散布和后坐力分开归因</h3>
+
+<div class="step">
+  <div class="h"><em>1</em>先确认走的是哪条链路</div>
+  <code>Lyra.Recoil.SpreadDebug 1</code> → 看 <code>Model=</code> 与 <code>AssetSpread=</code>。<br>
+  显示 <code>Lyra(heat curves)</code> 就说明这把枪还没迁过来，先去资产上打开开关（见 §11.6）。
+</div>
+
+<div class="step">
+  <div class="h"><em>2</em>把后坐力摘掉，只留散布</div>
+  <code>Lyra.Recoil.Enable 0</code> → 弹道偏移恒为 0、相机不动。
+  此时<strong>打出去的红线离散程度 = 纯散布</strong>，用它验证"锥角是不是我配的那个值"。
+</div>
+
+<div class="step">
+  <div class="h"><em>3</em>把散布摘掉，只留后坐力</div>
+  <code>Lyra.Recoil.Enable 1</code>，然后在资产上勾掉 <code>bEnableProfileSpread</code>
+  （或者干脆把该姿态的 <code>Base = Max = Add = 0</code>）→ 锥角恒为 0。此时黄点画出来的就是纯 Pattern。
+</div>
+
+<div class="step">
+  <div class="h"><em>4</em>看形状用世界内，看数值用面板</div>
+  <code>lyra.Weapon.DrawBulletTraceDuration 5</code> 看红线离散；<br>
+  <code>Lyra.Recoil.SpreadDebug 1</code> 看锥角数值；<br>
+  两者要能对上：红线张开的角度 ≈ 面板的 <code>effective</code>。
+</div>
+
+<div class="step">
+  <div class="h"><em>5</em>要复现就看 CSV</div>
+  打一轮 → <code>Lyra.Recoil.Dump</code> → 打开 <code>Saved/RecoilDump_*.csv</code>。
+  第 8 列 <code>SpreadAngle</code> 就是<strong>那一发实际用的锥角</strong>，
+  可以直接拿它画 ramp 曲线，验证"每发 +0.28°、20 发到顶"这类设计意图有没有落地。
+</div>
+
+<h3>9.6 参数全量清单（资产：<code>DA_Recoil_*</code> → <code>Recoil | Spread</code>）</h3>
+
+<h4><code>Recoil | Spread</code>（总开关 · 1 项）</h4>
+
+<table>
+  <tr><th>字段</th><th>类型</th><th>默认</th><th>含义 / 怎么调</th></tr>
+  <tr><td><code>bEnableProfileSpread</code></td><td>bool</td><td><code>false</code></td>
+      <td>总开关。见 §11.3。<strong>新建资产默认关</strong>，避免"忘了配 = 意外换模型"</td></tr>
+</table>
+
+<h4><code>Recoil | Spread | Standing</code>（站定 · 4 项）</h4>
+
+<table>
+  <tr><th>字段</th><th>类型</th><th>默认</th><th>含义 / 范围</th></tr>
+  <tr><td><code>SpreadAngle_Standing</code></td><td>float 度</td><td>0.35</td>
+      <td>基础散布角（<strong>全锥角</strong>）。停火足够久后回落到的值。<code>≥ 0</code></td></tr>
+  <tr><td><code>MaxSpreadAngle_Standing</code></td><td>float 度</td><td>2.20</td>
+      <td>连射上限角。<strong>必须 ≥ <code>SpreadAngle_Standing</code></strong>，否则资产校验报错。
+      "打满一梭最散能散到多少"就是它</td></tr>
+  <tr><td><code>SpreadAddPerShot_Standing</code></td><td>float 度</td><td>0.28</td>
+      <td>每发增量。<code>0</code> = 连发不扩散。<br>
+      用 <code>(Max − Base) / Add</code> 可以算"第几发到顶"：默认值下 <code>(2.20−0.35)/0.28 ≈ 6.6</code> → 第 7 发到顶</td></tr>
+  <tr><td><code>SpreadRecoverRate_Standing</code></td><td>float 度/秒</td><td>2.00</td>
+      <td>停火回落速率。<code>0</code> = 永不回落（打完就一直是那个角）。<br>
+      "松手多久能收回来" = <code>(当前角 − Base) / 本值</code> 秒</td></tr>
+</table>
+
+<h4><code>Recoil | Spread | Crouching</code>（蹲伏 · 4 项）</h4>
+
+<table>
+  <tr><th>字段</th><th>类型</th><th>默认</th><th>含义 / 范围</th></tr>
+  <tr><td><code>SpreadAngle_Crouching</code></td><td>float 度</td><td>0.25</td><td>蹲伏基础角。<code>≥ 0</code></td></tr>
+  <tr><td><code>MaxSpreadAngle_Crouching</code></td><td>float 度</td><td>1.60</td><td>蹲伏上限角。必须 ≥ 基础角</td></tr>
+  <tr><td><code>SpreadAddPerShot_Crouching</code></td><td>float 度</td><td>0.22</td><td>蹲伏每发增量</td></tr>
+  <tr><td><code>SpreadRecoverRate_Crouching</code></td><td>float 度/秒</td><td>2.40</td><td>蹲伏回落速率</td></tr>
+</table>
+
+<div class="box warn">
+  <span class="t">蹲伏的姿态切换是<strong>瞬时</strong>的 —— 这会让锥角"跳"</span>
+  站着打到 2.2° 时按下蹲，锥角会<strong>立刻</strong>被钳到蹲伏上限 1.6°（因为上限变低了）。
+  这是设计，不是 bug —— 与后坐力姿态倍率的"每发按当下姿态取值"完全一致。<br>
+  如果你想要"蹲下时平滑收紧"，那需要给姿态切换也加过渡（当前没做，见 §11.9 待办）。
+</div>
+
+<h4><code>Recoil | Spread | JumpingOrFalling</code>（空中 · 4 项）</h4>
+
+<table>
+  <tr><th>字段</th><th>类型</th><th>默认</th><th>含义 / 范围</th></tr>
+  <tr><td><code>SpreadAngle_JumpingOrFalling</code></td><td>float 度</td><td>2.50</td>
+      <td>空中基础角。通常配得明显大于站/蹲（跳射本来就该不准）</td></tr>
+  <tr><td><code>MaxSpreadAngle_JumpingOrFalling</code></td><td>float 度</td><td>4.00</td><td>空中上限角</td></tr>
+  <tr><td><code>SpreadAddPerShot_JumpingOrFalling</code></td><td>float 度</td><td>0.35</td><td>空中每发增量</td></tr>
+  <tr><td><code>SpreadRecoverRate_JumpingOrFalling</code></td><td>float 度/秒</td><td><strong>0.00</strong></td>
+      <td>空中回落速率。<strong>默认给 0</strong>：跳在空中时不该"越飘越准"，
+      落地换回站定姿态后才会开始收</td></tr>
+</table>
+
+<h4><code>Recoil | Spread | Player</code>（玩家侧 · 7 项）</h4>
+
+<table>
+  <tr><th>字段</th><th>类型</th><th>默认</th><th>含义 / 范围</th></tr>
+  <tr><td><code>SpreadMultiplier_Aiming</code></td><td>float 倍率</td><td>0.60</td>
+      <td>开镜满时的倍率。实际值 = <code>Lerp(1, 本值, AimingAlpha)</code>，<code>AimingAlpha</code> 是相机栈的混合权重（逐帧连续）。<br>
+      有效范围 <code>(0, 5]</code>。<strong>开镜收益 = (1 − 本值)</strong>，0.6 就是"开镜减 40% 散布"</td></tr>
+  <tr><td><code>SpreadMultiplier_StandingStill</code></td><td>float 倍率</td><td>0.50</td>
+      <td>站定（速度 ≤ 阈值）时的倍率，随速度线性升到 <code>1.0</code>。范围 <code>(0, 5]</code></td></tr>
+  <tr><td><code>SpreadStandingStillSpeedThreshold</code></td><td>float cm/s</td><td>80.0</td>
+      <td>速度阈值。<code>≤</code> 它算"站定"。<code>≥ 0</code></td></tr>
+  <tr><td><code>SpreadStandingStillToMovingRange</code></td><td>float cm/s</td><td>20.0</td>
+      <td>阈值之上的过渡带宽。到 <code>阈值 + 带宽</code> 时倍率回到 1.0。<br>
+      <code>0</code> 也是合法值 → 变成一个<strong>阶跃</strong>（不会算出 NaN，有专门的用例守着）</td></tr>
+  <tr><td><code>SpreadTransitionRate_StandingStill</code></td><td>float</td><td>5.0</td>
+      <td><code>FInterpTo</code> 的过渡速率。<code>0</code> = 瞬时。<br>
+      越大越跟手；<strong>太小会让"停枪瞬间不准"拖很久</strong>（准星慢吞吞才收回来）</td></tr>
+  <tr><td><code>SpreadRecoveryDelay</code></td><td>float 秒</td><td>0.0</td>
+      <td>停火后多久开始回落。<code>0</code> = 立刻。<br>
+      点射手感的关键：给 0.2~0.3 会让"打两枪停一下"有明显的"等一下才收"节奏</td></tr>
+  <tr><td><code>SpreadExponent</code></td><td>float</td><td>1.00</td>
+      <td>锥内分布形状，喂给 <code>VRandConeNormalDistribution</code>。<br>
+      <code>1.0</code> = 锥内均匀；<code>&gt; 1</code> = 向中心聚拢（弹着更密）；<code>&lt; 1</code> = 往边缘跑。<code>≥ 0.1</code></td></tr>
+</table>
+
+<h4><code>Weapon Config</code> 里和散布相关的 3 项（在武器实例上，不属于 Spread 分类）</h4>
+
+<table>
+  <tr><th>字段</th><th>位置</th><th>影响</th></tr>
+  <tr><td><code>BulletsPerCartridge</code></td><td><code>B_WeaponInstance_*</code> → <code>Weapon Config</code></td>
+      <td>一发打几颗弹丸。霰弹枪就是靠它。<strong>每颗弹丸独立走圆锥</strong>，所以设 8 就是 8 个随机方向 —— 但共用同一个后坐力偏移</td></tr>
+  <tr><td><code>MaxDamageRange</code></td><td>同上</td><td>弹道长度。锥角不变时，<strong>距离越远，弹着点离散越大</strong>（离散半径 ≈ <code>tan(半角) × 距离</code>）</td></tr>
+  <tr><td><code>BulletTraceSweepRadius</code></td><td>同上</td><td>弹道用扫掠球还是射线。<code>0</code> = 射线。<strong>不影响散布角</strong>，只影响命中判定宽容度</td></tr>
+</table>
+
+<h3>9.7 排错对照表（散布）</h3>
+
+<table>
+  <tr><th>现象</th><th>最可能的原因</th><th>怎么确认 / 怎么修</th></tr>
+  <tr><td><strong>改了资产上的散布数值，一点变化都没有</strong></td>
+      <td><code>bEnableProfileSpread</code> 没勾 → 还在走 Lyra 原生 heat 链路</td>
+      <td><code>Lyra.Recoil.SpreadDebug 1</code>，看 <code>AssetSpread=</code> 是不是 <code>off</code>。
+          是 <code>off</code> 就去资产上打开（§11.3）</td></tr>
+  <tr><td><strong>弹道永远笔直，一点不散</strong></td>
+      <td>① 新模型：该姿态 <code>Base = Add = 0</code>；<br>
+          ② 旧模型：<code>HeatToSpreadCurve</code> 为空 → 求值恒为 0（<strong>静默</strong>，不报错）</td>
+      <td>面板看 <code>Cone: raw=</code> 与 <code>Fed to cone:</code>。都是 0 就去查参数（② 还要看
+          <code>Debug_MinSpreadAngle</code> / <code>Debug_MaxSpreadAngle</code>）</td></tr>
+  <tr><td><strong>连发时锥角涨到顶就不再涨</strong></td>
+      <td><strong>正常</strong>：被 <code>MaxSpreadAngle_&lt;姿态&gt;</code> 钳住了</td>
+      <td>面板锥角条打到满格就是到顶了。要更散就抬 <code>Max</code>，要更晚到顶就减小 <code>addPerShot</code></td></tr>
+  <tr><td><strong>连发完全不涨（一发和十发一样）</strong></td>
+      <td><code>SpreadAddPerShot_&lt;姿态&gt;</code> 是 0，或者 <code>Base == Max</code></td>
+      <td>面板 <code>Pose params:</code> 一行直接看这两个数</td></tr>
+  <tr><td><strong>松手之后准星不收回</strong></td>
+      <td><code>SpreadRecoverRate_&lt;姿态&gt;</code> 是 0（空中默认就是 0）</td>
+      <td>面板 <code>recover=</code> 看数值。空中不回落是刻意设计，落地即恢复</td></tr>
+  <tr><td><strong>蹲下 / 起跳时准星"跳"了一下</strong></td>
+      <td><strong>设计如此</strong>：姿态切换是瞬时的（§11.6 的 warn box）</td>
+      <td>若观感不能接受 → 见 §11.9 末尾的待办（姿态切换过渡）</td></tr>
+  <tr><td><strong>蹲下收益 / 开镜收益没有效果</strong></td>
+      <td>① <code>SpreadMultiplier_Aiming</code> 还是 1.0（= 不给任何加成）；<br>
+          ② <strong>开镜还额外要求相机模式带 <code>Lyra.Weapon.SteadyAimingCamera</code> 标签</strong></td>
+      <td>面板 <code>aim x</code> / <code>move x</code>：开镜时应该从 1.0 往下滑。不滑就是相机模式没标签</td></tr>
+  <tr><td><strong>CSV 的 <code>SpreadAngle</code> 列全是 0</strong></td>
+      <td>没开 <code>bEnableProfileSpread</code>（<strong>正常</strong>）</td>
+      <td>该列语义就是"本发吃了多少资产散布"，未启用时恒为 0</td></tr>
+  <tr><td><strong>CSV 的 <code>SpreadAngle</code> 比面板显示的小一发</strong></td>
+      <td>不应该发生 —— 快照机制就是为了防这个</td>
+      <td>真要出现，去看 <code>NotifyShotSpreadUsed()</code> 是否在
+          <code>TraceBulletsInCartridge()</code> 里被调用（§11.7 的 warn box）</td></tr>
+  <tr><td><strong>资产校验红了：<code>MaxSpreadAngle_* must be &gt;= SpreadAngle_*</code></strong></td>
+      <td>上限配得比基础角还小</td>
+      <td>抬 <code>Max</code> 或降 <code>Base</code>。运行时会兜底（不会崩），但校验会拦住，
+          因为"第一发比基础角还准"是配置事故</td></tr>
+  <tr><td>开 <code>lyra.Weapon.DrawBulletTraceDuration</code> 什么都没画</td>
+      <td>不是本地玩家 / 没真的开火 / Shipping 构建</td>
+      <td>只在 <code>ENABLE_DRAW_DEBUG</code> 下存在；且<strong>必须真开火</strong>才画（不是每帧画）</td></tr>
+  <tr><td>散布想进 Golden / 想复现</td>
+      <td><strong>做不到（不是 bug）</strong>：<code>VRandConeNormalDistribution</code> 用的是 <code>FMath::FRand()</code>，没有种子</td>
+      <td>要可复现的弹道用后坐力那条链（<code>Lyra.Recoil.Pattern.*</code> 有 Golden 基准）</td></tr>
+</table>
+
 <footer>
-  后坐力系统调试 · 2026-09-17 · TPSGunsDemo<br>
+  后坐力系统调试 · 2026-09-17 首版 · <strong>2026-09-20 重写第 11 节（散布并入后坐力资产）</strong><br>
   数值以 <code>DA_Recoil_Rifle_S</code> / <code>DA_Recoil_Rifle_7</code> 资产为准；改过资产请回头更新本文第 2.3 节的预期值。<br>
-  <strong>三方一致性</strong>：本文（怎么用）↔ <code>10_SingleShotInterpolation.md</code>（为什么这么设计）↔ <code>LyraRecoilState.cpp / LyraRecoilProfile.cpp</code>（代码事实）。
-  单发模型相关内容以第 10 节为准；本节之外的老内容（P0~P8）已由 <code>Lyra.Recoil</code> 30 个用例守住。
+  <strong>三方一致性</strong>：本文（怎么用）↔ <code>12_SpreadInProfile.md</code>（为什么这么设计）↔
+  <code>LyraRecoilProfile.cpp / LyraRecoilState.cpp / LyraRangedWeaponInstance.cpp</code>（代码事实）。<br>
+  单发模型相关内容以第 10 节为准；Roll 震屏以第 9 节为准；<strong>散布以第 11 节为准</strong>。<br>
+  <strong>散布的事实依据</strong>：<code>LyraRecoilProfile.h/.cpp</code>（参数与查询）、
+  <code>LyraRecoilState.h/.cpp</code>（累加 / 回落 / 结算）、
+  <code>LyraRangedWeaponInstance.h/.cpp</code>（两链路分叉 + 姿态与倍率来源）、
+  <code>LyraGameplayAbility_RangedWeapon.cpp</code>（圆锥采样 + 发弹快照）、
+  <code>LyraRecoilDebug.h/.cpp</code>（面板与 CSV）。
+  第 11 节之外的旧内容（P0~P9）已由 <code>Lyra.Recoil</code> 30 个用例守住；
+  散布新增的 7 个用例是 <code>Lyra.Recoil.Spread.*</code>。
 </footer>
 
 </div>

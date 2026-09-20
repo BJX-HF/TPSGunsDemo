@@ -34,15 +34,19 @@ namespace LyraRecoilDumpTest
 	/**
 	 * 冻结的列顺序契约。
 	 *
-	 * P5 起初是 6 列（对应 FRecoilShotResult 的全部字段）；P8 追加了第 7 列 RollShake。
-	 * 注意 RollShake 的语义与前 6 列**不同** —— 它是 Roll 解析解在开火瞬间（t=0）的采样，
-	 * 不是"本发累计"。之所以仍放进同一行，是为了"一行内看到三轴的起点"。
+	 * P5 起初是 6 列（对应 FRecoilShotResult 的全部字段）；P8 追加了第 7 列 RollShake；
+	 * P10（散布并入后坐力资产）追加了第 8 列 SpreadAngle。
+	 *
+	 * 注意这两列与前 6 列的语义都**不同**：
+	 *   RollShake   —— Roll 解析解在开火瞬间（t=0）的采样，不是"本发累计"
+	 *   SpreadAngle —— 本发弹道实际使用的散布锥角（全锥角，度），同样不是累计量
+	 * 之所以仍放进同一行，是为了"一行内看到三轴的起点"。
 	 * 本常量是唯一契约点：改 CSV 就必须改这里，测试会立刻拦住。
 	 */
-	static const TCHAR* const ExpectedHeader = TEXT("ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake");
+	static const TCHAR* const ExpectedHeader = TEXT("ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake,SpreadAngle");
 
-	/** 列数（供断言使用，避免各处硬编码 6/7） */
-	static constexpr int32 ExpectedColumnCount = 7;
+	/** 列数（供断言使用，避免各处硬编码 6/7/8） */
+	static constexpr int32 ExpectedColumnCount = 8;
 
 	/** 每发之间推进的时间（秒）：5 × 1ms = 5ms，远小于 RecoveryDelay，保证整轮停在 Accumulating */
 	static constexpr int32 StepsBetweenShots = 5;
@@ -211,8 +215,18 @@ bool FLyraRecoilDumpRowCountAndValuesTest::RunTest(const FString& Parameters)
 		// 因此这一列不做"逐发累加"比对，只断言它是一个有限的、非超调的数值。
 		const float CsvRollShake = FCString::Atof(*Columns[6]);
 
+		// Columns[7] = SpreadAngle：本发实际使用的散布锥角。
+		// 本测试用的 Profile 没有打开 bEnableProfileSpread，所以必然是 0 ——
+		// 这正好把"未启用资产散布时这一列恒为 0"这条契约也钉住了
+		// （启用后的逐发数值由 Lyra.Recoil.Spread.* 覆盖）。
+		const float CsvSpreadAngle = FCString::Atof(*Columns[7]);
+
 		TestTrue(FString::Printf(TEXT("Row %d RollShake is finite (%.6f)"), ShotIndex, CsvRollShake),
 			FMath::IsFinite(CsvRollShake));
+
+		TestTrue(FString::Printf(TEXT("Row %d SpreadAngle is 0 when profile spread is disabled (csv=%.6f)"),
+			ShotIndex, CsvSpreadAngle),
+			FMath::IsNearlyZero(CsvSpreadAngle, Tolerance));
 
 		TestEqual(FString::Printf(TEXT("Row %d ShotIndex"), ShotIndex), CsvShotIndex, ShotIndex);
 

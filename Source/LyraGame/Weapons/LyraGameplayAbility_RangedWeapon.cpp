@@ -410,6 +410,22 @@ void ULyraGameplayAbility_RangedWeapon::TraceBulletsInCartridge(const FRangedWea
 		AimDirWithRecoil = (InputData.AimDir.Rotation() + RecoilRotator).Vector().GetSafeNormal();
 	}
 
+	// ------------------------------------------------------------------
+	// 散布快照（资产散布模型）
+	//
+	// 在**发弹这一刻**把本发实际使用的锥角记进运行时状态，随后由 ApplyShot 写进
+	// FRecoilShotResult::SpreadAngle，最终出现在 CSV 的第 8 列。
+	//
+	// 为什么必须在这里取：Lyra 的既有顺序是「先按当前散布打出去 → 再加热」
+	// （AddSpread 在 OnTargetDataReadyCallback 里，本函数在其之前），
+	// 而 AddRecoil/ApplyShot 又发生在加热之后 —— 到那时 CurrentSpreadAngle
+	// 已经是"下一发要用的值"了。不在这里留快照，CSV 这一列会整体错位一发。
+	//
+	// 未启用资产散布时这个值恒为 0，写入后不会被使用。
+	// ------------------------------------------------------------------
+	WeaponData->NotifyShotSpreadUsed(
+		WeaponData->GetCalculatedSpreadAngle() * WeaponData->GetCalculatedSpreadAngleMultiplier());
+
 	for (int32 BulletIndex = 0; BulletIndex < BulletsPerCartridge; ++BulletIndex)
 	{
 		const float BaseSpreadAngle = WeaponData->GetCalculatedSpreadAngle();
