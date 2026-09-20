@@ -618,8 +618,251 @@ rm -rf Intermediate/Build/Win64/UnrealEditor/Inc/LyraGame
 > #36–#38 是**设计取舍**（要我改代码就动它们）；#39 不是取舍，是**必须实机确认**的验证项 ——
 > 它是 §12.2 里唯一没能靠代码消除的残留（正反馈回路被 `1×MaxV` 夹住了，但"夹在哪里最舒服"只能靠手试）。
 
+
 ---
 
-_本文档由祥子整理，2026-09-20。修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣。_
+## 13. 追加修复（2026-09-20）：回正目标也减去本梭累计压枪量（P14）
+
+### 13.0 一句话
+
+回正目标从
+
+```
+T = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio
+```
+
+改成
+
+```
+T = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio − RecoveryCoverPitch
+```
+
+新增字段 `RecoveryCoverPitch`（本梭累计压枪量）。**默认 0 ⇒ 回正目标退化成旧公式，既有行为逐位不变。**
+
+### 13.1 需求与两个已拍板的决定
+
+原话：
+
+> 后坐力回正的规则也需要修改一下 后坐力回正也需要减去玩家压枪的角度
+
+我追问"减多少、减到负数怎么办"，得到的口径是：
+
+> 你累计一下玩家的压枪量然后减去就好
+
+据此定下两条（**都是我的问题、你的回答，不是我的选择**）：
+
+| # | 待定项 | 你的口径 | 被否决的选项 |
+| --- | --- | --- | --- |
+| A | 抵扣量怎么取 | **累计**玩家的压枪量（不是"当前瞬间值"） | 读实时值 ⇒ 停火后松手会归零，见 §13.2 |
+| B | 残留可以为负吗 | **可以（字面减法）** —— 玩家压过头，镜头最终就低于起枪点 | 夹到 0 / 按比例抵扣 |
+
+> **与 §12 的分工**：§12（P12）改的是**钳制边界**（"上限"），本节（P14）改的是**回正目标**（"最终停在哪"）。
+> 两者都从 `AimCompensationPitch` 取输入，但服务于两个不同时间尺度 —— 这正是 §13.2 要新增字段的原因。
+
+### 13.2 为什么必须新增一个字段，不能复用 `AimCompensationPitch`
+
+两个消费者的**时间尺度不同**，复用一个字段必然出错：
+
+| | `AimCompensationPitch`（P12 用） | `RecoveryCoverPitch`（P14 用） |
+| --- | --- | --- |
+| 服务对象 | **钳制边界** | **回正目标** |
+| 语义 | 玩家"**正在**压多少" | 这一梭"**总共**压了多少" |
+| 更新方式 | 每帧覆盖写（`SetAimCompensationPitch`） | 逐帧 `max()` 累积（单调不减） |
+| 松手之后 | **立刻缩回 0**（`ControlRotation` 回升） | **冻结**在最大值 |
+| 为什么必须这样 | 否则"压一下再松手"能永久骗到更高的硬顶 | 否则回正目标会在回正途中跳回旧值 ⇒ 非单调甩镜 |
+
+**关键点**：回正发生在**停火之后**，而停火之后玩家**必然松手**。
+若回正直接读 `AimCompensationPitch`，它会在回正进行到一半时一路缩回 0，
+回正目标随之向上跳 —— 玩家看到的是镜头先压下去、再自己弹回来，**这次改动等于白做**。
+
+因此 `RecoveryCoverPitch` 必须是**累积量**：
+
+- `Advance()` 末尾：`RecoveryCoverPitch = max(RecoveryCoverPitch, AimCompensationPitch)` —— 单调不减；
+- 停火后 `AimCompensationPitch → 0`，而 `RecoveryCoverPitch` 保持不变（"自然冻结"）；
+- 新一梭（`ApplyShot` 里 `State == Idle` 分支）/ `Reset()` 清零。
+
+### 13.3 代码改动清单
+
+| 文件 | 位置 | 改动 |
+| --- | --- | --- |
+| `LyraRecoilState.h` | L298–299 | **新增** `UPROPERTY float RecoveryCoverPitch = 0.0f;`（**默认 0 ⇒ 旧行为**） |
+| `LyraRecoilState.cpp` | L40–42 | `ApplyRecoveryStep`：`TargetPitch` 末尾 `− RecoilState.RecoveryCoverPitch` |
+| `LyraRecoilState.cpp` | L166–167 | `ComputeStageTarget`：`SteadyEndPitch` 末尾 `− State.RecoveryCoverPitch` |
+| `LyraRecoilState.cpp` | L845–846 | 长帧保护落稳态：`SteadyPitch` 末尾 `− RecoveryCoverPitch` |
+| `LyraRecoilState.cpp` | L433 | `Reset()`：清零 `RecoveryCoverPitch` |
+| `LyraRecoilState.cpp` | L639–640 | `ApplyShot()` 新一梭分支：清零 `RecoveryCoverPitch` |
+| `LyraRecoilState.cpp` | L886–890 | `Advance()` 末尾 `switch (State)` **之前**：`RecoveryCoverPitch = max(RecoveryCoverPitch, AimCompensationPitch)` |
+| `LyraRecoilDebug.cpp` | L238 | 面板 Accum 行再加一列 `covSum`（累计抵扣量），便于和 `aimComp` 对照 |
+
+**水平方向（Yaw）不抵扣** —— 与 §12.3 同一条理由：水平没有"飞太高"的问题，
+`RecoveryCoverPitch` 只有俯仰一个分量。
+
+**累积点为什么放在 `Advance()` 里而不是 `ApplyShot()` 里：**
+玩家压枪是**连续**动作，发生在两发之间。若只在开火瞬间采样，30 发里只会取到 30 个点，
+且每发之间镜头已经被后坐力推走 —— 采到的不是"玩家的压枪量"。
+`Advance()` 每帧跑一次，才是真实节奏；放在 `switch` **之前**是为了保证
+"本帧进入回正"时用的就是本帧最新采到的累计值。
+
+### 13.4 ⚠️ 一个必须记下来的坑：减法被分号截断，**能编译、静默失效**
+
+首版落地时，三处改动是这种形态（`p14_edit*.py` 的产物）：
+
+```cpp
+const float TargetPitch = RecoilState.RecoveryBasePitch
+    + (RecoilState.RecoveryPeakPitch - RecoilState.RecoveryBasePitch) * Profile.RecoilReturnRatio;  // ← 分号在这里
+    - RecoilState.RecoveryCoverPitch;                                                                // ← 变成独立语句
+```
+
+**`- x;` 是一条合法的表达式语句**（取负、丢弃结果），所以：
+
+- 编译 **`Result: Succeeded`，0 error / 0 warning**；
+- 减法 **完全没有生效**；
+- 只有跑仿真/实机才会发现"怎么没变"。
+
+受影响的正是 `ApplyRecoveryStep`（L41）、`ComputeStageTarget`（L166）、长帧保护（L845）三处，
+在本次修复的第二轮里才改对（把分号挪到下一行末尾）。
+
+**自查命令**（改完这类多行表达式后一定跑一次）：
+
+```bash
+grep -n "RecoilReturnRatio;$" Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp
+# 期望：只剩 TargetYaw / SteadyEndYaw 那两行；不该出现 *Pitch 的行
+```
+
+### 13.5 纯数值仿真证据
+
+脚本 `sim11.py` / `sim12.py` / `sim15.py`，状态机与 `LyraRecoilState.cpp` 逐行对应
+（含 `InterpBasePitch = AccumulatedPitch`、`RecoveryBasePitch = InterpBasePitch`、
+`SubStepAccumulator` / `MaxSubStepsPerAdvance`、以及 `RecoveryDelay` 触发的**中途中止回正**）。
+口径：`DA_Recoil_Rifle_S` 参数（`MaxVerticalKick = 4.0`、`RecoilReturnRatio = 0.15`、
+`ReboundRatio = 0.72`、`RecoveryDelay = 0.12`、`RecoveryTime = 0.30`），
+30 发 @0.12s（≈ `07_TuningRecipe.md` §5.4 的射速档）、60fps、再跑 2.5s 让回正走完。
+
+#### 13.5.1 `Interpolated`（`DA_Recoil_Rifle_S`，槽位 0 —— 你实际拿的那把）
+
+| cover | P12 峰值 | P12 `T_raw` | P12 `T_net` | P14 峰值 | P14 `T_raw` | P14 `T_net` | Δ`T_raw` | 期望 `−cover` | 偏差 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.0 | 4.0446 | 4.045 | 4.045 | 4.0446 | 4.045 | 4.045 | 0.000 | −0.000 | **0** |
+| 0.5 | 4.5446 | 4.545 | 4.045 | 4.5000 | 4.045 | 3.545 | −0.500 | −0.500 | **0** |
+| 1.0 | 5.0446 | 5.045 | 4.045 | 5.0000 | 4.045 | 3.045 | −1.000 | −1.000 | **0** |
+| 2.0 | 5.5795 | 5.327 | 3.327 | 5.0462 | 2.794 | 0.794 | −2.533 | −2.000 | −0.533 |
+| 3.0 | 5.5795 | 5.327 | 2.327 | 4.7795 | 1.527 | −1.473 | −3.800 | −3.000 | −0.800 |
+| 4.0 | 5.5795 | 5.327 | 1.327 | 4.5128 | 0.260 | −3.740 | −5.067 | −4.000 | −1.067 |
+| 6.0 | 5.5795 | 5.327 | −0.673 | 3.9795 | −2.273 | −8.273 | −7.600 | −6.000 | −1.600 |
+
+- `peak` = 裸累加偏移峰值；`T_raw` = 回正结束后的裸残留；`T_net = T_raw − cover` = 镜头相对起枪点的净残留。
+- **`cover = 0` 逐位相同** ⇒ 零回归（并被 37 个用例 + Golden md5 独立坐实，见 §13.6）。
+- `T_net < 0` 是**设计上允许**的（§13.1 决定 B）：玩家压过头，镜头最终低于起枪点。
+
+#### 13.5.2 `InstantWrite`（弹道参数借用 `Rifle_S`，只换回正口径，便于同参对照）
+
+`InstantWrite` 下 `RecoveryBase ≡ 0`，回正目标退化成 `Peak × RecoilReturnRatio − cover`：
+
+| cover | P12 峰值 | P12 `T_raw` | P12 `T_net` | P14 峰值 | P14 `T_raw` | P14 `T_net` | Δ`T_raw` | 期望 `−cover` | 偏差 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.0 | 4.0000 | 0.6000 | 0.6000 | 4.0000 | 0.6000 | 0.6000 | 0.0000 | −0.000 | **0** |
+| 0.5 | 4.5000 | 0.6750 | 0.1750 | 4.5000 | 0.1750 | −0.3250 | −0.5000 | −0.500 | **0** |
+| 1.0 | 5.0000 | 0.7500 | −0.2500 | 5.0000 | −0.2500 | −1.2500 | −1.0000 | −1.000 | **0** |
+| 2.0 | 6.0000 | 0.9000 | −1.1000 | 6.0000 | −1.1000 | −3.1000 | −2.0000 | −2.000 | **0** |
+| 3.0 | 7.0000 | 1.0500 | −1.9500 | 6.3100 | −2.0535 | −5.0535 | −3.1035 | −3.000 | −0.1035 |
+| 4.0 | 7.0382 | 1.0557 | −2.9443 | 6.0673 | −3.0899 | −7.0899 | −4.1456 | −4.000 | −0.1456 |
+| 6.0 | 7.0382 | 1.0557 | −4.9443 | 5.5819 | −5.1627 | −11.1627 | −6.2184 | −6.000 | −0.2184 |
+
+`cover ≥ 3` 后出现 −0.10 ~ −0.22 的小偏差：此时 P14 的累加器整体被压低，
+**P12 的钳制边界（`MaxV + cover`）反倒不再参与**（`6.31 < 7.0`），
+两个口径的钳制事件数不同 ⇒ 峰值不同。属可接受的二阶效应。
+
+#### 13.5.3 偏差溯源：`Interpolated` 的抵扣为什么会「叠加」
+
+`Interpolated` 表的偏差（−0.533 / −0.800 / −1.067 / −1.600）不是 bug，来源已经定位：
+
+1. `Rifle_S` 的射速间隔 **0.12s** 与 `RecoveryDelay` **0.12s 相等**
+   （`07_TuningRecipe.md` §5.4 / `09_SingleShotCurveGap.md`）。
+2. 于是 30 发里触发了 **7 次「中途中止回正」**（`Advance()` 里
+   `State == Accumulating && TimeSinceLastFire > RecoveryDelay`）——
+   这不是边角情况，对这把枪是**常态**。
+3. 每一次这样的回正都会扣掉一遍 `cover`；而
+   `ApplyShot` 里 `InterpBasePitch = AccumulatedPitch` ⇒ **被压低的值成为下一发的基底** ⇒ 逐次放大。
+4. 验证：把"每发 `Drop` 阶段也减"这条关掉，结果**完全相同**（`sim12.py` 的 `FULL` vs `REC` 两列逐位一致）
+   —— 说明叠加**只**来自这条基底反馈链，与 `ComputeStageTarget` 那一处无关
+   （快速连发时 `Lift 0.045 + Rebound 0.030 + Settle 0.12 = 0.195s > 0.12s`，`Drop` 阶段根本走不到）。
+
+> **要不要收敛它，是个设计问题，不是 bug。** 见 §13.8 的 #48：
+> 若你希望抵扣严格线性（`Δ = −cover`），做法是让**中途中止回正不抵扣**，
+> 只在停火后的最终回正抵扣一次。届时 `T_raw = P12 的 T_raw − cover`，
+> 即 `cover = 4` 时是 `5.327 − 4 = 1.327`（现在是 `0.260`）。要改我再出表。
+
+#### 13.5.4 顺带校准一处陈旧数字（§12.5 的 `5.1506`）
+
+§12.5 写「连发自然峰值 **5.1506°**」—— 那是用 `sim8.py` 算的，
+而 `sim8` 的 `rec()` 用的是 `峰值 × RecoilReturnRatio`（`base` 从未赋值），
+即 **P10 之前**的回正公式。P10 把回正锚到基底之后，自然峰值变高：
+
+| 口径 | 无钳制自然峰值 |
+| --- | --- |
+| `sim8`（pre-P10 公式） | 5.1506° |
+| **`sim14`（P10 基底锚定 + P12 钳制，= 当前代码）** | **5.5795°** |
+
+结论方向不变（`cover ≥ 2` 时 `MaxV + cover ≥ 6.0 > 5.5795`，钳制确实不参与），
+但**数字应以 5.5795 为准**。§12.5 的表格保留原样作为当时的记录，此处不覆盖。
+
+### 13.6 编译与回归（✅ 已执行，全绿）
+
+| 项 | 结果 |
+| --- | --- |
+| 编译 `LyraEditor Win64 Development` | ✅ **`Result: Succeeded`，0 error / 0 warning**，25 actions，76.98s |
+| `Lyra.Recoil` 自动化测试 | ✅ **37/37 全绿**（`LogAutomationCommandLine: ...Automation Test Queue Empty 37 tests performed.`，`Result={Fail}` = 0） |
+| 关键用例 | ✅ `State.RecoverySteadyState`（P10 基底口径）、`State.Clamp`（P12 抵扣）都在，且全绿 |
+| Golden 基准（5 份 JSON） | ✅ **md5 逐位未变**（跑测试前后一致） |
+| CSV 契约 | ✅ 未改动（P14 不动列） |
+
+**为什么 37 个用例能全绿：** 现有用例喂的 `cover` 恒为 0（夹具不设 `AimCompensationPitch`），
+`RecoveryCoverPitch` 因此恒为 0，公式逐位退化成旧式。
+**这不是"测试覆盖了 P14"，而是"测试证明了 P14 的零回归"** —— P14 的数值行为目前**只有仿真证据**，
+实机确认要靠 §13.7。
+
+> **构建踩坑（本次花了很久，已修）**：构建一直报
+> `UbaSessionServer - ERROR opening file C:\ProgramData\Epic\UnrealBuildAccelerator\memgroups for write ... (Access is denied.)`
+> → `Result: Failed (OtherCompilationError)`，而**实际 0 编译错误**。
+> `-NoUBA` 挡不住（UE 5.8 的 `ExecutorFactory` 无论如何都构造 `UBAExecutor`，
+> `-NoUBA` 只是 `Config.bAllowDetour = false`）。
+> 解法两条：**① `-UBARootDir="E:\TPSGunsDemo\Saved\UBACache"` 把 UBA 存储搬离 `C:\ProgramData`；
+> ② 构建要从 Bash 侧发起（宿主沙箱对该路径放行）。** 已写进 `PROGRESS.md` 坑 1 与
+> `Tools/build.ps1`（新增 `-UBARootDir` 参数）。
+
+### 13.7 怎么在 PIE 里验证
+
+1. 控制台 `Lyra.Recoil.Debug 1` 打开面板，看 `Accum` 行现在有三列：
+   `aimComp +X.XXX`（实时压枪量）、`covSum X.XXX`（本梭累计抵扣量）、`CapV=X.XXX`。
+2. **验收动作 A（单梭）**：拿 `DA_Recoil_Rifle_S`（槽位 0，`Interpolated`），
+   连发并**持续向下压枪**，松手等回正走完。
+   - ✅ 期望：镜头最终停在比"没压枪时"更低的位置（`covSum` 越大，停得越低）。
+   - ✅ 期望：`covSum` 在压枪期间单调不减，**松手后不再下降**（这就是 §13.2 的"冻结"）。
+   - ❌ 若 `covSum` 松手后跟着 `aimComp` 一起掉回 0 ⇒ 累积点接错了。
+3. **验收动作 B（负残留）**：故意压过头（`covSum` 明显大于 `Accum Pitch` 峰值）。
+   - ✅ 期望：回正结束后镜头**低于起枪点** —— 这是 §13.1 决定 B 的字面减法，属预期。
+   - ❌ 若觉得"沉过头"，那就是 §13.8 的 #49 要讨论的。
+4. **验收动作 C（零回归）**：换 `DA_Recoil_Rifle_7`（槽位 1，`InstantWrite`）**完全不压枪**。
+   - ✅ 期望：手感与 P12 完全一致（`covSum` 恒 0）。
+5. 打 `Lyra.Recoil.Dump 1` 导 CSV：`AccumulatedPitch` 列就是 `T_raw` 口径，
+   可与 §13.5 的表逐发对（注意 CSV 只记逻辑偏移，不含显示层补间）。
+
+### 13.8 新增待拍板项
+
+> 权威清单在 [PROGRESS.md §6](PROGRESS.md)（那里带「备选 / 影响面」两列）。
+
+| # | 事项 | 我的默认选择 | 备选 / 影响面 |
+| --- | --- | --- | --- |
+| 48 | **中途中止回正造成的抵扣叠加要不要收敛**（§13.5.3） | **先保留现状**（字面、口径最直白） | 收敛 ⇒ "中途回正不抵扣、只最终回正抵扣一次"，`Δ` 严格 = `−cover`；`cover=4` 时残留从 `0.260` 变 `1.327`。需要新增一个"本梭已抵扣"标志位 |
+| 49 | **压过头（`T_net < 0`）的手感底线** | 不设下限（§13.1 决定 B：允许负残留） | 设下限如 `−0.5 × MaxV` ⇒ 需再引入一个夹持常量；实机若"沉得慌"就回到这条 |
+
+> #48 只影响**中途中止回正频繁**的枪（`RecoveryDelay ≤ 射速间隔`，典型就是 `Rifle_S`）。
+> `InstantWrite` 的枪偏差 ≤ 0.22°（§13.5.2），可以不折腾。
+> （编号接在 P13 的 #47 之后，避免与 #40–#47 撞号。）
+
+---
+
+_本文档由祥子整理，2026-09-20。修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣。_
 _根因一句话：回弹/回正锚在绝对峰值 → 连发几何衰减；修复：锚在「基底 + 本发幅度」，两模式在 `InstantWrite` 下逐位等价。_
+_P14 一句话：回正目标再减掉「本梭累计压枪量」（`RecoveryCoverPitch`，单调累积、停火冻结），默认 0 ⇒ 零回归。_
 _相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_

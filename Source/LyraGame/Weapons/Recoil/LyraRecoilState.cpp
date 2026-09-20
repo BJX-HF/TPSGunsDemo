@@ -25,7 +25,7 @@ namespace LyraRecoilStatePrivate
 		return Stream.FRandRange(-1.0f, 1.0f);
 	}
 
-	/** 推进一次回正插值。回正目标 = 基底 + 本发贡献 × RecoilReturnRatio。 */
+	/** 推进一次回正插值。回正目标 = 基底 + 本发贡献 × RecoilReturnRatio − 本梭累计压枪量。 */
 	static void ApplyRecoveryStep(FRecoilRuntimeState& RecoilState, const ULyraRecoilProfile& Profile)
 	{
 		const float Duration = FMath::Max(Profile.RecoveryTime, KINDA_SMALL_NUMBER);
@@ -38,7 +38,8 @@ namespace LyraRecoilStatePrivate
 		//   Docs/Recoil/11_BurstAccumulationFix.md。
 		//   InstantWrite 下 RecoveryBase == 0，公式退化成旧写法，零行为变化。
 		const float TargetPitch = RecoilState.RecoveryBasePitch
-			+ (RecoilState.RecoveryPeakPitch - RecoilState.RecoveryBasePitch) * Profile.RecoilReturnRatio;
+			+ (RecoilState.RecoveryPeakPitch - RecoilState.RecoveryBasePitch) * Profile.RecoilReturnRatio
+			- RecoilState.RecoveryCoverPitch;
 		const float TargetYaw = RecoilState.RecoveryBaseYaw
 			+ (RecoilState.RecoveryPeakYaw - RecoilState.RecoveryBaseYaw) * Profile.RecoilReturnRatio;
 
@@ -162,7 +163,8 @@ namespace LyraRecoilStatePrivate
 		const float ReboundEndPitch = BasePitch + State.InterpShotAmplitudePitch * Profile.ReboundRatio;
 		const float ReboundEndYaw = BaseYaw + State.InterpShotAmplitudeYaw * Profile.ReboundRatio;
 
-		const float SteadyEndPitch = BasePitch + State.InterpShotAmplitudePitch * Profile.RecoilReturnRatio;
+		const float SteadyEndPitch = BasePitch + State.InterpShotAmplitudePitch * Profile.RecoilReturnRatio
+			- State.RecoveryCoverPitch;
 		const float SteadyEndYaw = BaseYaw + State.InterpShotAmplitudeYaw * Profile.RecoilReturnRatio;
 
 		const float Duration = GetStageDuration(Profile, State.InterpStage);
@@ -428,6 +430,7 @@ void FRecoilRuntimeState::Reset(const ULyraRecoilProfile* Profile)
 	RecoveryPeakYaw = 0.0f;
 	RecoveryBasePitch = 0.0f;
 	RecoveryBaseYaw = 0.0f;
+	RecoveryCoverPitch = 0.0f;
 	// 压枪抵扣由武器实例每帧重写，这里清零只是保证"没驱动方时 = 旧行为"。
 	AimCompensationPitch = 0.0f;
 	RecoveryElapsed = 0.0f;
@@ -633,6 +636,8 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 		ShotIndex = 0;
 		ShotHistory.Reset();
 		ActiveSeed = ResolveSeed(Profile);
+		// 新一梭：回正抵扣用的「累计压枪量」从零重新累积
+		RecoveryCoverPitch = 0.0f;
 	}
 
 	const float TimeSincePreviousShot = TimeSinceLastFire;
@@ -827,7 +832,7 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 		//
 		// 注意这里落的是"整条时间轴的终点"，而不是"当前阶段的终点"：
 		// 长帧语义是「这段时间我们放弃实时演算」，那就应该直接呈现
-		// 这段时间走完后的最终姿态 —— 也就是稳态残留（Peak × RecoilReturnRatio）。
+		// 这段时间走完后的最终姿态 —— 也就是稳态残留（本发基底 + 本发幅度 × RecoilReturnRatio − 本梭累计压枪量）。
 		// 只推当前阶段会留下"半路态"，与"收敛"的验收目标不符。
 		if ((SubStepCount >= MaxSubStepsPerAdvance) && (SubStepAccumulator >= FixedSubStepSeconds))
 		{
@@ -837,7 +842,8 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 			{
 				// 稳态残留 = 本发基底 + 本发幅度 × 回正残留比
 				// （★ 2026-09-20 修复：旧写法 `本发峰值 × 回正残留比` 会把已累加偏移一起乘掉）
-				const float SteadyPitch = InterpBasePitch + InterpShotAmplitudePitch * Profile->RecoilReturnRatio;
+				const float SteadyPitch = InterpBasePitch + InterpShotAmplitudePitch * Profile->RecoilReturnRatio
+					- RecoveryCoverPitch;
 				const float SteadyYaw = InterpBaseYaw + InterpShotAmplitudeYaw * Profile->RecoilReturnRatio;
 
 				// 补间输出直接落到稳态值：已经丢掉了时间，再推增量会让它与逻辑偏移脱节
@@ -876,6 +882,12 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 	{
 		LastSubStepCount = 0;
 	}
+
+	// ◆ 累计本梭压枪量（单调不减、停火后自然冻结）。
+	//   不直接读 AimCompensationPitch 的原因：停火后玩家必然松手，
+	//   ControlRotation 回升 ⇒ AimCompensationPitch 实时缩回 0；回正若读实时值，
+	//   目标会在回正途中跳回旧值（非单调甩镜）。
+	RecoveryCoverPitch = FMath::Max(RecoveryCoverPitch, AimCompensationPitch);
 
 	switch (State)
 	{

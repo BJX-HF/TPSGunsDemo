@@ -68,20 +68,53 @@ P12 ✅ 垂直钳制实时抵扣压枪量                      编译通过 + 37
 
 ## 1. 必须知道的坑（本机环境）
 
-### 坑 1：编译必须加 `-NoUBA`
+### 坑 1：编译失败的真正原因 —— UBA 写不进 `C:\ProgramData`（2026-09-20 更正）
 
-```powershell
-# ❌ 会失败（Result: Failed (OtherCompilationError)，但代码其实是好的）
-& "E:\UE_5.8\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development -Project="..." -WaitMutex
+> **旧版这一节写的是"加 `-NoUBA` 就行"，那是错的。** `-NoUBA` 只解决了一半，另一半是路径与调用侧。
 
-# ✅ 这样才对（下面的脚本已经带上了）
-& "E:\UE_5.8\Engine\Build\BatchFiles\Build.bat" LyraEditor Win64 Development -Project="..." -WaitMutex -NoUBA
+**必须同时满足两条：**
+
+1. **加 `-UBARootDir="E:\TPSGunsDemo\Saved\UBACache"`** —— 把 UBA 存储根目录从
+   `C:\ProgramData\Epic\UnrealBuildAccelerator` 搬走。
+2. **从 Bash 工具侧发起构建**（不要走 PowerShell 工具）—— 宿主沙箱对该路径的写入会拦；
+   Bash 工具在沙箱拒绝后会被宿主**自动放行重跑**，PowerShell 工具没有这个行为。
+
+`build.ps1` 已带 `-UBARootDir`（默认 `E:\TPSGunsDemo\Saved\UBACache`，可用同名参数覆盖）；
+Bash 侧的调用模板放在 `%TEMP%\tps_recoil\run_build.bat`，形如：
+
+```
+cmd //c "C:\Users\yeyuxiang\AppData\Local\Temp\tps_recoil\run_build.bat >> <log> 2>&1"
 ```
 
-原因：系统拦截了进程的**文件删除类**系统调用（`SetFileInformationByHandle(FileDispositionInfo)`），
-UBA 清理临时文件被拒 → 整轮构建被判失败。加 `-NoUBA` 走传统本地 executor 就正常（全量约 3.5 分钟，增量 5 秒 ~ 2 分钟）。
-> 2026-09-20 实测：改 2 个 `.cpp` 的增量编译 **47.68s**，`Result: Succeeded`（日志里仍会出现
-> `SetFileInformationByHandle ... Access is denied` 的 UbaSessionServer 行，**那是无害噪音**，以 `Result:` 行为准）。
+**漏掉第 1 条的报错**（看着像代码坏了，其实代码是好的）：
+
+```
+UbaSessionServer - ERROR opening file C:\ProgramData\Epic\UnrealBuildAccelerator\memgroups
+                    for write after retrying for 20 seconds (Access is denied.)
+Result: Failed (OtherCompilationError)        ← 但 0 error / 0 warning
+```
+
+**为什么 `-NoUBA` 挡不住：** UE 5.8 的 `ExecutorFactory.GetUBAExecutor()` **无论如何都构造 `UBAExecutor`**
+（`Engine/Source/Programs/UnrealBuildTool/Executors/ExecutorFactory.cs` L46–53）：
+
+> We always use the UBA executor, but we disable detouring to mirror legacy behaviour if the config disables it.
+
+`-NoUBA` 只是 `Config.bAllowDetour = false`（`BuildConfiguration.cs` L54）—— local executor 照样启动
+session server 并写 `memgroups`。UBA 存储路径的选取见 `UBAExecutor.cs` L257–284
+（`UBAConfig.RootDir` → 环境变量 `UBA_ROOT` / `BOX_ROOT` → `%ProgramData%\Epic\UnrealBuildAccelerator`）。
+
+**噪声 vs 致命 —— 只认 `Result:` 行：**
+
+```
+UbaSessionServer - SetFileInformationByHandle (FileDispositionInfo) failed on ... \memgroups (Access is denied.)
+Result: Succeeded          ← 判据在这里
+```
+
+`memgroups` 的 **open-for-write** 成功即可构建；结尾那条 `FileDispositionInfo` 是
+**关闭时的删除清理**被拦，**无害噪音**（`Trace.uba` 同理）。
+
+> 2026-09-20 实测：`-UBARootDir` + Bash 侧发起 → **`Result: Succeeded`，25 actions，76.98s**。
+> 同一命令走 PowerShell 工具 → 仍然是 `memgroups ... Access is denied`。
 
 ### 坑 2：`-ExecCmds` 里塞多个分号命令会挂住编辑器
 
@@ -249,6 +282,7 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P10** | **连发累积失效修复（Interpolated）** | **待 PIE 手测** | ✅ **编译通过 + 30/30 全绿** | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §7 |
 | **P12** | **垂直钳制实时抵扣压枪量**（编号对齐文档 §12，未占 P11） | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿 + Golden md5 未变** | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §12 |
 | **P13** | **散布并入后坐力配置表（姿态-角度直接模型）** | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿**（其中 7 个是新加的） | ⏳ | [12_SpreadInProfile.md](12_SpreadInProfile.md) §9 |
+| **P14** | **回正目标减去本梭累计压枪量**（编号对齐文档 §13，未占 P11） | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿 + Golden md5 未变**（用例喂 `cover=0`，证的是零回归；数值行为目前**只有仿真证据**） | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §13 |
 | ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 决定：本项目不做联机 |
 
 **测试用例清单（37 个 = P0–P5 的 19 个 + P8 的 5 个 + P9 的 6 个 + P13 散布的 7 个）**
@@ -329,6 +363,19 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P13 开镜收益** | `aim` 从 1.00 滑到 0.60 ⇒ **−40%**（步枪） |
 | **P13 CSV 第 8 列** | `SpreadAngle`，实测落盘表头与数值已验证（未启用资产散布时恒为 `0.000000`） |
 | **P13 资产是否已重生成** | **❌ 尚未**（`Content/Weapons/Recoil/*.uasset` 仍是 09-18 时间戳）⇒ PIE 里跑的还是旧 heat 模型 |
+| **P14 新增字段** | `FRecoilRuntimeState::RecoveryCoverPitch`（本梭累计压枪量，度；**默认 `0.0f` ⇒ 零回归**） |
+| **P14 累积规则** | `Advance()` 末尾 `RecoveryCoverPitch = max(RecoveryCoverPitch, AimCompensationPitch)` —— 单调不减、停火后冻结；新一梭 / `Reset()` 清零 |
+| **P14 回正目标式** | `T = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio − RecoveryCoverPitch`（水平 Yaw **不**抵扣） |
+| **P14 `cover = 0` 等价性** | `Interpolated`：峰值 `4.0446` / 残留 `4.045`，与 P12 口径**逐位相同**；`InstantWrite`：峰值 `4.0000` / 残留 `0.6000`，同样逐位相同 |
+| **P14 `cover = 4.0°` 残留**（`Rifle_S` 30 发 @0.12s，60fps） | P12 裸残留 `5.327` / 净 `1.327` → P14 裸残留 **`0.260`** / 净 **`−3.740`**（允许负残留） |
+| **P14 抵扣是否严格线性** | **`InstantWrite` 基本是**（`Δ = −cover`，`cover ≥ 3` 后附加 −0.10~−0.22）；**`Interpolated` 不是**（`cover=4` 时 `Δ = −5.067`）—— 原因：`Rifle_S` 射速 0.12s = `RecoveryDelay`，30 发里触发 **7 次中途中止回正**，每次都扣一遍并通过 `InterpBasePitch = AccumulatedPitch` 反馈进下一发基底 |
+| **P14 无钳制自然峰值（校准 §12.5）** | P10 口径下是 **`5.5795`**；§12.5 写的 `5.1506` 是 pre-P10 公式（`sim8` 的 `base` 未赋值）算出来的，**数字以 5.5795 为准** |
+| **P14 仿真脚本** | `%TEMP%\tps_recoil\sim11.py`（Interpolated）/ `sim12.py`（溯源 FULL vs REC）/ `sim14.py`（自然峰值）/ `sim15.py`（InstantWrite） |
+
+**P14 首版交付踩的坑（已修）：** 三处多行减法写成 `... * Ratio;\n − cover;` ——
+**分号提前结束语句，`− cover;` 变成一条丢弃结果的表达式语句**。
+`- x;` 是合法 C++ ⇒ **编译 `Result: Succeeded`、0 warning，减法静默失效**。
+自查：`grep -n "RecoilReturnRatio;$" LyraRecoilState.cpp` 不该出现 `*Pitch` 的行。
 
 ---
 
@@ -495,6 +542,17 @@ Docs/Recoil/
 | 45 | 是否补"散布曲线"（DLC36 的 `bUseShootScatterCurve` + 两条曲线） | **先不做** —— 会削弱 CSV 的"可手算复核"性质 | 做 ⇒ 能做"越打加得越快"，但验收只能靠观感 |
 | 46 | 是否补"姿态切换过渡"（蹲/跳瞬切会让锥角跳一下） | **先不做** —— 会破坏"每发按当下姿态取值"的口径（P4 判据依赖它） | 做 ⇒ 需要给姿态角单独加插值状态 |
 | 47 | **`bAllowFirstShotAccuracy` 永久删掉还是留着** | **留着标废弃**（回退路径需要它） | 删 ⇒ 旧武器蓝图数据静默丢失，失去零回归对照物 |
+
+### P14 回正抵扣带来的待拍板（2026-09-20）
+
+> 完整版见 [11_BurstAccumulationFix.md §13.8](11_BurstAccumulationFix.md)。这里只列**需要你决定**的。
+
+| # | 事项 | 我的默认选择 | 备选 / 影响面 |
+| --- | --- | --- | --- |
+| 48 | **中途中止回正造成的抵扣叠加要不要收敛**（`Interpolated`；`cover=4` 时 `Δ = −5.067` 而非 `−4`） | **先保留现状**（口径最直白：回正目标一律减累计压枪量） | 收敛 ⇒ "中途回正不抵扣、只最终回正抵扣一次"，`Δ` 严格 = `−cover`；`cover=4` 时残留 `0.260 → 1.327`。需新增"本梭已抵扣"标志位 |
+| 49 | **压过头（`T_net < 0`）的手感底线** | 不设下限（字面减法，允许镜头最终低于起枪点） | 设下限如 `−0.5 × MaxV` ⇒ 再引入一个夹持常量；实机若"沉得慌"就回到这条 |
+
+> 这两条**只有实机手感能定**，仿真给不出答案。`InstantWrite` 的枪（`Rifle_7`）偏差 ≤ 0.22°，可以不折腾。
 
 ### P7 新增待拍板（两把步枪落地带来的）
 

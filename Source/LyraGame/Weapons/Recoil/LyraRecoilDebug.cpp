@@ -235,13 +235,14 @@ void ULyraRecoilDebug::DrawDebugPanel(const UWorld* World, const ULyraRecoilProf
 	//   CapV 应该随 aimComp 一起变大，Accum Pitch 应该能超过 MaxVerticalKick。
 	// 面板刻意只用 ASCII —— 引擎默认字体没有中日韩字形，中文会渲染成空白/方框。
 	const FString AccumLine = FString::Printf(
-		TEXT("  Accum Pitch=%.3f Yaw=%.3f   Cam Pitch=%.3f Yaw=%.3f   CapV=%.3f (aimComp +%.3f)"),
+		TEXT("  Accum Pitch=%.3f Yaw=%.3f   Cam Pitch=%.3f Yaw=%.3f   CapV=%.3f (aimComp +%.3f  covSum %.3f)"),
 		State.AccumulatedPitch,
 		State.AccumulatedYaw,
 		State.GetCameraPitchOffset(),
 		State.GetCameraYawOffset(),
 		(Profile != nullptr) ? State.GetEffectiveVerticalKickLimit(*Profile) : 0.0f,
-		State.AimCompensationPitch);
+		State.AimCompensationPitch,
+		State.RecoveryCoverPitch);
 
 	// 单发模型一行：模式 / 阶段 / 本帧子步数 / 阶段进度。
 	// 插值模式下这几个量是排查"轨迹为什么和预期不一样"的第一现场：

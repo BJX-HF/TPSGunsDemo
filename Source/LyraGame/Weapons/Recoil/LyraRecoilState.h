@@ -274,6 +274,31 @@ public:
 	float RecoveryBaseYaw = 0.0f;
 
 	/**
+	 * 本梭「累计玩家压枪量」（度，向下压枪为正，恒 ≥ 0）。回正目标要从峰值里减掉它。
+	 *
+	 * === 为什么必须单独累计，不能直接复用 AimCompensationPitch ===
+	 *
+	 * 两个字段服务两个**时间尺度不同**的消费者：
+	 *
+	 *   AimCompensationPitch —— **钳制**用（P12）。玩家"正在压"的时候才该抬高上限，
+	 *                           松手就还原；否则"压一下再松手"能永久骗到更高的硬顶。
+	 *
+	 *   RecoveryCoverPitch   —— **回正**用（本节）。要的是"这一梭总共压了多少"：
+	 *                           停火后玩家必然松手，ControlRotation 一路回升，
+	 *                           AimCompensationPitch 会实时缩回 0 ——
+	 *                           若回正直接读它，回正目标会在回正途中**跳回旧值**，
+	 *                           表现为非单调甩镜，等于这次改动白做。
+	 *
+	 * 取值口径：连发期间逐帧 `max()` 累积（"累计" = 单调不减），
+	 * 进入 Recovering 后自然冻结；新一梭 / Reset 时清零。
+	 *
+	 * ★ 2026-09-20 追加（见 Docs/Recoil/11_BurstAccumulationFix.md §13）。
+	 * 默认 0 ⇒ 回正目标退化成旧公式，既有行为逐位不变。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float RecoveryCoverPitch = 0.0f;
+
+	/**
 	 * 本梭的玩家压枪量（度，向下压枪为正，恒 ≥ 0）。
 	 *
 	 * === 为什么钳制要减掉它 ===
