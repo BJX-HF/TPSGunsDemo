@@ -249,7 +249,6 @@ bool FLyraRecoilPoseRecoveryShapeTest::RunTest(const FString& Parameters)
 
 		Profile->RecoveryDelay = 0.1f;
 		Profile->RecoveryTime = 0.4f;
-		Profile->RecoilReturnRatio = 0.0f;   // 完全回正，便于看回正进程本身
 		Profile->MaxVerticalKick = 1000.0f;
 		Profile->MaxHorizontalKick = 1000.0f;
 
@@ -327,7 +326,8 @@ bool FLyraRecoilPoseRecoveryShapeTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("Runtime shapes differ by more than 0.25 (%.4f vs %.4f)"), FastRuntime, SlowRuntime),
 		(FastRuntime - SlowRuntime) > 0.25f);
 
-	// 两条曲线最终都必须回正到 0（RecoilReturnRatio = 0）
+	// 无压枪 ⇒ 回正目标是 0（偏移回满，屏幕回到开枪前，见 ComputeRecoveryTarget）。
+	// 本段只验"三条曲线都能走完回正并落到同一个稳态值"。
 	for (ULyraRecoilProfile* Profile : { FastThenSlow, SlowThenFast, Linear })
 	{
 		FRecoilRuntimeState State;
@@ -341,8 +341,9 @@ bool FLyraRecoilPoseRecoveryShapeTest::RunTest(const FString& Parameters)
 			State.Advance(Profile, 1.0f / 240.0f);
 		}
 
-		TestTrue(FString::Printf(TEXT("Profile %s fully returns to zero"), *Profile->GetName()),
-			FMath::IsNearlyZero(State.AccumulatedPitch, 1e-4f));
+		// 10 发 × 0.5 = 峰值 5.0；全程无压枪 ⇒ 稳态偏移必须回满到 0
+		TestTrue(FString::Printf(TEXT("Profile %s settles at zero (%.4f)"), *Profile->GetName(), State.AccumulatedPitch),
+			FMath::IsNearlyEqual(State.AccumulatedPitch, 0.0f, 1e-4f));
 	}
 
 	return true;

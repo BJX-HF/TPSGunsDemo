@@ -376,10 +376,6 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 	{
 		OutErrors.Add(FString::Printf(TEXT("%s RecoveryDelay = %.4f must not be negative"), *Prefix, RecoveryDelay));
 	}
-	if (RecoilReturnRatio < 0.0f || RecoilReturnRatio > 1.0f)
-	{
-		OutErrors.Add(FString::Printf(TEXT("%s RecoilReturnRatio = %.4f must be within [0, 1]"), *Prefix, RecoilReturnRatio));
-	}
 
 	// --- Clamp ---
 	if (!(MaxVerticalKick > 0.0f))
@@ -410,12 +406,10 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 		{
 			OutErrors.Add(FString::Printf(TEXT("%s ReboundRatio = %.4f must be within [0, 1]"), *Prefix, ReboundRatio));
 		}
-		if (ReboundRatio < RecoilReturnRatio)
-		{
-			// 回弹点低于最终稳态点的话，下降段会变成「往上走」，观感是一个诡异的回升
-			OutErrors.Add(FString::Printf(TEXT("%s ReboundRatio = %.4f must be >= RecoilReturnRatio = %.4f, "
-				"otherwise the drop stage would rise instead of settling down"), *Prefix, ReboundRatio, RecoilReturnRatio));
-		}
+		// 注：旧校验 `ReboundRatio >= RecoilReturnRatio` 随 RecoilReturnRatio 一并删除。
+		// 现在「稳态点」= 本梭累计压枪量（与峰值、ReboundRatio 都无固定大小关系），
+		// 那条约束已失去意义（且它本来就是为「回弹点不低于最终稳态点」服务的，
+		// 在无残留比例的新口径下不再成立）。
 
 		const FRichCurve* LiftCurvePtr = LiftCurve.GetRichCurveConst();
 		if ((LiftCurvePtr == nullptr) || !LiftCurvePtr->HasAnyData())

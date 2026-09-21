@@ -2,31 +2,107 @@
 
 | 项 | 值 |
 | --- | --- |
-| 项目 | `D:\TPSGunsDemo\TPSGunsDemo` |
+| 项目 | `E:\TPSGunsDemo` |
 | 实现主体 | `FRecoilRuntimeState`（`Source/LyraGame/Weapons/Recoil/LyraRecoilState.h/.cpp`） |
 | 配置主体 | `ULyraRecoilProfile::bCompensationAwareRecovery` |
 | 采样接入点 | `ULyraRangedWeaponInstance::SampleRecoilPlayerAim()` |
 | 建立日期 | 2026-09-20 |
-| 前置文档 | `04_PoseMatrix.md`（回正与姿态）、`10_SingleShotInterpolation.md`（单发模型） |
+| **最近修订** | **2026-09-21（第二次终版）—— 公式定型为 `终止值 = 本梭累计压枪量`（峰值不再参与），并修掉 Drop 段冻结 bug** |
+| 前置文档 | `04_PoseMatrix.md`（回正与姿态）、`10_SingleShotInterpolation.md`（单发模型）、`11_BurstAccumulationFix.md §13`（回正抵扣终稿） |
+| 验证状态 | **构建 `Result: Succeeded`；`Lyra.Recoil` 45/45 全绿；5 份 Golden md5 逐位未变** |
+
+---
+
+> ## ★ 现行口径（2026-09-21 第二次拍板，以此为唯一权威）
+>
+> ```
+> 回正终止值 = 本梭累计压枪量
+> ```
+>
+> **峰值（Peak）不参与本式。** 不压枪 ⇒ 终止值 = 0 ⇒ 偏移回满；压 N 度 ⇒ 终止值 = N。
+>
+> ### 为什么是这个式子：屏幕视角的账
+>
+> ```
+> 屏幕 POV = ControlRotation（含玩家压枪） + 后坐力偏移
+> ```
+>
+> 相机修改器 `ULyraCameraModifier_WeaponRecoil::ModifyCamera` 只做一件事：
+> `InOutPOV.Rotation.Pitch += AppliedPitchDegrees;`（`AppliedPitchDegrees ← AccumulatedPitch`）。
+> 玩家往下压 P 度 ⇒ `Ctrl = −P`；屏幕 = `偏移 − P`。
+> 把偏移收敛到 P ⇒ 屏幕 = 0 ⇒ **精确回到开枪前**。
+>
+> ### 场景对照（K = 峰值/枪抬多少，P = 玩家压多少）
+>
+> | 场景 | K | P | Ctrl 下沉 | 偏移终止值 | 屏幕 POV | 回正量 = K − P |
+> | --- | --- | --- | --- | --- | --- | --- |
+> | 完全没压枪 | 10° | 0° | 0° | **0°** | **0°（回零）** | 10°（回满） |
+> | 压了一半 | 10° | 5° | 5° | **5°** | **0°** | **5°** ← 大祥老师原例 |
+> | 压满 | 10° | 10° | 10° | **10°** | **0°** | 0° |
+> | 压过头 | 5° | 10° | 10° | **10°** | **0°** | −5°（偏移反而上升，见 §10） |
+>
+> 两条不变量（自动化用例逐条锁死）：
+> 1. `偏移终止值 == P`
+> 2. `−P + 偏移终止值 == 0`（屏幕精确回到开枪前）
+>
+> 验收用例：`Lyra.Recoil.Compensation.UserContractScenarios`。
+>
+> **⚠️ 已废弃的两版口径**（请勿再引用）：
+> - `终止值 = 峰值 × RecoilReturnRatio` —— 残留比例缩放，字段已删除
+> - `终止值 = 峰值 − 压枪量` —— 方向错误，实机表现为**看地板**，见 §8.2
+>
+> **已删除字段**（大祥老师 2026-09-21：「以后如果我没要求别做这种自以为是的设计」）：
+> - `RecoilReturnRatio` —— 残留比例缩放
+> - `RecoilCompensationMinResidualRatio` —— 残留地板
+>
+> **本文件 §3.2 与 §11 是 P11 时代的推导，仅作设计史保留，请勿当作现行行为。**
+
+---
+
+## 0. 修订记录
+
+| 日期 | 改了什么 | 为什么 |
+| --- | --- | --- |
+| 2026-09-20 | 首版（P11）：Pitch / Yaw **两轴同规则**，回正量一律**减去**压枪量 | 修"玩家压的枪被还回去" |
+| 2026-09-21 | **Yaw 摘出抵扣**：新增 `bCompensationAwareRecoveryYaw`（默认 `false`），水平轴退化为不抵扣 | 水平方向没有"压枪"，玩家水平鼠标是**转身追目标**；`MaxHorizontalKick` 只有 2.0°，门槛仅 **1.7°**，转身随时跨过 ⇒ 水平回正**长期恒为 0** |
+| 2026-09-21 | 方向翻转 P11 → P14：`+ 压枪量` 改成 `− 累计压枪量` | 两者方向相反、同接会互相抵消。代码里 P11 的加法路径**已删除** |
+| 2026-09-21 | 删 `RecoilReturnRatio` / `RecoilCompensationMinResidualRatio`，口径改为 `终止值 = 峰值 − 压枪量` | 去掉残留比例缩放，改成字面减法 |
+| **2026-09-21（本次）** | **口径二次修正：`终止值 = 峰值 − 压枪量` → `终止值 = 本梭累计压枪量`（形参 `Peak` 移除）** | 上一版方向错误：屏幕 = `峰值 − 2 × 压枪量` ⇒ 压枪越认真越"看地板"。实机 trace 坐实，见 §8 |
+| **2026-09-21（本次）** | **修 Bug A：`ComputeStageTarget` 的 Drop 段改读已冻结的 `RecoveryCompensationPitch`** | 上一版读 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch`，而该标志在 `Settle→Drop` 处已置 `true` ⇒ **整个 Drop 段**目标恒为 0，偏移冻结在钳制上限，直到收官帧一帧跳过去 |
+
+> ## ⚠️ P11 已废弃（2026-09-21）
+>
+> **本文件 §3.2 与 §11 描述的公式是 P11（`终止值 = 峰值 × Ratio **+** 压枪量`），已被取代。**
+>
+> | | P11（历史） | P14（历史） | **现行** |
+> | --- | --- | --- | --- |
+> | 公式 | `峰值 × Ratio **+** 压枪量` | `峰值 × Ratio **−** 累计抵扣` | **`本梭累计压枪量`** |
+> | 峰值参与 | 是 | 是 | **否** |
+> | 压枪量来源 | 实时值 `AimCompensationPitch` | 累计量 | **冻结的累计量 `RecoveryCompensationPitch`** |
+> | 收敛 | 无 | `bRecoveryCoverApplied` | `bRecoveryCoverApplied` + Drop 段同源读取 |
+
+> ✅ **Pitch 轴"认真压枪反而看地板"已于 2026-09-21 修复。**
+> 两处根因（方向错 + Drop 段冻结）与实机 trace 证据见 §8。
 
 ---
 
 ## 1. 一句话
 
-**回正量要扣掉玩家压的枪。** 玩家往下压多少，回正就少回多少；压过头就停在最后一发的位置。
+**回正把后坐力偏移收敛到「玩家自己压下去的量」，于是屏幕精确回到开枪前的瞄准方向。**
+不压枪 ⇒ 偏移回满；压 N 度 ⇒ 偏移留在 N 度（因为玩家的 `ControlRotation` 已经低了 N 度）。
+（2026-09-21 起：这条**只作用于垂直轴**，水平轴默认不扣。）
 
 ---
 
-## 2. 问题现象（修改前的 bug）
+## 2. 问题现象（最初要修的 bug）
 
 后坐力的相机偏移只作用在**显示层 POV**（CameraModifier，见开发计划 §3.3 决策 1），
 玩家压枪动的是 `ControlRotation` —— 这两笔账本来就是分开的。但回正只回偏移那一笔：
 
 ```
-开枪 10 发  →  后坐力偏移顶到 +10°  → 准星比目标高 10°
-玩家往下压 4°  →  ControlRotation 降 4°  → 准星被拉回来，重新压在目标上
-停火回正     →  偏移从 +10° 回到 RecoilReturnRatio 决定的残留值
-                 →  准星比目标低了约 4°：**玩家压的那 4° 被"还回去"了**
+开枪 10 发   →  后坐力偏移顶到 +10°   →  准星比目标高 10°
+玩家往下压 4° →  ControlRotation 降 4° →  准星被拉回来，重新压在目标上
+停火回正      →  若不认这笔操作，偏移直接归 0 ⇒ 准星又低回 4°：玩家压的枪被"还回去"了
 ```
 
 玩家必须再往上抬一次才能重新命中 —— 这就是"回正有明显 bug"的真身。
@@ -36,7 +112,30 @@
 
 ## 3. 规则
 
-### 3.1 公式
+### 3.1 公式（现行，2026-09-21 第二次拍板）
+
+```cpp
+// FRecoilRuntimeState::ComputeRecoveryTarget(const ULyraRecoilProfile& Profile,
+//                                            float Cover, bool bApplyCover = true)
+return (Profile.bCompensationAwareRecovery && bApplyCover) ? Cover : 0.0f;
+```
+
+就是这么一行，**无 clamp、无 Ratio、无地板、峰值不参与**
+（代码：`Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp` 的 `ComputeRecoveryTarget`）。
+
+- 垂直轴恒传 `bApplyCover = true`（默认实参）。
+- 水平轴传 `Profile.bCompensationAwareRecoveryYaw`（**默认 `false`**）⇒ 返回 0 ⇒ 偏移回满。
+- 两把闸门**串联**：`bCompensationAwareRecovery && bApplyCover` 都为真才扣。
+
+**稳态值也必须共用同一份实现。** 三处消费点（`ApplyRecoveryStep`、`ComputeStageTarget` 的
+Drop 段、长帧保护）全部调用 `ComputeRecoveryTarget`，且**读同一个字段** `RecoveryCompensationPitch`
+（`RecoveryCompensationYaw`）—— 这是 Bug A 的修复要点，见 §8.3。
+
+---
+
+### 3.2 【历史】P11 的公式推导（已废弃，仅作设计史）
+
+> 以下 P11 推导**请勿当作现行行为**。
 
 ```
 原本回正量 = 峰值 − 峰值 × RecoilReturnRatio
@@ -44,7 +143,7 @@
 回正终止值 = 峰值 − 实际回正量
 ```
 
-展开后就是代码里那一行（`FRecoilRuntimeState::ComputeRecoveryTarget`）：
+展开后是 P11 时代代码里的那一行：
 
 ```
 终止值 = clamp(峰值 × Ratio + 压枪量,
@@ -52,27 +151,30 @@
                max(峰值, 峰值 × Ratio))
 ```
 
-双端钳制各自的含义：
-
 | 边界 | 什么时候撞到 | 含义 |
 | --- | --- | --- |
-| 上界 `峰值` | 压枪量 ≥ 原本回正量 | **"只回正到最后一发子弹射出的位置"**（回正量归零，偏移留在峰值） |
-| 下界 `峰值 × Ratio` | 玩家顺着后坐力方向推 | 回正量最多就是原本那么多，**不会因为玩家推得更狠而回得更多** |
+| 上界 `峰值` | 压枪量 ≥ 原本回正量 | "只回正到最后一发子弹射出的位置" |
+| 下界 `峰值 × Ratio` | 玩家顺着后坐力方向推 | 回正量最多就是原本那么多 |
 
-> 用 `min/max` 而不是写死 `0`：垂直轴峰值恒 ≥ 0，水平轴峰值可正可负，两种情形共用一条公式。
+> ⚠️ 方向说明：在 `clamp(峰值 × Ratio **+** 压枪量, ...)` 里，压枪量是**加到终止值上**的
+> ⇒ 压枪的人镜头**停得更高**。这正是后来被推翻的原因之一。
 
-### 3.2 手算对照（垂直轴，Ratio = 0.25，峰值 5.0）
+### 3.3 两轴**不同**规则（2026-09-21 修订）
 
-| 压枪量 | 原本回正量 | 实际回正量 | 终止值 | 说明 |
-| --- | --- | --- | --- | --- |
-| 0 | 3.75 | 3.75 | **1.25** | 与改动前**逐位一致**（既有行为） |
-| 1.0 | 3.75 | 2.75 | **2.25** | 少回 1° |
-| 3.75 | 3.75 | 0 | **5.00** | 回正量刚好归零 |
-| 20.0 | 3.75 | 0 | **5.00** | 压过头 → 钳在峰值 |
+Pitch 与 Yaw **共用同一条公式**，但**只有 Pitch 默认参与抵扣**：
 
-### 3.3 两轴同规则
+| 轴 | 抵扣 | 理由 |
+| --- | --- | --- |
+| Pitch | ✅ **默认开** | 垂直方向存在真实的"压枪"动作（对抗枪口上跳） |
+| Yaw | ❌ **默认关**（`bCompensationAwareRecoveryYaw = false`） | 水平方向**没有**"压枪" —— 玩家的水平鼠标是**转身追目标** |
 
-Pitch 与 Yaw **共用同一条公式**，只有"压枪量"的符号来源不同（见 §4.2）。
+**为什么 Yaw 必须摘掉。** 采样口径对水平位移一视同仁，但它的物理含义完全不同：
+垂直位移是"玩家主动往下拉"，水平位移是"玩家把枪口转向别处"。
+而 `MaxHorizontalKick` 只有 2.0°（S 型），旧口径门槛 1.7° —— **"转身超过 1.7°"在实机里随时发生**，
+一旦跨过水平回正量就是 0，且**长期如此**（不是偶发）。
+
+打开 `bCompensationAwareRecoveryYaw` 可让水平轴也收敛到位移量（A/B 对照能力保留）。
+压枪量本身**两轴照常记录**（调试面板仍能看数），开关只决定它是否参与回正。
 
 ---
 
@@ -90,6 +192,8 @@ Pitch 与 Yaw **共用同一条公式**，只有"压枪量"的符号来源不同
 - `NormalizeAxis` 处理绕圈（缺了它，玩家转半圈会被算成"压枪 358°"）。
 - **取负**：往下压（Pitch 减小）→ 压枪量为正；往左拉（Yaw 减小）→ 压枪量为正。
   也就是"**玩家把准星朝后坐力的反方向拉了多少**"。
+- **口径边界（大祥老师 2026-09-21 确认）**：压枪**只计开火后的动作**。
+  基准就是**开火那一帧**的瞄准角，不额外前移、也不做"开火前预压"的认定。
 
 ### 4.2 基准什么时候换
 
@@ -103,14 +207,33 @@ Pitch 与 Yaw **共用同一条公式**，只有"压枪量"的符号来源不同
 
 **压枪量在"开始回正"那一刻冻结成快照**，回正全程只用快照：
 
-| 模式 | 冻结点 |
-| --- | --- |
-| `InstantWrite` | `Accumulating → Recovering`（即停火超过 `RecoveryDelay` 的那一帧） |
-| `Interpolated` | `Settle → Drop`（Drop 段就是回正段） |
-| 长帧保护 | 时间被丢弃、直接跳到稳态残留之前 |
+| 模式 | 冻结点 | 冻结函数 |
+| --- | --- | --- |
+| `InstantWrite` | `Accumulating → Recovering`（停火超过 `RecoveryDelay` 的那一帧） | `FreezeCompensationForRecovery()` |
+| `Interpolated` | `Settle → Drop`（Drop 段就是回正段） | 同上 |
+| 长帧保护 | 时间被丢弃、直接跳到稳态残留之前 | 同上 |
 
-理由：回正目标是 `f(峰值, 压枪量)`。若回正途中还读实时值，玩家手指再动一下目标就会改向 ——
-表现为回正在半路突然拐弯。冻结之后回正是一条确定曲线，可以被自动化测试逐点断言。
+冻结函数体：
+
+```cpp
+if (RecoilState.bRecoveryCoverApplied)      // 额度已用尽
+{
+    RecoilState.RecoveryCompensationPitch = 0.0f;   // 本次（中途）回正不再重复抵扣
+    RecoilState.RecoveryCompensationYaw   = 0.0f;
+    return;
+}
+RecoilState.RecoveryCompensationPitch = RecoilState.RecoveryCoverPitch;  // 累计量，非实时量
+RecoilState.RecoveryCompensationYaw   = RecoilState.RecoveryCoverYaw;
+RecoilState.bRecoveryCoverApplied     = true;
+```
+
+理由：
+1. 回正目标是 `f(压枪量)`。若回正途中还读**实时**值，玩家手指再动一下目标就会改向 ——
+   表现为回正在半路突然拐弯。冻结之后回正是一条确定曲线，可以被自动化测试逐点断言。
+2. 用**累计量**而非实时量：停火后玩家必然松手，实时值会缩回 0。
+3. `bRecoveryCoverApplied` 是**一梭一次的收敛**（大祥老师 2026-09-21 明确保留）：
+   连发途中的中途回正抵扣过一遍后，后续（中途）回正不再重复扣，
+   否则同一梭的压枪量会被反复消费，偏移被越扣越负。
 
 > 注意"冻结"发生在**停火延迟之后**：`RecoveryDelay` 之内玩家继续压的枪仍然算数。
 
@@ -123,8 +246,8 @@ Pitch 与 Yaw **共用同一条公式**，只有"压枪量"的符号来源不同
 只接受数值入参 —— 纯数值单测的隔离性没有被破坏。
 
 - 非本地控制（远程玩家）直接跳过 → 压枪量恒为 0 = "没人压枪"的既有语义。
-- 纯数值单测**不调用** `SamplePlayerAim` → 压枪量恒为 0 → **既有 30 个用例、3 份 Golden、
-  CSV 契约一个都不用改**。
+- 纯数值单测**不调用** `SamplePlayerAim` → 压枪量恒为 0 → Golden / CSV 契约不受影响
+  （本次改动后 5 份 Golden md5 逐位未变，见文首「验证状态」）。
 
 ---
 
@@ -132,11 +255,16 @@ Pitch 与 Yaw **共用同一条公式**，只有"压枪量"的符号来源不同
 
 | 参数 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `bCompensationAwareRecovery` | bool | `true` | 回正是否扣压枪量。分类：`Recoil → Recovery` |
+| `bCompensationAwareRecovery` | bool | `true` | **总开关**：回正是否扣压枪量（两轴共用）。分类：`Recoil → Recovery` |
+| `bCompensationAwareRecoveryYaw` | bool | **`false`** | **本轴开关**：水平轴是否**也**扣。默认关，理由见 §3.3 |
 
-- 关掉它 = 退回旧公式（`终止值 = 峰值 × Ratio`），用于 A/B 对照。
+两个开关是**串联**的：只有 `bCompensationAwareRecovery && 本轴开关` 都为真，该轴才扣压枪量。
+
+- **关掉总开关 = 偏移完全回满到 0**（终止值恒为 0）。注意这**不等于**任何历史公式 ——
+  旧文档写的"退回 `终止值 = 峰值 × Ratio`"已随 `RecoilReturnRatio` 的删除而失效。
 - **打开它不影响任何既有验收** —— 压枪量为 0 时两条路径逐位相同。
 - 压枪量本身在开关关闭时**照常被记录**（调试面板依然能看数），只是不参与回正。
+- 两个开关都是**资产上的 `EditAnywhere`**，改完 PIE 立即生效，**不需要重新编译**。
 
 ---
 
@@ -144,52 +272,105 @@ Pitch 与 Yaw **共用同一条公式**，只有"压枪量"的符号来源不同
 
 | 文件 | 改动 |
 | --- | --- |
-| `LyraRecoilState.h` | 新增 8 个运行时字段（`Player/RecoveryCompensationPitch/Yaw`、`AimPitch/YawAtBurstStart`、`SampledAimPitch/Yaw`）+ `SamplePlayerAim()` + `ComputeRecoveryTarget()` |
+| `LyraRecoilState.h` | 新增运行时字段（`RecoveryCompensationPitch/Yaw`、`RecoveryCoverPitch/Yaw`、`AimPitch/YawAtBurstStart`、`SampledAimPitch/Yaw`、`bRecoveryCoverApplied`）+ `SamplePlayerAim()` + `ComputeRecoveryTarget()` |
+| `LyraRecoilState.h` | `ComputeRecoveryTarget()` 增加第 3 个参数 `bool bApplyCover = true`（本轴开关） |
+| `LyraRecoilState.h/.cpp` | **2026-09-21 本次**：形参 `Peak` **移除** —— `ComputeRecoveryTarget(Profile, Cover, bApplyCover)` |
 | `LyraRecoilState.cpp` | `FreezeCompensationForRecovery()`；`ApplyRecoveryStep` / `ComputeStageTarget(Drop)` / 长帧保护三处改用 `ComputeRecoveryTarget`；`ApplyShot` 换基准；`Reset` 清字段 |
-| `LyraRecoilProfile.h` | 新增 `bCompensationAwareRecovery` |
+| `LyraRecoilState.cpp` | 三处调用点的 **Yaw 分支**传 `Profile.bCompensationAwareRecoveryYaw`；函数内改成"总开关 && 本轴开关"串联判定 |
+| `LyraRecoilState.cpp` | **2026-09-21 本次（Bug A）**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` |
+| `LyraRecoilProfile.h` | 新增 `bCompensationAwareRecovery`、`bCompensationAwareRecoveryYaw = false` |
 | `LyraRangedWeaponInstance.h/.cpp` | 新增 `SampleRecoilPlayerAim()`，在 `UpdateRecoil` / `AddRecoil` 里调用 |
 | `LyraRecoilDebug.cpp` | 屏幕面板新增一行：实时压枪量 / 冻结快照 / 当前瞄准 |
-| `Tests/LyraRecoilTest.spec.cpp` | 新增 6 个 `Lyra.Recoil.Compensation.*` 用例 |
+| `Tests/LyraRecoilTest.spec.cpp` | `Lyra.Recoil.Compensation.*` 共 7 个用例，期望值按新口径重算 |
+| `Tests/LyraRecoilPoseTest.spec.cpp` | `Lyra.Recoil.Pose.RecoveryCurveShape` 稳态期望由 `5.0`（峰值）改为 `0.0`（回满） |
 
-**刻意不动**：`FRecoilShotResult` 字段（CSV 7 列契约）、`ShotHistory`、3 份 Golden 数据。
+**刻意不动**：`FRecoilShotResult` 字段（CSV 7 列契约）、`ShotHistory`、5 份 Golden 数据。
 
 ---
 
-## 7. 自动化测试（6 个新用例）
+## 7. 自动化测试（`Lyra.Recoil.Compensation.*`，7 个）
 
 | 用例 | 断言 |
 | --- | --- |
-| `Lyra.Recoil.Compensation.ZeroInputMatchesBaseline` | 零输入时严格等于旧公式；开关默认为 true |
-| `Lyra.Recoil.Compensation.RetainsPullDown` | 压 1° → 终止值 = 原本目标 + 1.0 |
-| `Lyra.Recoil.Compensation.OverCompensationClampsToPeak` | 压 20° → 终止值钳在峰值，回正量恰好为 0 |
-| `Lyra.Recoil.Compensation.YawRetainsDrag` | 水平轴同规则：往左压 0.5° → 水平终止值保留 0.5° |
-| `Lyra.Recoil.Compensation.DisabledKeepsLegacy` | 关掉开关 → 退回旧公式（但压枪量照常记录） |
-| `Lyra.Recoil.Compensation.FrozenAfterRecoveryStarts` | 进入回正后冻结；途中再压 30° 不影响落点 |
-| `Lyra.Recoil.Compensation.InterpolatedDropConsistency` | 插值模式：Drop 段终点与收官值一致（无跳变） |
+| `ZeroInputMatchesBaseline` | 零输入时 `AccumulatedPitch` 严格为 0，且回正量 = 峰值 |
+| `RetainsPullDown` | 压 1° → 偏移终止值 = 1.0 |
+| `OverCompensationFollowsPull` | 压 20°（远超峰值 5°）→ 终止值 = 20.0，屏幕仍归 0，回正量为负 |
+| `YawRetainsDrag` | 默认不抵扣（水平终止值 = 0）；显式打开 `bCompensationAwareRecoveryYaw` 后终止值 = 位移量 |
+| `DisabledKeepsLegacy` | 关掉总开关 → 终止值 = 0（偏移回满） |
+| `FrozenAfterRecoveryStarts` | 进入回正后冻结；途中再压 30° 不影响落点 |
+| `InterpolatedDropConsistency` | 插值模式：Drop 段终点与收官值**一致**（无跳变） |
+| `UserContractScenarios` | 四场景参数化：① 终止值 == P ② `−P + 终止值 == 0` ③ `K − 终止值 == 期望回正量`（含原例 上抬 10 压 5 → 回正量 5） |
 
 一键复跑：`Docs/Recoil/Tools/run-recoil-tests.ps1`（或编辑器内
 `AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")`）。
 
+**本次验证结果**：`45 tests performed`，`Result={Success}` = 45，`Result={Fail}` = 0。
+
 ---
 
-## 8. 已知副作用（需要观察）
+## 8. 两处根因与实机 trace 证据（2026-09-21）
 
-**多轮连发时的累积。** 压枪量按"每轮连发"重新起算，但终止值是**累加**在偏移上的：
+### 8.1 抓到 trace 的方法
 
 ```
-第 1 轮：峰值 1.4°，压枪量 1.4° → 终止值 1.4°（偏移停在 1.4°）
-第 2 轮：从 1.4° 起跳，峰值 2.8°，压枪量 1.4° → 终止值 ≈ 1.4~2.8°
+Lyra.Recoil.Trace 1        # CVar，定义在 LyraRangedWeaponInstance.cpp，日志类别 LogLyraRecoilWeapon
 ```
 
-偏移会一轮一轮往上垒，直到撞到 `MaxVerticalKick` / `MaxHorizontalKick` 上限后停住（不再增长）。
-观感上不会有"镜头越飘越远"—— 因为准星 = 显示层，玩家本来就是照着显示层瞄的，
-偏移变化对玩家是隐形的。但 `ControlRotation` 会随之下沉（玩家需要一轮一轮多压一点）。
+每帧打印：`push / Ctrl / POV / delta / aimBase / aimNow / pushComp / cover / coverUsed / applied / peak / acc`。
 
-**如果实测下来觉得这么垒不舒服**，三个可选方向（都不需要推翻本方案）：
+实机场景：`DA_Recoil_Rifle_S` 连发，`mode=Interpolated`，全量 1451 行。
 
-1. 把 `RecoilReturnRatio` 调小 —— 累加速度随之变慢；
-2. 给偏移加一条缓慢的"零位衰减"（独立于回正，走时间常数）；
-3. 关掉 `bCompensationAwareRecovery` 做对照，确认这个累加到底是不是可感知的问题。
+### 8.2 Bug B —— 终止值方向错误（屏幕"看地板"）
+
+上一版公式 `终止值 = 峰值 − 压枪量`，代入屏幕口径：
+
+```
+屏幕 = Ctrl + 偏移 = (−压枪量) + (峰值 − 压枪量) = 峰值 − 2 × 压枪量
+```
+
+**压枪越认真，屏幕越低** —— 在真实弹道上就是"看地板"。
+
+| 量 | 实机数值 |
+| --- | --- |
+| 峰值 | 17.600° |
+| 累计压枪量 | 13.650° |
+| 玩家 Ctrl 下沉 | 13.650° |
+| 旧公式终止值 = 17.600 − 13.650 | 3.950° |
+| 旧公式屏幕 = −13.650 + 3.950 | **−9.700°（低于开枪前 9.7°）** |
+| 新公式终止值 = 13.650 | 13.650° |
+| 新公式屏幕 = −13.650 + 13.650 | **0.000°（精确回到开枪前）** ✅ |
+
+### 8.3 Bug A —— Drop 段读数源用了被标志置零的字段
+
+`ComputeStageTarget()`（决定插值链各阶段的目标值）里，Drop 段原本写的是：
+
+```cpp
+const float StageCoverPitch = State.bRecoveryCoverApplied ? 0.0f : State.RecoveryCoverPitch;
+```
+
+本意是"本函数可能在冻结之前被调用，那时读快照会拿到 0"。但实机时序恰好相反：
+`FreezeCompensationForRecovery()` 在 `Settle→Drop` 切换处就把标志置成了 `true`，
+于是**整个 Drop 段**每帧都推导出 `StageCoverPitch = 0` ⇒ 目标 = 不抵扣 ⇒
+逻辑偏移冻结在钳制上限纹丝不动，直到收官那一帧 `ApplyRecoveryStep` 用快照算对，**一帧跳过去**。
+
+| 观测 | 数值 |
+| --- | --- |
+| Drop 段持续帧数 | 23 帧，`acc` 恒为 **15.000** |
+| 15.000 的来源 | `GetEffectiveVerticalKickLimit()` = `MaxVerticalKick(7.5) + min(AimCompensationPitch 13.65, 7.5)` = **15.0** |
+| Drop 期间 `applied` | 恒为 1 |
+| Drop 期间 `peak` | 显示 0.000 |
+| 收官帧 `acc` | 3.950（旧公式值） |
+| 屏幕跳变 | **+2.75 → −8.30** |
+
+**修法**：Drop 段直接读 `State.RecoveryCompensationPitch`
+（= `Freeze` 时锁定的本梭累计压枪量），与 `ApplyRecoveryStep` 完全同源
+⇒ Drop 段平滑收敛，终点与收官值一致、不再跳。
+
+### 8.4 顺带确认：压枪量链路是健康的
+
+大祥老师当时怀疑"压枪量被第一发吃掉"。trace 显示这一梭里
+`cover = 13.650` 与 `pushComp = 13.650` **完全一致且正确累计** —— 
+本轮射击中**没有复现**该现象。真正的问题只在 §8.2 / §8.3 两处。
 
 ---
 
@@ -198,13 +379,65 @@ Pitch 与 Yaw **共用同一条公式**，只有"压枪量"的符号来源不同
 | 步骤 | 操作 | 预期 |
 | --- | --- | --- |
 | 1 | PIE，控制台 `Lyra.Recoil.Debug 1` | 面板多出 `PushComp / FrozenComp / AimNow` 一行 |
-| 2 | 连发 12 发，**完全不压枪** | `PushComp` 恒为 ±0.000；松手后准星回到原来的位置（与改动前一样） |
-| 3 | 连发 12 发，中途往下压一段 | `PushComp P` 随压枪增长为正；松手回正后**准星停在刚才贴着目标的位置**，不再往下滑 |
-| 4 | 连发中持续猛压（压过头） | 回正量归零：准星停在最后一发的位置，不再继续回 |
-| 5 | 连发中往左/右拉枪 | `PushComp Y` 随之变化；松手后准星落点包含这段位移 |
-| 6 | 把 `bCompensationAwareRecovery` 关掉，重复步骤 3 | 准星重新出现"往下滑"的旧现象 → 证明这个开关确实是这条修复的总闸 |
+| 2 | 连发 12 发，**完全不压枪** | `PushComp` 恒为 ±0.000；松手回正后**屏幕精确回到开枪前**（准星归位） |
+| 3 | 连发 12 发，中途往下压一段 | `PushComp P` 随压枪增长为正；松手回正后**屏幕同样回到开枪前**，不再往下滑 |
+| 4 | 连发中持续猛压（压过头） | 屏幕仍归位；偏移终止值 = 压枪量（会高于峰值，见 §10） |
+| 5 | 连发中往左/右拉枪 | `PushComp Y` 照常变化（**仅记录**），松手后水平偏移回满到 0，**不含**这段位移 |
+| 5b | 把 `bCompensationAwareRecoveryYaw` 勾上，重复步骤 5 | 水平终止值变成"含这段位移"→ 证明本轴开关确实有效 |
+| 6 | 把 `bCompensationAwareRecovery` 关掉，重复步骤 3 | 偏移完全回满 ⇒ 玩家压的枪被"还回去"，旧现象重现 → 证明这是总闸 |
 | 7 | 回正途中继续压枪 | 落点**不变**（压枪量已冻结） |
+| 8 | 开 `Lyra.Recoil.Trace 1`，连发一次并压枪 | 尾段 `acc` **单调平滑收敛**到 `cover`，无"冻结若干帧后一帧跳变" |
 
 ---
 
-_本文档由祥子整理，2026-09-20。实现见 §6，验收见 §7 / §9。_
+## 10. 已知边界：压过头时偏移会高于峰值
+
+当 `P > K`（玩家压得比枪抬得还多）时，`终止值 = P > 峰值`：
+
+- 屏幕口径仍然自洽：`Ctrl(−P) + 偏移(P) = 0` ⇒ 屏幕照样回到开枪前 ✅
+- 但 `回正量 = K − P < 0` ⇒ 从"回弹终点"到"稳态"这一段，**偏移是上升的**，
+  插值链的 Drop 段表现为相机向上补一段。
+
+**这是"照字面执行现行口径"的必然结果，不是 bug**，本次未做任何额外设计。
+若实测觉得这个上升段观感不好，可选方向（都需要大祥老师拍板）：
+
+1. 对 `Cover` 做 `min(Cover, Peak)` 上限（等价于"最多认账到峰值"）；
+2. 压过头时改走"偏移不高于峰值"的退化路径；
+3. 维持现状（实际对局中 `P ≈ K`，压过头是少数情况）。
+
+用例 `Lyra.Recoil.Compensation.OverCompensationFollowsPull` 目前**按现状锁死**（终止值 = 20.0）。
+若采纳方案 1 或 2，该用例的期望值需要同步改写。
+
+---
+
+## 11. 【已结案】Pitch 轴的"归零"问题（2026-09-21 第一版修法，已被 §8 的二次修正取代）
+
+### 11.1 当时的症状
+
+旧公式 `终止值 = 峰值 × RecoilReturnRatio − 压枪量` 里，钳制上界是 `峰值 × Ratio`，
+于是「压枪量 ≥ 峰值 × (1 − Ratio)」时终止值被压到 `峰值 × Ratio` 附近 ——
+表现为**认真压枪后回正量显得严重缩水**，落点与玩家预期差一大截。
+而"压枪量 ≈ 峰值"正是压枪动作的定义 ⇒ 认真压枪时必然归零。
+
+### 11.2 实测数值（纯数值复现）
+
+脚本 `recovery_diag.py`（严格照抄 `Interpolated` 路径），输出 `recovery_diag_out.txt`：
+
+| 枪 | 峰值 | 旧 Ratio | 旧门槛 | 完美压枪时的压枪量 | 旧落点 |
+| --- | --- | --- | --- | --- | --- |
+| `DA_Recoil_Rifle_S` | 4.0° | 0.15 | 3.4° | 4.0° | 1.0°（≈ 峰值×0.25） |
+| `DA_Recoil_Rifle_7` | 9.0° | 0.30 | 6.7° | 9.0° | 2.7°（≈ 峰值×0.30） |
+
+### 11.3 修法演进
+
+1. 第一版：加 `bCompensationAwareRecovery` 开关 + 删 `RecoilReturnRatio`，改为 `终止值 = 峰值 − 压枪量`
+   （**后经实机验证方向错误，见 §8.2**）。
+2. 第二版（现行）：`终止值 = 本梭累计压枪量`，并修掉 Drop 段冻结（§8.3）。
+
+> 历史备选方案（**未采用**）：曾计划新增 `RecoveryCompensationMaxShare`（0~1）
+> 给抵扣设"硬上限比例"，以保留一部分回正量。该方案与"压多少认多少"的期望冲突，已废弃。
+
+---
+
+_本文档由祥子整理，2026-09-20；2026-09-21 两次终版修订（删 Ratio → 改正方向 → 修 Drop 段冻结）。
+实现见 §6，验收见 §7 / §9，根因证据见 §8。_

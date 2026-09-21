@@ -623,6 +623,21 @@ rm -rf Intermediate/Build/Win64/UnrealEditor/Inc/LyraGame
 
 ## 13. 追加修复（2026-09-20）：回正目标也减去本梭累计压枪量（P14）
 
+> ### ⚠️ 本节描述的公式已被 **§13.10 → §13.11** 两次修订取代
+>
+> §13.0 ~ §13.9 记录的是 **P14 阶段**（`T = ...× RecoilReturnRatio − RecoveryCoverPitch`）。
+> 2026-09-21 经过两次修订，现行口径定型为：
+>
+> ```
+> T = 本梭累计压枪量          ← 峰值不参与、无 clamp、无 Ratio、无地板
+> ```
+>
+> - **§13.10**：删掉 `RecoilReturnRatio`，一度改为 `T = 峰值 − 压枪量`（⚠️ 后证方向有误 ⇒ 实机"看地板"）
+> - **§13.11**：**现行权威** —— 目标式改为 `本梭累计压枪量`，并修掉 Drop 段冻结 bug
+>
+> 本节保留为**设计沿革记录**（P14 的推导、接线三坑、数值证据都仍然有效且有价值）；
+> 但"当前行为"一律以 **§13.11** 为准。
+
 ### 13.0 一句话
 
 回正目标从
@@ -860,9 +875,354 @@ grep -n "RecoilReturnRatio;$" Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp
 > `InstantWrite` 的枪偏差 ≤ 0.22°（§13.5.2），可以不折腾。
 > （编号接在 P13 的 #47 之后，避免与 #40–#47 撞号。）
 
+### 13.9 实际接线（2026-09-21）—— 以及接线时才暴露的三个坑
+
+§13.3 的清单是**设计意图**。真正接线时发现该设计有三处落不了地，全部记在这里。
+
+#### 13.9.1 语义切换：摘掉 P11 的加法
+
+`Docs/Recoil/11_RecoveryCompensation.md` 里记的 P11 方案是
+
+```
+T = 峰值 × RecoilReturnRatio **+** 压枪量     ← 加法：压枪的人镜头停得更高
+```
+
+而 §13 的 P14 方案是
+
+```
+T = 峰值 × RecoilReturnRatio **−** 累计抵扣   ← 减法：压枪的人镜头停得更低
+```
+
+**两者方向相反，同时接上会互相抵消。** 大祥老师 2026-09-21 拍板：**切换到 P14，摘掉 P11 的加法**。
+`ComputeRecoveryTarget()` 现在是回正终止值的**唯一实现**，P11 的加法路径已删除。
+
+#### 13.9.2 坑一：压枪量存在**两份平行实现**
+
+`SamplePlayerAim()` 与 `ULyraRangedWeaponInstance::ComputeAimCompensationPitch()` 是两条独立的
+"压枪量 = 本梭起枪点 − 当前瞄准"实现，**各带一份基准字段**：
+
+| 路径 | 基准字段 | 输出字段 | 消费者 |
+| --- | --- | --- | --- |
+| `FRecoilRuntimeState::SamplePlayerAim()` | `AimPitchAtBurstStart` | `PlayerCompensationPitch` | 仅调试面板 |
+| `ULyraRangedWeaponInstance::ComputeAimCompensationPitch()` | `BurstStartAimPitch` | `AimCompensationPitch` | `RecoveryCoverPitch` 累计 + P12 钳制 |
+
+两份基准的锁定时机不同（`ApplyShot` 首帧 vs `AddRecoil` 首帧）⇒ 面板显示值与实际生效值可能不等。
+更要命的是：**纯数值单测只调 `SamplePlayerAim`**，而消费端读的是另一份 ⇒
+`RecoveryCoverPitch` 在测试里恒为 0，6 个 `Compensation.*` 用例全挂。
+
+**修法：`SamplePlayerAim()` 收敛为压枪量的唯一定义点**，算完同步写 `AimCompensationPitch/Yaw`。
+武器实例侧的整套平行实现（`ComputeAimCompensationPitch()` / `BurstStartAimPitch` / `TryGetAimPitch()`）
+**整体删除**，`UpdateRecoil()` 里那行 `SetAimCompensationPitch(...)` 也随之移除。
+
+#### 13.9.3 坑二：累计点位置错，插值模式抵扣恒为 0
+
+`RecoveryCoverPitch` 的累计语句原本在 `Advance()` **末尾**（子步循环之后）。
+而插值模式进入 `Drop` 段时，是在**子步循环内部**调 `FreezeCompensationForRecovery()` 读本值的
+⇒ 读到的是**上一帧乃至首帧的 0** ⇒ 插值模式抵扣恒为 0（`InterpolatedDropConsistency` 实测 `0.0000` 而非 `0.3`）。
+
+**修法：累计语句上移到 `Advance()` 入口**（`TimeSinceLastFire += DeltaSeconds;` 之后），
+保证子步循环与状态机读到的都是本帧最新采样值。
+
+#### 13.9.4 坑三：插值模式被 `Accumulating` 分支**双重冻结**
+
+`switch (State)` 的 `case Accumulating`（原设计只服务非插值模式）**没有排除插值模式**。
+插值模式下同一帧会发生：
+
+1. 子步循环 `Settle→Drop` 时 `Freeze` 一次 → 抵扣生效、`bRecoveryCoverApplied = true`
+2. 子步循环跑完回到 `switch`，`TimeSinceLastFire` 已 `> RecoveryDelay` → **再 `Freeze` 一次**
+   → 走"额度已用尽"分支 → **把 `RecoveryCompensationPitch` 清回 0**
+
+⇒ 抵扣凭空消失。
+
+**修法：给该分支加与 `case Recovering` 同款的短路**：
+
+```cpp
+if (Profile->IsInterpolatedSingleShot() && (InterpStage != ERecoilInterpStage::None))
+{
+    break;
+}
+```
+
+> ⚠️ 短路条件**必须带 `InterpStage != None`** —— 若只判 `IsInterpolatedSingleShot()`，
+> 插值链已收尾（或压根没启动）时本分支被永久跳过，`State` 会卡在 `Accumulating` 出不来。
+
+#### 13.9.5 水平轴：`bCompensationAwareRecoveryYaw` 从"打开也没用"变成真的可用
+
+原实现 `FreezeCompensationForRecovery()` 里 `RecoveryCompensationYaw = 0.0f;` 是**硬编码**，
+于是 `bCompensationAwareRecoveryYaw` 打开也不生效 —— 一个坏开关。
+
+**修法：新增 `RecoveryCoverYaw` / `AimCompensationYaw` 两个字段**（与 Pitch 轴完全对称），
+Yaw 抵扣改读自己的累计量。开关**默认仍为 false** ⇒ 水平轴行为逐位不变。
+
+#### 13.9.6 本轮改动文件清单
+
+| 文件 | 改动 |
+| --- | --- |
+| `LyraRecoilState.h` | 新增 `RecoveryCoverYaw` / `AimCompensationYaw` 两个 UPROPERTY；`ComputeRecoveryTarget` 形参更名（`Compensation`→`Cover`）；`SamplePlayerAim` 注释改为"唯一定义点" |
+| `LyraRecoilState.cpp` | `SamplePlayerAim` 同步写 `AimCompensation*`；累计语句上移到 `Advance()` 入口；`Accumulating` 分支加插值短路；`FreezeCompensationForRecovery` 的 Yaw 改读本轴累计量；`Reset` / `ApplyShot` 新一梭分支补清零 |
+| `LyraRecoilProfile.h` | `bCompensationAwareRecovery` 注释改为 P14 减法语义（**该轮新增的 `RecoilCompensationMinResidualRatio` 已在 §13.10 删除**） |
+| `LyraRangedWeaponInstance.h/.cpp` | **删除** `ComputeAimCompensationPitch()` / `BurstStartAimPitch` / `TryGetAimPitch()`；`UpdateRecoil()` 移除 `SetAimCompensationPitch` 调用 |
+| `LyraRecoilTest.spec.cpp` | `Compensation.*` 组按 P14 重写；新增 `ResidualFloorClampsOverPull` |
+| `LyraRecoilDebug.cpp` | 面板行改名 `CoverUsed` + 新增 `Applied=` 列 |
+
+#### 13.9.7 编译与回归（✅ 已执行，全绿）
+
+| 项 | 结果 |
+| --- | --- |
+| 编译 `LyraEditor Win64 Development` | ✅ **`Result: Succeeded`**，0 error |
+| `Lyra.Recoil` 自动化测试 | ✅ **45/45 全绿**（`...45 tests performed`，`Result={Fail}` = 0） |
+| Golden 基准（5 份 JSON） | ✅ **md5 逐位未变**（前后一致） |
+
+> **注意**：Golden 未变**不等于**"P14 在被测试"—— 
+> Golden 走的是**零输入路径**（无玩家压枪 ⇒ `RecoveryCoverPitch = 0` ⇒ 公式退化成旧式）。
+> P14 真正的数值行为由 `Compensation.*` 组覆盖（9 个用例），该组用的是 `SamplePlayerAim()` 驱动的公开 API。
+
 ---
 
-_本文档由祥子整理，2026-09-20。修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣。_
+## 13.10 终版口径定型（2026-09-21）—— 删除 `RecoilReturnRatio`
+
+### 13.10.1 为什么还要再改一次
+
+§13.9 接线完成后，大祥老师实机测试反馈：
+
+> 现在的回正看起来还是没有减去我的压枪量，我在压完枪以后的回正直接回到负角度看地板了
+
+> ### ⚠️ 更正（2026-09-21 第二次拍板时澄清）
+>
+> 本节下面那张「A=+5 / B=−5 / C=−10 / D=+10」的四场景表，**是本文件整理者自行推演的场景，
+> 不是大祥老师的口径**。大祥老师原话：
+>
+> > 放你妈的屁，谁告诉你我是这么拍的 —— 我说的是**如果后坐力整体上抬了 10 度，我只往下压了 5 度，
+> > 那么回正只回五度**。
+>
+> 大祥老师**真实的两条口径**只有：
+>
+> 1. **完全不压枪 ⇒ 自动回到开枪前（回零）**；
+> 2. **整体上抬 10°、只往下压 5° ⇒ 回正量 = 10 − 5 = 5 度**。
+>
+> 完整修正与最终公式见 **§13.11**。
+
+~~以下为已作废的自推场景表（保留仅为追溯当时的推导）~~：
+
+| ~~场景（自推，已作废）~~ | K（枪抬多少） | P（玩家压多少） | 当时推的期望 POV |
+| --- | --- | --- | --- |
+| A 没压住 5° | 5° | 0° | +5° |
+| B 压过头 5° | 5° | 10° | −5° |
+| C 压过头 10° | 5° | 15° | −10°（"看地板"） |
+| D 没压住 10° | 10° | 0° | +10° |
+
+当时的关键发现（结论仍成立）：**场景 A / D 当时推的是"完整峰值"**（+5 / +10），而 P14 公式里的
+`RecoilReturnRatio`（0.25）会把峰值缩成 `+1.25 / +2.5`。
+
+数学上，由「A=+5 且 B=−5」可反解出 `Ratio = 1` ——
+（`5 × Ratio = 5` ⇒ Ratio=1；`5 × Ratio − 10 = −5` ⇒ Ratio=1）
+⇒ 这个字段在"不压枪回满"的口径下**必然失去意义**，应当删除。
+（**该结论已被大祥老师确认**：「直接把这个 ratio 删了啊」；只是推导所依赖的场景表本身是错的。）
+
+### 13.10.2 改动内容
+
+**删除两个字段**（大祥老师原话：「以后如果我没要求别做这种自以为是的设计」）：
+
+| 字段 | 原语义 | 为什么删 |
+| --- | --- | --- |
+| `RecoilReturnRatio` | 「不压枪时残留 = 峰值 × Ratio」的缩放比 | 与"不压枪就停在峰值"的期望冲突；反解出恒等于 1 |
+| `RecoilCompensationMinResidualRatio` | 抵扣的残留地板（默认 0 = 不设地板） | 默认值等于无效开关，属额外设计 |
+
+**公式定型**：
+
+```cpp
+// FRecoilRuntimeState::ComputeRecoveryTarget
+const float EffectiveCover =
+    (Profile.bCompensationAwareRecovery && bApplyCover) ? Cover : 0.0f;
+if (EffectiveCover == 0.0f) { return Peak; }
+return Peak - EffectiveCover;          // 字面减法，无 clamp、无地板
+```
+
+### 13.10.3 改动文件清单
+
+| 文件 | 改动 |
+| --- | --- |
+| `LyraRecoilProfile.h/.cpp` | **删除** `RecoilReturnRatio` / `RecoilCompensationMinResidualRatio` 字段与校验；**删除** `Get/HasRecoilCompensationResidualFloor()` 两个查询函数；删除 `ReboundRatio >= RecoilReturnRatio` 那条约束 |
+| `LyraRecoilState.h/.cpp` | `ComputeRecoveryTarget` 简化为字面减法；删除全部 `Ratio` 引用与地板分支 |
+| `LyraRecoilAssetGenCommandlet.cpp` | 删除 5 把枪的 `Spec.RecoilReturnRatio = ...` 赋值与结构体字段 |
+| `LyraRecoilTest.spec.cpp` | `Compensation.*` 组期望值全部按新口径重算；`ResidualFloorClampsOverPull` **删除**；**新增** `UserContractScenarios`（四场景验收） |
+| `LyraRecoilDumpTest/PoseTest.spec.cpp` | 移除 `RecoilReturnRatio` 赋值与相关断言 |
+
+> ⚠️ `ReboundRatio` **保留** —— 它与本次删除的 `Ratio` 是两回事：
+> 前者是**单发模型**里 t1 段的"回弹深度"（`Lift→Rebound→Settle→Drop` 四段式的第二段），
+> 只在 `Interpolated` 模式生效、只影响**过程形状**（0.03s 的视觉顿挫），不影响回正终值。
+> 后者才是"最终停在哪"的缩放。两者出身不同（前者的出处是 `09_SingleShotCurveGap.md` / 参考文档 §2）。
+
+### 13.10.4 编译与回归（✅ 已执行，全绿）
+
+| 项 | 结果 |
+| --- | --- |
+| 编译 `LyraEditor Win64 Development` | ✅ **`Result: Succeeded`**，0 error / 0 9001 / 0 LNK1146 |
+| `Lyra.Recoil` 自动化测试 | ✅ **45/45 全绿**（`45 tests performed`，`Result={Fail}` = 0） |
+| Golden 基准（5 份 JSON） | ✅ **md5 逐位未变** |
+
+> 用例数仍是 45：删掉 `ResidualFloorClampsOverPull`，补上 `UserContractScenarios`，一换一。
+> ⚠️ 上表是**本轮（§13.10 口径）**的验证结果；§13.11 二次修正后的验证见 **§13.11.7**。
+
+### 13.10.5 四场景验收用例（⚠️ 断言口径已在 §13.11 改写）
+
+`Lyra.Recoil.Compensation.UserContractScenarios` —— 参数化 4 组场景，
+K 靠发数凑（每发 0.5°：K=5 用 10 发、K=10 用 20 发），P 靠 `SamplePlayerAim` 喂负值。
+
+- **§13.10 时代**断言：`AccumulatedPitch == K − P`（⚠️ 该口径已废弃）
+- **§13.11 现行**断言：① `AccumulatedPitch == P` ② `−P + AccumulatedPitch == 0` ③ `K − AccumulatedPitch == 期望回正量`
+
+现行 4 组参数：`{上抬 5 不压, K=5, P=0}` / `{上抬 5 压 3, K=5, P=3}` /
+`{上抬 10 压 5（老师原例）, K=10, P=5}` / `{上抬 5 压过头 10, K=5, P=10}`。
+
+---
+
+## 13.11 口径二次修正（2026-09-21）—— 目标式改为 `本梭累计压枪量`，并修掉 Drop 段冻结
+
+### 13.11.1 大祥老师的真实口径
+
+| # | 原话 | 含义 |
+| --- | --- | --- |
+| 1 | 「完全不压枪，后坐力上抬 10°，回正结束后屏幕视角应该停在哪？」→ **自动回到开枪前（回零）** | 不压枪 ⇒ 偏移回满到 0 |
+| 2 | 「如果后坐力整体上抬了 10 度，我只往下压了 5 度，那么回正只回五度」 | 回正量 = K − P ⇒ 偏移终止值 = P |
+| 3 | 「压枪只确认开火后的动作」 | 基准 = **开火那一帧**的瞄准角，不做任何前移认定 |
+| 4 | 「一梭子一次的收敛没有问题啊，你应该修的问题是压枪量被为什么会被第一发吃掉」 | **保留** `bRecoveryCoverApplied` 的一梭一次收敛 |
+
+### 13.11.2 屏幕视角的账（决定性推导）
+
+```
+屏幕 POV = ControlRotation（含玩家压枪） + 后坐力偏移
+```
+
+相机修改器 `ULyraCameraModifier_WeaponRecoil::ModifyCamera` 只做一件事：
+`InOutPOV.Rotation.Pitch += AppliedPitchDegrees;`（`AppliedPitchDegrees ← AccumulatedPitch`）。
+所以玩家往下压 P 度 ⇒ `Ctrl = −P` ⇒ **屏幕 = 偏移 − P**。
+要让屏幕回到开枪前（= 0），偏移就必须收敛到 **P**。
+
+> 注意口径 2「回正只回五度」是有**歧义**的：`峰值 − P` 与 `P` 在 K=10、P=5 时都给 5。
+> 唯一能区分两者的就是**口径 1（不压枪）** —— 不压枪时 `峰值 − P = 10 ≠ 0`，而 `P = 0` ✅。
+
+### 13.11.3 Bug B —— 目标式方向错，实机"看地板"
+
+上一版（§13.10）写成 `终止值 = 峰值 − 压枪量`，于是：
+
+```
+屏幕 = Ctrl + 偏移 = (−P) + (峰值 − P) = 峰值 − 2 × 压枪量
+```
+
+**压枪越认真，屏幕越低。**
+
+实机 trace（`Lyra.Recoil.Trace 1`，`DA_Recoil_Rifle_S` 连发，1451 行）：
+
+| 量 | 数值 |
+| --- | --- |
+| 峰值 | 17.600° |
+| 累计压枪量 | 13.650° |
+| 玩家 Ctrl 下沉 | 13.650° |
+| 旧公式终止值 `17.600 − 13.650` | 3.950° |
+| 旧公式屏幕 `−13.650 + 3.950` | **−9.700°（看地板）** |
+| 新公式终止值 | **13.650°** |
+| 新公式屏幕 `−13.650 + 13.650` | **0.000° ✅** |
+
+**修法**：`ComputeRecoveryTarget` 目标式改为 `Cover`（即累计压枪量），
+**形参 `Peak` 一并移除**（峰值不再参与）：
+
+```cpp
+// FRecoilRuntimeState::ComputeRecoveryTarget(const ULyraRecoilProfile& Profile,
+//                                            float Cover, bool bApplyCover = true)
+return (Profile.bCompensationAwareRecovery && bApplyCover) ? Cover : 0.0f;
+```
+
+### 13.11.4 Bug A —— Drop 段读数源被标志置零，偏移冻结 23 帧后瞬跳
+
+`ComputeStageTarget()` 决定插值链各阶段的目标值。Drop 段原本写的是：
+
+```cpp
+const float StageCoverPitch = State.bRecoveryCoverApplied ? 0.0f : State.RecoveryCoverPitch;
+```
+
+本意是"本函数可能在冻结之前被调用，那时读快照会拿到 0"。**但实机时序恰好相反**：
+`FreezeCompensationForRecovery()` 在 `Settle→Drop` 切换处就把标志置成了 `true`，
+于是**整个 Drop 段**每帧推导出 `StageCoverPitch = 0` ⇒ 目标 = 不抵扣 ⇒
+逻辑偏移冻结在钳制上限纹丝不动，直到收官那一帧 `ApplyRecoveryStep` 用快照算对，**一帧跳过去**。
+
+trace 观测：
+
+| 项 | 数值 |
+| --- | --- |
+| Drop 段持续 | **23 帧**，`acc` 恒为 **15.000** |
+| 15.000 的来源 | `GetEffectiveVerticalKickLimit()` = `MaxVerticalKick(7.5) + min(AimCompensationPitch 13.65, 7.5)` = **15.0** |
+| Drop 期间 `applied` | 恒为 1 |
+| Drop 期间 `peak` | 显示 0.000 |
+| 收官帧 `acc` | 3.950（旧公式值） |
+| 屏幕跳变 | **+2.75 → −8.30** |
+
+**修法**：Drop 段直接读 `State.RecoveryCompensationPitch`（= Freeze 时锁定的本梭累计压枪量），
+与 `ApplyRecoveryStep` **完全同源** ⇒ Drop 段平滑收敛，终点与收官值一致、不再跳。
+长帧保护路径同步改为读 `RecoveryCompensationPitch` / `RecoveryCompensationYaw`。
+
+### 13.11.5 顺带澄清：压枪量链路是健康的
+
+大祥老师当时怀疑"压枪量被第一发吃掉"。trace 显示这一梭里 `cover = 13.650` 与
+`pushComp = 13.650` **完全一致且正确累计** —— 本轮射击中**没有复现**该现象。
+真正的问题只在 §13.11.3 / §13.11.4 两处。
+
+### 13.11.6 改动文件清单
+
+| 文件 | 改动 |
+| --- | --- |
+| `LyraRecoilState.h` | `ComputeRecoveryTarget` 声明去掉形参 `Peak`；文档注释改写为「终止值 = 本梭累计压枪量」 |
+| `LyraRecoilState.cpp` | ① `ComputeRecoveryTarget` 实现改为 `return (bCompensationAwareRecovery && bApplyCover) ? Cover : 0.0f;` ② `ComputeStageTarget` 的 Drop 段读数源改为 `State.RecoveryCompensationPitch` ③ `ApplyRecoveryStep` / 长帧保护调用点同步 ④ `FreezeCompensationForRecovery` 加注释说明一梭一次收敛 |
+| `LyraRecoilProfile.h/.cpp` | 仅注释同步（`bCompensationAwareRecovery` 语义、已删字段说明） |
+| `LyraRecoilTest.spec.cpp` | `Compensation.*` 全部期望值按新口径重算；新增/改写 `UserContractScenarios`（断言改为 ① `终止值 == P` ② `−P + 终止值 == 0` ③ `K − 终止值 == 期望回正量`）；`ZeroInputMatchesBaseline` / `RetainsPullDown` / `YawRetainsDrag` / `DisabledKeepsLegacy` / `FrozenAfterRecoveryStarts` / `InterpolatedDropConsistency` 同步 |
+| `LyraRecoilPoseTest.spec.cpp` | `Lyra.Recoil.Pose.RecoveryCurveShape`：稳态期望由 `5.0`（峰值）改为 **`0.0`**（无压枪 ⇒ 回满） |
+
+**刻意不动**：`FRecoilShotResult` 字段（CSV 7 列契约）、`ShotHistory`、5 份 Golden 数据。
+
+### 13.11.7 编译与回归（✅ 已执行，全绿）
+
+| 项 | 结果 |
+| --- | --- |
+| 编译 `LyraEditor Win64 Development` | ✅ **`Result: Succeeded`** |
+| `Lyra.Recoil` 自动化测试 | ✅ **45/45 全绿**（`45 tests performed`，`Result={Fail}` = 0） |
+| Golden 基准（5 份 JSON） | ✅ **md5 逐位未变** |
+
+> ⚠️ 本轮首次回归时 `Lyra.Recoil.Pose.RecoveryCurveShape` 报红 ——
+> 该用例在 `LyraRecoilPoseTest.spec.cpp` 里，上一轮漏改，期望值还是"停在峰值 5.0"。
+> 按新口径改为 `0.0` 后复跑全绿。**改口径时务必把 Tests 目录下所有 spec 都扫一遍**，
+> 不要只改 `LyraRecoilTest.spec.cpp`。
+
+### 13.11.8 构建通道的坑（本轮新增记录）
+
+本轮所有编译/链接动作在 UBA local executor 下**一律 1.4 秒内 exit 1、且零编译器输出**
+（注意：**不是**文档里写的那种 `error code 9001` 形态）。手工跑同一条 rsp 全部 RC=0，
+证明代码与工具链都没问题。可用的绕行流程（每一步都从 Bash 侧发起）：
+
+```bash
+# 1) 找出含改动文件的 unity blob，手工编它（cwd 必须是 E:\UE_5.8\Engine\Source）
+cl.exe @"E:/TPSGunsDemo/Intermediate/Build/Win64/x64/UnrealEditor/Development/LyraGame/Module.LyraGame.3.cpp.obj.rsp"
+
+# 2) 构建 → UBT 跳过已新鲜的 compile，只报 link 失败
+# 3) import library 用 lib.exe（不能用 link.exe /LIB，会报 LNK1146）
+lib.exe @".../LyraGame/UnrealEditor-LyraGame.lib.rsp"
+lib.exe @".../LyraEditor/UnrealEditor-LyraEditor.lib.rsp"
+# 4) DLL 用 link.exe
+link.exe @".../LyraGame/UnrealEditor-LyraGame.dll.rsp"
+link.exe @".../LyraEditor/UnrealEditor-LyraEditor.dll.rsp"
+# 5) 最后一关 WriteMetadata 也需要手工独立跑（嵌套 dotnet 进程同样起不来）
+dotnet.exe "E:/UE_5.8/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll" \
+  -Mode=WriteMetadata \
+  -Input="E:/TPSGunsDemo/Intermediate/Build/Win64/x64/LyraEditor/Development/TargetMetadata.json" -Version=2
+# 6) 再跑一次构建 → "Target is up to date" / "0 action(s)" / Result: Succeeded
+```
+
+> `-NoUBA` 无用：`ExecutorFactory.GetUBAExecutor()` 是无条件回退路径
+> （源码注释：*"We always use the UBA executor"*），UE 5.8 已无纯 Local executor。
+
+---
+
+_本文档由祥子整理，2026-09-20；§13.9 追加于 2026-09-21；§13.10 删 Ratio；**§13.11 口径二次修正于 2026-09-21（目标式 → 累计压枪量 + 修 Drop 段冻结）**。_
+_修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣（P14 → §13.10 字面减法 → §13.11 累计压枪量）。_
 _根因一句话：回弹/回正锚在绝对峰值 → 连发几何衰减；修复：锚在「基底 + 本发幅度」，两模式在 `InstantWrite` 下逐位等价。_
-_P14 一句话：回正目标再减掉「本梭累计压枪量」（`RecoveryCoverPitch`，单调累积、停火冻结），默认 0 ⇒ 零回归。_
-_相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_
+_**终版一句话：回正目标 = 本梭累计压枪量**（峰值不参与、无 clamp、无 Ratio、无地板）⇒ 屏幕精确回到开枪前。_
+_相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、[11_RecoveryCompensation.md](11_RecoveryCompensation.md)（**现行权威口径**）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_

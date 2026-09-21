@@ -56,7 +56,7 @@ enum class ERecoilInterpStage : uint8
 	 */
 	Settle		UMETA(DisplayName = "Settle"),
 
-	/** t2：从回弹终点下降到「峰值 × RecoilReturnRatio」，形状由 RecoveryCurve 决定 */
+	/** t2：从回弹终点收敛到「回正目标 = 本梭累计压枪量」，形状由 RecoveryCurve 决定 */
 	Drop		UMETA(DisplayName = "Drop")
 };
 
@@ -87,8 +87,8 @@ enum class ERecoilInterpStage : uint8
  *   Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Recovering ──回正完成──► Idle
  *                      ▲                                        │
  *                      └──────────── 再次开火 ──────────────────┘
- *   注：Idle 表示"回正已完成、数值不再变化"，此时可能仍残留
- *       Peak × RecoilReturnRatio 的稳态偏移（RecoilReturnRatio > 0 时）。
+ *   注：Idle 表示"回正已完成、数值不再变化"。现行口径下回正目标是「本梭累计压枪量」，
+ *       不压枪时偏移回满到 0、屏幕回到开枪前（不再有 RecoilReturnRatio 的比例缩放）。
  */
 USTRUCT(BlueprintType)
 struct UE_API FRecoilRuntimeState
@@ -119,7 +119,7 @@ public:
 	// === 为什么需要这第二套偏移 ===
 	//
 	// AccumulatedPitch/Yaw 是「逻辑偏移」—— 这一发「应该」抬到哪。它同时被三处消费：
-	//   1. 回正逻辑（峰值取它，回正目标 = 峰值 × RecoilReturnRatio）
+	//   1. 回正逻辑（回正目标 = 本梭累计压枪量）
 	//   2. ShotHistory 记录（CSV 前 6 列契约）
 	//   3. Golden 数据与 24 个自动化测试
 	//
@@ -311,17 +311,17 @@ public:
 	/**
 	 * 进入 Recovering 时「本发开始那一刻已经累加好的偏移」（度）。
 	 *
-	 * 回正目标 = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio，
-	 * 也就是「**只把本发这一下的贡献衰减掉，不衰减之前连发累加出来的偏移**」。
+	 * 现行回正口径：目标 = 本梭累计压枪量（见 ComputeRecoveryTarget），
+	 * 不再做「按比例衰减」的插值口径 —— 该字段当前仅供插值链与诊断读取。
 	 *
 	 * ★ 2026-09-20 修复引入（见 Docs/Recoil/11_BurstAccumulationFix.md）：
-	 * 旧公式是 `RecoveryPeak × RecoilReturnRatio`（把**整条已累加偏移**乘一次回正比）。
-	 * 连发时每发的 Rebound 与回正都按这个口径把**总偏移**往低压，
-	 * 于是偏移变成「每发 × 0.72」的几何衰减、几发后就不再上涨 ——
+	 * 旧公式曾按 `RecoveryBase + (Peak − Base) × RecoilReturnRatio` 衰减，
+	 * 更早还有 `RecoveryPeak × RecoilReturnRatio`（把**整条已累加偏移**乘一次回正比）。
+	 * 后者在连发时会让偏移变成「每发 × 0.72」的几何衰减、几发后就不再上涨 ——
 	 * 玩家看到的就是「连发时后坐力失效 / 变成 0」。
 	 *
-	 * InstantWrite 模式下本值恒为 0，旧公式 = 新公式，既有行为零变化；
-	 * Golden 与既有 30 个自动化用例全部建立在该模式下，不受影响。
+	 * InstantWrite 模式下本值恒为 0，与旧行为一致；
+	 * Golden 与既有 30 个自动化用例全部建立在该模式下。
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
 	float RecoveryBasePitch = 0.0f;
@@ -350,10 +350,49 @@ public:
 	 * 进入 Recovering 后自然冻结；新一梭 / Reset 时清零。
 	 *
 	 * ★ 2026-09-20 追加（见 Docs/Recoil/11_BurstAccumulationFix.md §13）。
+	 * ★ 2026-09-21 接线：三处回正公式改为 `− RecoveryCoverPitch`（P14 语义），
+	 *   同时新增 `bRecoveryCoverApplied` 把"中途回正反复抵扣"收敛掉（见该字段注释）。
 	 * 默认 0 ⇒ 回正目标退化成旧公式，既有行为逐位不变。
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
 	float RecoveryCoverPitch = 0.0f;
+
+	/**
+	 * 本梭「累计玩家水平位移」（度，往左拉为正，恒 ≥ 0）。语义同 `RecoveryCoverPitch`。
+	 *
+	 * === 为什么单独存在（2026-09-21）===
+	 *
+	 * `RecoveryCoverPitch` 只累计垂直轴。水平轴的抵扣在 `Profile` 上有独立开关
+	 * （`bCompensationAwareRecoveryYaw`，默认 false），消费点需要本轴自己的累计量 ——
+	 * 早先的实现把 `RecoveryCoverPitch`（垂直量）也传给 Yaw 公式，口径是错的。
+	 *
+	 * 默认全 0 + 开关默认关闭 ⇒ 水平轴行为逐位不变（既有 Golden / 用例零回归）。
+	 * 资产显式打开开关后，水平回正目标才变成 `峰值 × Ratio − 本值`。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float RecoveryCoverYaw = 0.0f;
+
+	/**
+	 * 本梭的累计抵扣是否**已经用在过一次回正上**。**默认 false。**
+	 *
+	 * === 为什么需要这个标志位（2026-09-21）===
+	 *
+	 * `Interpolated` 模式下，`RecoveryDelay` 与射速间隔可能相等（`Rifle_S` 正是如此：
+	 * 射速 0.12s == `RecoveryDelay` 0.12s），于是 30 发里会触发**多次「中途中止回正」**。
+	 *
+	 * 旧实现（无此标志）每次中途回正都扣一遍 `RecoveryCoverPitch`，而被压低的值
+	 * 又通过 `ApplyShot` 里的 `InterpBasePitch = AccumulatedPitch` 成为下一发的基底
+	 * ⇒ 抵扣被**逐次放大**。实测 `cover = 4` 时 `Δ = −5.067` 而非 `−4`（见文档 §13.5.3）。
+	 *
+	 * 本标志位把口径收敛成"**一梭只抵扣一次**"：
+	 *   - 首次进入回正（Accumulating→Recovering，或 Settle→Drop）时抵扣并置 true；
+	 *   - 之后同一梭内的中途回正**不再抵扣**（只做本发贡献的衰减）；
+	 *   - 新一梭 / Reset 时清零。
+	 *
+	 * 效果：`Δ` 严格等于 `−cover`，口径可手算复核。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	bool bRecoveryCoverApplied = false;
 
 	/**
 	 * 本梭的玩家压枪量（度，向下压枪为正，恒 ≥ 0）。
@@ -380,6 +419,19 @@ public:
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
 	float AimCompensationPitch = 0.0f;
+
+	/**
+	 * 本梭的玩家水平位移量（度，往左拉为正，恒 ≥ 0）。语义同 `AimCompensationPitch`。
+	 *
+	 * 与垂直轴的差别只在默认开关：水平轴的抵扣由 `bCompensationAwareRecoveryYaw`
+	 * 控制且**默认关闭**（原因见 `ULyraRecoilProfile` 的该字段注释 —— 转身追目标
+	 * 会让水平位移轻易超过 1.7° 门槛，两轴同规则会导致 Yaw 回正长期为 0）。
+	 *
+	 * 与 `AimCompensationPitch` 一样：由 `SamplePlayerAim()` 同步写入，
+	 * 默认 0 + 开关默认关 ⇒ 既有行为逐位不变。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float AimCompensationYaw = 0.0f;
 
 	/** 回正已经进行的秒数（不含 RecoveryDelay）。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
@@ -536,30 +588,49 @@ public:
 	 *
 	 * **不调用则压枪量恒为 0**，交回既有语义 —— 纯数值单测正是靠这一点保持零回归。
 	 * 状态为 Idle 时不更新（此时基准已经过期，算出来的差值没有意义）。
+	 *
+	 * ★ 2026-09-21：本函数是压枪量的**唯一定义点**。
+	 *   算完会同步写入 `AimCompensationPitch`（P12 钳制 / P14 回正抵扣的消费字段），
+	 *   调用方**不需要**再单独调 `SetAimCompensationPitch()`。
+	 *   修复前两者是两份平行实现、各带一份基准，会导致"面板显示值 ≠ 实际生效值"，
+	 *   且单测覆盖不到消费端（见 .cpp 内 `SamplePlayerAim` 的注释）。
 	 */
 	void SamplePlayerAim(float InAimPitchDegrees, float InAimYawDegrees);
 
 	/**
-	 * 回正终止值的唯一实现（含压枪量扣除）。
+	 * 回正终止值的唯一实现（含累计压枪量抵扣）。
 	 *
-	 * 语义（开发计划 §P4 的一处修订，见 Docs/Recoil/11_RecoveryCompensation.md）：
+	 * ★ 2026-09-21 **二次**定型：口径为「**终止值 = 本梭累计压枪量**」。
 	 *
-	 *     原本回正量 = Peak − Peak × RecoilReturnRatio
-	 *     实际回正量 = clamp(原本回正量 − 压枪量, 0, 原本回正量)
-	 *     终止值     = Peak − 实际回正量
+	 *       终止值 = 本梭累计压枪量
 	 *
-	 * 展开后等价于：
+	 *   语义：回正把「后坐力偏移」收敛到**玩家自己压下去的量**。
+	 *   因为 屏幕视角 = ControlRotation（含压枪）+ 后坐力偏移，
+	 *   偏移收敛到压枪量时屏幕正好回到开枪前 —— 不压枪回满、压 N 度也回开枪前。
 	 *
-	 *     终止值 = clamp(Peak × RecoilReturnRatio + 压枪量, min(Peak, Peak×Ratio), max(Peak, Peak×Ratio))
+	 *   实机 trace 佐证（DA_Recoil_Rifle_S 连发，见 Docs/Recoil 与 memory）：
+	 *     峰值 17.600、累计压枪 13.650、玩家 Ctrl 低了 13.650
+	 *       · 旧式 `峰值 − 压枪量` = 3.950 ⇒ 屏幕 −9.700（**看地板**，错误）
+	 *       · 现行 `压枪量`       = 13.650 ⇒ 屏幕  0.000（回到开枪前，正确）
 	 *
-	 * 双端钳制的含义：
-	 *   上界 Peak      —— 压枪量再大，回正量最多归零（"只回正到最后一发子弹射出的位置"）
-	 *   下界 Peak×Ratio—— 玩家顺着后坐力方向推时，回正量不会**超过**原本的回正量
+	 *   ⇒ **峰值不参与本式**，故形参中已无 Peak。
 	 *
-	 * 压枪量为 0 时严格等于 Peak × RecoilReturnRatio，所以既有行为零变化。
-	 * bCompensationAwareRecovery 关闭时直接返回旧公式。
+	 *   历史沿革（仅供追溯，现行一律走上式）：
+	 *     · 更早：`峰值 × RecoilReturnRatio`（残留比例缩放，该字段已删除）
+	 *     · P11 ：`峰值 × Ratio + 压枪量`（加法，压枪的人停得**更高**）
+	 *     · P14 ：`峰值 × Ratio − 累计抵扣`（减法，压枪的人停得**更低**）
+	 *     · 上一版：`峰值 − 累计抵扣`（去掉了 Ratio，但方向仍错 ⇒ 压在真实弹道上"看地板"）
+	 *     · 现行：`累计压枪量`（屏幕精确回到开枪前）
+	 *
+	 * bCompensationAwareRecovery 关闭时（或本轴不参与时）返回 0 —— 偏移完全回满。
+	 *
+	 * @param bApplyCover 本轴是否参与抵扣。两把闸门（总开关 + 本轴开关）同时打开才扣。
+	 *        Pitch 恒传 true；Yaw 传 Profile.bCompensationAwareRecoveryYaw（**默认 false**）。
+	 *        理由见 LyraRecoilProfile.h 里 bCompensationAwareRecoveryYaw 的注释 ——
+	 *        水平位移是"转身"不是"压枪"，且 MaxHorizontalKick 小，扣了会长期归零。
 	 */
-	static float ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float Peak, float Compensation);
+	static float ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float Cover,
+		bool bApplyCover = true);
 
 	// ---------------------------------------------------------------------
 	// 散布（Spread）

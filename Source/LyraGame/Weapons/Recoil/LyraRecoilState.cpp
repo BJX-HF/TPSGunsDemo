@@ -36,14 +36,33 @@ namespace LyraRecoilStatePrivate
 	 *   1. 非插值模式：Accumulating → Recovering
 	 *   2. 插值模式：Settle → Drop（Drop 段就是回正本身）
 	 *   3. 长帧保护：时间被丢弃后直接跳到稳态残留
+	 *
+	 * ★ 2026-09-21：本函数同时负责「一梭只抵扣一次」的收敛 ——
+	 *   若 `bRecoveryCoverApplied` 已为 true，说明本梭的抵扣额度已经用掉了，
+	 *   这次的（中途）回正**不再重复抵扣**，把 `RecoveryCompensationPitch` 置 0。
+	 *   原因见 `bRecoveryCoverApplied` 的注释。
 	 */
 	static void FreezeCompensationForRecovery(FRecoilRuntimeState& RecoilState)
 	{
-		RecoilState.RecoveryCompensationPitch = RecoilState.PlayerCompensationPitch;
-		RecoilState.RecoveryCompensationYaw = RecoilState.PlayerCompensationYaw;
+		if (RecoilState.bRecoveryCoverApplied)
+		{
+			// 抵扣额度已用完：本次回正只衰减本发贡献，不再扣累计压枪量。
+			RecoilState.RecoveryCompensationPitch = 0.0f;
+			RecoilState.RecoveryCompensationYaw = 0.0f;
+			return;
+		}
+
+		// 用累计量而非实时量 —— 停火后玩家必然松手，实时值会缩回 0。
+		RecoilState.RecoveryCompensationPitch = RecoilState.RecoveryCoverPitch;
+		// ★ 2026-09-21：水平轴改用**自己的**累计量。
+		//   早先这里硬编码 0，于是 bCompensationAwareRecoveryYaw 打开也不生效
+		//   （是个"打开也没用的开关"）。现在改由 Profile 开关决定是否消费：
+		//   开关默认 false ⇒ 行为与硬编码 0 时逐位一致。
+		RecoilState.RecoveryCompensationYaw = RecoilState.RecoveryCoverYaw;
+		RecoilState.bRecoveryCoverApplied = true;
 	}
 
-	/** 推进一次回正插值。回正目标 = 峰值 × 残留比，再扣掉压枪量（见 ComputeRecoveryTarget）。 */
+	/** 推进一次回正插值。回正目标 = 本梭累计压枪量（见 ComputeRecoveryTarget）。 */
 	static void ApplyRecoveryStep(FRecoilRuntimeState& RecoilState, const ULyraRecoilProfile& Profile)
 	{
 		const float Duration = FMath::Max(Profile.RecoveryTime, KINDA_SMALL_NUMBER);
@@ -51,9 +70,10 @@ namespace LyraRecoilStatePrivate
 		const float Alpha = Profile.GetRecoveryAlpha(NormalizedTime);
 
 		const float TargetPitch = FRecoilRuntimeState::ComputeRecoveryTarget(
-			Profile, RecoilState.RecoveryPeakPitch, RecoilState.RecoveryCompensationPitch);
+			Profile, RecoilState.RecoveryCompensationPitch);
 		const float TargetYaw = FRecoilRuntimeState::ComputeRecoveryTarget(
-			Profile, RecoilState.RecoveryPeakYaw, RecoilState.RecoveryCompensationYaw);
+			Profile, RecoilState.RecoveryCompensationYaw,
+			Profile.bCompensationAwareRecoveryYaw);
 
 		RecoilState.RecoveryProgress = Alpha;
 		RecoilState.AccumulatedPitch = FMath::Lerp(RecoilState.RecoveryPeakPitch, TargetPitch, Alpha);
@@ -77,7 +97,7 @@ namespace LyraRecoilStatePrivate
 
 		if (NormalizedTime >= 1.0f)
 		{
-			// 回正结束：落到稳态偏移（RecoilReturnRatio 决定的残留），回到 Idle，准备下一轮连发
+			// 回正结束：落到稳态偏移（= 本梭累计压枪量），回到 Idle，准备下一轮连发
 			RecoilState.AccumulatedPitch = TargetPitch;
 			RecoilState.AccumulatedYaw = TargetYaw;
 			RecoilState.RecoveryProgress = 1.0f;
@@ -154,7 +174,7 @@ namespace LyraRecoilStatePrivate
 		//   Base       —— 开火那一刻的逻辑偏移，是本发所有阶段的「地面」
 		//   Peak       —— Base + 完整幅度，上抬段的终点
 		//   ReboundEnd —— 从 Peak 回弹到 `Base + 幅度 × ReboundRatio`
-		//   SteadyEnd  —— 从 ReboundEnd 下降到 `Base + 幅度 × RecoilReturnRatio`（本发在世界上的最终贡献）
+		//   SteadyEnd  —— 从 ReboundEnd 收敛到「本梭累计压枪量」（本发的最终姿态）
 		//
 		// ★ 2026-09-20 修复：Rebound / Drop 的终点必须锚在「本发幅度」上，而不是「绝对峰值」。
 		//
@@ -175,13 +195,30 @@ namespace LyraRecoilStatePrivate
 		const float ReboundEndPitch = BasePitch + State.InterpShotAmplitudePitch * Profile.ReboundRatio;
 		const float ReboundEndYaw = BaseYaw + State.InterpShotAmplitudeYaw * Profile.ReboundRatio;
 
-		// 稳态终点同样要扣压枪量：Drop 段就是"回正"，它的终点必须与
-		// ApplyRecoveryStep 收尾时落的值**完全一致**，否则在 Drop 结束那一帧会跳一下。
-		// 压枪量在 Settle → Drop 的切换处冻结（见 AdvanceInterpolatedSubStepBy）。
+		// Drop 段的终点必须与 ApplyRecoveryStep 收尾时落的值**完全一致**，
+		// 否则在 Drop 结束那一帧会跳一下。
+		//
+		// ★ 2026-09-21（第二次修正）：读数源改回「已冻结的累计压枪量」。
+		//
+		//   上一版写的是 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch`，本意是
+		//   「本函数可能在冻结之前被调用，那时读快照会拿到 0」。但实机时序恰好相反：
+		//   FreezeCompensationForRecovery() 在 Settle→Drop 切换处就把标志置成了 true，
+		//   于是**整个 Drop 段**每帧都推导出 0 ⇒ 目标 = 不抵扣 ⇒ 逻辑偏移冻结在峰值
+		//   纹丝不动，直到收官那帧 ApplyRecoveryStep 用快照算对，一帧跳过去。
+		//
+		//   实机 trace 佐证（DA_Recoil_Rifle_S 连发）：
+		//     Drop 段 23 帧 acc 恒为 15.000 ⇒ 收尾瞬跳 3.950 ⇒ 屏幕 −8.30（看地板）。
+		//
+		//   现在直接读 RecoveryCompensationPitch（= Freeze 时锁定的本梭累计压枪量），
+		//   与 ApplyRecoveryStep 完全同源 ⇒ Drop 段平滑收敛，终点与收官值一致、不再跳。
+		const float StageCoverPitch = State.RecoveryCompensationPitch;
+
 		const float SteadyEndPitch = FRecoilRuntimeState::ComputeRecoveryTarget(
-			Profile, PeakPitch, State.RecoveryCompensationPitch);
+			Profile, StageCoverPitch);
+		// 水平轴同源取自己的快照；默认开关 false ⇒ 本式返回 0，Yaw 回正回满。
 		const float SteadyEndYaw = FRecoilRuntimeState::ComputeRecoveryTarget(
-			Profile, PeakYaw, State.RecoveryCompensationYaw);
+			Profile, State.RecoveryCompensationYaw,
+			Profile.bCompensationAwareRecoveryYaw);
 
 		const float Duration = GetStageDuration(Profile, State.InterpStage);
 		const float Progress = (Duration > KINDA_SMALL_NUMBER)
@@ -410,25 +447,43 @@ int32 FRecoilRuntimeState::ResolveSeed(const ULyraRecoilProfile* Profile)
 	return FMath::Rand();
 }
 
-float FRecoilRuntimeState::ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float Peak, float Compensation)
+float FRecoilRuntimeState::ComputeRecoveryTarget(
+	const ULyraRecoilProfile& Profile, float Cover, bool bApplyCover)
 {
-	// 既有行为（不扣压枪量）：终止值 = 峰值 × 残留比
-	const float LegacyTarget = Peak * Profile.RecoilReturnRatio;
-
-	// 玩家压枪的方向与后坐力相反时 Compensation 为正（见 SamplePlayerAim 的符号约定）。
-	// 关闭开关 / 没有玩家输入 → Compensation 为 0 → 严格退回旧公式。
-	const float EffectiveCompensation = Profile.bCompensationAwareRecovery ? Compensation : 0.0f;
-	if (EffectiveCompensation == 0.0f)
-	{
-		return LegacyTarget;
-	}
-
-	// 双端钳制：上界 = 峰值（回正量最多归零），下界 = 原本的回正目标（回正量最多是原本那么多）。
-	// 用 Min/Max 而不是写死 0 —— 这样垂直（峰值恒 ≥ 0）与水平（峰值可为负）共用一条公式。
-	const float LowerBound = FMath::Min(Peak, LegacyTarget);
-	const float UpperBound = FMath::Max(Peak, LegacyTarget);
-
-	return FMath::Clamp(LegacyTarget + EffectiveCompensation, LowerBound, UpperBound);
+	// =====================================================================
+	// 回正终止值的唯一实现（2026-09-21 大祥老师**二次**拍板的口径）
+	// =====================================================================
+	//
+	//     终止值 = 本梭累计压枪量
+	//
+	// 语义：回正把「后坐力偏移」收敛到**玩家自己压下去的量**。
+	//
+	//   屏幕视角 = ControlRotation（含玩家压枪）+ 后坐力偏移，
+	//   所以把偏移收敛到压枪量时，屏幕正好回到开枪前的位置 —— 这就是设计目标。
+	//
+	//     不压枪   ⇒ 终止值 = 0   ⇒ 偏移回满 ⇒ 屏幕回开枪前
+	//     压 N 度   ⇒ 终止值 = N   ⇒ 玩家的 Ctrl 已低了 N 度，屏幕同样回开枪前
+	//
+	// ★ 与上一版的差别（实测坐实的错误）：
+	//
+	//   上一版写的是 `峰值 − 压枪量`，于是
+	//       屏幕 = −压枪量 + (峰值 − 压枪量) = 峰值 − 2×压枪量
+	//   压在真实弹道上就是**看地板**。实机 trace（DA_Recoil_Rifle_S 连发）：
+	//       峰值 17.600、累计压枪 13.650、玩家 Ctrl 低了 13.650
+	//       终值 = 17.600 − 13.650 = 3.950 ⇒ 屏幕 = −13.650 + 3.950 = −9.700（低于开枪前 9.7°）
+	//   改成「偏移 = 压枪量」后：屏幕 = −13.650 + 13.650 = 0 ⇒ 精确回到开枪前 ✓
+	//
+	//   ⇒ **峰值不再参与本式**，因此形参 Peak 已移除。
+	//
+	// 两把闸门串联才允许抵扣 ——
+	//   bCompensationAwareRecovery     总开关（默认 true）
+	//   bApplyCover                    本轴开关（Yaw 默认 false，见 Profile 头文件）
+	//   垂直轴恒传 true（默认实参）；
+	//   水平轴默认不扣 —— 因为 MaxHorizontalKick 只有 2.0°，门槛 1.7°，
+	//   而"转身追目标"随时超过 1.7°，否则 Yaw 回正会长期恒为 0。
+	//
+	// 不抵扣（总开关关 / 本轴不参与）时终止值 = 0 ⇒ 偏移完全回满、屏幕停在玩家压枪后的位置。
+	return (Profile.bCompensationAwareRecovery && bApplyCover) ? Cover : 0.0f;
 }
 
 void FRecoilRuntimeState::SamplePlayerAim(float InAimPitchDegrees, float InAimYawDegrees)
@@ -442,6 +497,11 @@ void FRecoilRuntimeState::SamplePlayerAim(float InAimPitchDegrees, float InAimYa
 	{
 		PlayerCompensationPitch = 0.0f;
 		PlayerCompensationYaw = 0.0f;
+		// ★ 2026-09-21：同步把 P12/P14 消费的 AimCompensation* 归零。
+		//   本梭已结束，旧基线不再代表"起点"；此处若留旧值会白送抵扣额度
+		//   （"压一下再松手"能永久骗到更高的硬顶 + 更低的回正目标）。
+		AimCompensationPitch = 0.0f;
+		AimCompensationYaw = 0.0f;
 		return;
 	}
 
@@ -453,6 +513,24 @@ void FRecoilRuntimeState::SamplePlayerAim(float InAimPitchDegrees, float InAimYa
 	// 取负：玩家往下压（Pitch 减小）→ 压枪量为正；往左拉（Yaw 减小）→ 压枪量为正。
 	PlayerCompensationPitch = -PitchDelta;
 	PlayerCompensationYaw = -YawDelta;
+
+	// ---------------------------------------------------------------------
+	// ★ 2026-09-21：单一写入口。
+	//
+	// 修复前存在**两份平行的压枪量实现**，各带一份基准：
+	//   SamplePlayerAim()                  → 基准 AimPitchAtBurstStart → PlayerCompensationPitch
+	//   ULyraRangedWeaponInstance 里那份    → 自带的起枪点字段            → AimCompensationPitch
+	// （后者已删除 —— 武器实例现在只调本函数，见 LyraRangedWeaponInstance.cpp）
+	//
+	// 后果：调试面板显示的是前者，回正/P12 钳制消费的是后者，两者基准锁定时机不同
+	// （ApplyShot 首帧 vs AddRecoil 首帧）⇒ 值可能不等、且纯数值单测（只调本函数）
+	// 永远无法覆盖消费端 —— 6 个 Compensation 用例就是这么挂的。
+	//
+	// 现在本函数是压枪量的**唯一定义点**：算完顺手同步给消费端字段。
+	// 两个轴各同步一份 —— 消费端（钳制 / 回正）分轴取用，开关各自独立。
+	// ---------------------------------------------------------------------
+	AimCompensationPitch = FMath::Max(0.0f, PlayerCompensationPitch);
+	AimCompensationYaw = FMath::Max(0.0f, PlayerCompensationYaw);
 }
 
 EPoseState FRecoilRuntimeState::ResolvePoseState(bool bIsCrouching, bool bIsFalling)
@@ -500,8 +578,11 @@ void FRecoilRuntimeState::Reset(const ULyraRecoilProfile* Profile)
 	RecoveryBasePitch = 0.0f;
 	RecoveryBaseYaw = 0.0f;
 	RecoveryCoverPitch = 0.0f;
+	RecoveryCoverYaw = 0.0f;
+	bRecoveryCoverApplied = false;
 	// 压枪抵扣由武器实例每帧重写，这里清零只是保证"没驱动方时 = 旧行为"。
 	AimCompensationPitch = 0.0f;
+	AimCompensationYaw = 0.0f;
 	RecoveryElapsed = 0.0f;
 	RecoveryProgress = 0.0f;
 	TimeSinceLastFire = 0.0f;
@@ -726,6 +807,10 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 		PlayerCompensationYaw = 0.0f;
 		RecoveryCompensationPitch = 0.0f;
 		RecoveryCompensationYaw = 0.0f;
+		// 新一梭：累计抵扣量与"已抵扣"标志一并重置，本梭重新拥有一次抵扣额度。
+		RecoveryCoverPitch = 0.0f;
+		RecoveryCoverYaw = 0.0f;
+		bRecoveryCoverApplied = false;
 	}
 
 	const float TimeSincePreviousShot = TimeSinceLastFire;
@@ -851,6 +936,23 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 
 	TimeSinceLastFire += DeltaSeconds;
 
+	// ◆ 累计本梭压枪量（单调不减、停火后自然冻结）。
+	//
+	//   ★ 2026-09-21：**必须放在状态机与插值子步循环之前**。
+	//
+	//   修复前这句在函数末尾（子步循环之后），于是插值模式出现时序错位：
+	//   子步内部进入 Drop 段时会调 FreezeCompensationForRecovery() 读本值，
+	//   而本值这一刻还没被本帧的采样更新 ⇒ 读到上一帧、乃至首帧的 0
+	//   ⇒ 插值模式下的抵扣恒为 0（InterpolatedDropConsistency 就是这么挂的）。
+	//
+	//   非插值模式侥幸不受影响：它的回正发生在 switch 里，天然在累计之后。
+	//
+	//   不直接读 AimCompensationPitch 的原因：停火后玩家必然松手，
+	//   ControlRotation 回升 ⇒ AimCompensationPitch 实时缩回 0；回正若读实时值，
+	//   目标会在回正途中跳回旧值（非单调甩镜）。
+	RecoveryCoverPitch = FMath::Max(RecoveryCoverPitch, AimCompensationPitch);
+	RecoveryCoverYaw = FMath::Max(RecoveryCoverYaw, AimCompensationYaw);
+
 	// ---------------------------------------------------------------------
 	// Roll 震屏推进：独立于下面的状态机。
 	// 它不关心 Accumulating/Recovering/Idle —— 自己的时钟到点就停。
@@ -920,7 +1022,7 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 		//
 		// 注意这里落的是"整条时间轴的终点"，而不是"当前阶段的终点"：
 		// 长帧语义是「这段时间我们放弃实时演算」，那就应该直接呈现
-		// 这段时间走完后的最终姿态 —— 也就是稳态残留（本发基底 + 本发幅度 × RecoilReturnRatio − 本梭累计压枪量）。
+		// 这段时间走完后的最终姿态 —— 也就是稳态偏移（本梭累计压枪量）。
 		// 只推当前阶段会留下"半路态"，与"收敛"的验收目标不符。
 		if ((SubStepCount >= MaxSubStepsPerAdvance) && (SubStepAccumulator >= FixedSubStepSeconds))
 		{
@@ -932,11 +1034,15 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 				// 长帧路径可能整段跳过 Settle→Drop 的切换，所以不能指望那里冻过。
 				LyraRecoilStatePrivate::FreezeCompensationForRecovery(*this);
 
-				// 稳态残留 = 本发峰值 × 回正残留比，再扣压枪量（与 Drop 段终点同一公式）
+				// 稳态残留 = 本梭累计压枪量（与 Drop 段终点同一公式）
+				//
+				// Pitch / Yaw 都用本轴**已冻结的**累计量 + 本轴开关 ——
+				// 水平默认不抵扣，传累计量是为了资产显式打开时口径一致。
 				const float SteadyPitch = FRecoilRuntimeState::ComputeRecoveryTarget(
-					*Profile, InterpBasePitch + InterpShotAmplitudePitch, RecoveryCompensationPitch);
+					*Profile, RecoveryCompensationPitch);
 				const float SteadyYaw = FRecoilRuntimeState::ComputeRecoveryTarget(
-					*Profile, InterpBaseYaw + InterpShotAmplitudeYaw, RecoveryCompensationYaw);
+					*Profile, RecoveryCompensationYaw,
+					Profile->bCompensationAwareRecoveryYaw);
 
 				// 补间输出直接落到稳态值：已经丢掉了时间，再推增量会让它与逻辑偏移脱节
 				const float VerticalLimit = GetEffectiveVerticalKickLimit(*Profile);
@@ -975,16 +1081,28 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 		LastSubStepCount = 0;
 	}
 
-	// ◆ 累计本梭压枪量（单调不减、停火后自然冻结）。
-	//   不直接读 AimCompensationPitch 的原因：停火后玩家必然松手，
-	//   ControlRotation 回升 ⇒ AimCompensationPitch 实时缩回 0；回正若读实时值，
-	//   目标会在回正途中跳回旧值（非单调甩镜）。
-	RecoveryCoverPitch = FMath::Max(RecoveryCoverPitch, AimCompensationPitch);
-
 	switch (State)
 	{
 	case ERecoilState::Accumulating:
 	{
+		// ★ 2026-09-21：插值模式且插值链仍在推进时，阶段切换完全交给上面的子步循环，
+		//   本分支必须短路。
+		//
+		//   修复前这里对插值模式也生效，于是同一帧内发生**双重冻结**：
+		//     1) 子步循环里 Settle→Drop 时 Freeze 一次 → 抵扣生效、bRecoveryCoverApplied = true
+		//     2) 子步循环跑完回到这里，TimeSinceLastFire 已 > RecoveryDelay → 再 Freeze 一次
+		//        → 走"额度已用尽"分支 → RecoveryCompensationPitch 被清回 0
+		//   ⇒ 插值模式的抵扣凭空消失（InterpolatedDropConsistency 实测 0.0000 而非 0.3）。
+		//
+		//   条件与下面 Recovering 分支的同款短路保持一致：
+		//   `IsInterpolatedSingleShot() && InterpStage != None`。
+		//   必须带 `InterpStage != None` —— 否则插值链已收尾（或压根没启动）时
+		//   本分支被永久跳过，State 会卡在 Accumulating 出不来。
+		if (Profile->IsInterpolatedSingleShot() && (InterpStage != ERecoilInterpStage::None))
+		{
+			break;
+		}
+
 		if (TimeSinceLastFire > Profile->RecoveryDelay)
 		{
 			// 停火超过了延迟：以当前偏移为峰值，开始回正。

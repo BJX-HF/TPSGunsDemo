@@ -431,6 +431,9 @@ void ULyraRangedWeaponInstance::AddRecoil()
 
 	// 开火前必须重新采一次玩家瞄准：鼠标输入与武器 tick 不一定同帧，
 	// 用上一帧的值会让"第一发的基准"偏掉，整轮连发的压枪量跟着偏。
+	//
+	// ★ 2026-09-21：本轮连发的基准（AimPitchAtBurstStart）由 ApplyShot() 内部在
+	//   `State == Idle` 时从 SampledAimPitch 锁定，无需在此另存一份。
 	SampleRecoilPlayerAim();
 
 	RecoilState.ApplyShot(Profile, ComputeRecoilPoseMultiplier(), ComputeRecoilPoseState());
@@ -463,6 +466,12 @@ void ULyraRangedWeaponInstance::UpdateRecoil(float DeltaSeconds)
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
 
 	// 采样必须在 Advance 之前：本帧玩家压了多少枪，要参与本帧的回正目标计算。
+	//
+	// ★ 2026-09-21 收敛为单一入口：SamplePlayerAim() 是压枪量的**唯一定义点**，
+	//   它内部会同步写入 AimCompensationPitch（P12 钳制 / P14 回正抵扣的消费字段）。
+	//   此处**不再**单独调 SetAimCompensationPitch() ——
+	//   旧写法用了一份平行的基准字段（BurstStartAimPitch），与 SamplePlayerAim 的
+	//   AimPitchAtBurstStart 各锁各的，会出现"面板显示值 ≠ 实际生效值"。
 	SampleRecoilPlayerAim();
 
 	RecoilState.Advance(RecoilProfile, DeltaSeconds);
@@ -552,9 +561,6 @@ void ULyraRangedWeaponInstance::ResetRecoilState()
 {
 	RecoilState.Reset(RecoilProfile);
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
-
-	// 基线一并清零：下一梭的第一个会在 AddRecoil 里重新取。
-	BurstStartAimPitch = 0.0f;
 }
 
 ALyraPlayerCameraManager* ULyraRangedWeaponInstance::GetOwningPlayerCameraManager() const
@@ -650,7 +656,7 @@ void ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()
 		const FRotator CtrlRot = (TracePawn != nullptr) ? TracePawn->GetControlRotation() : FRotator::ZeroRotator;
 
 		UE_LOG(LogLyraRecoilWeapon, Log,
-			TEXT("[RecoilTrace] enable=%d mode=%s state=%d stage=%d | push=(%.4f,%.4f) | Ctrl=(%.3f,%.3f) POV=(%.3f,%.3f) delta=(%.4f,%.4f)"),
+			TEXT("[RecoilTrace] enable=%d mode=%s state=%d stage=%d | push=(%.4f,%.4f) | Ctrl=(%.3f,%.3f) POV=(%.3f,%.3f) delta=(%.4f,%.4f) | aimBase=%.3f aimNow=%.3f pushComp=%.3f | cover=%.3f coverUsed=%.3f applied=%d | peak=(%.3f,%.3f) acc=(%.3f,%.3f)"),
 			ULyraRecoilDebug::IsRecoilEnabled() ? 1 : 0,
 			(RecoilProfile != nullptr && RecoilProfile->IsInterpolatedSingleShot()) ? TEXT("Interpolated") : TEXT("InstantWrite"),
 			static_cast<int32>(RecoilState.State),
@@ -660,7 +666,18 @@ void ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()
 			CtrlRot.Pitch, CtrlRot.Yaw,
 			POVRot.Pitch, POVRot.Yaw,
 			POVRot.Pitch - CtrlRot.Pitch,
-			POVRot.Yaw - CtrlRot.Yaw);
+			POVRot.Yaw - CtrlRot.Yaw,
+			// ↓ 2026-09-21 追加：压枪量链路（排查"回正有没有按玩家压枪量扣"）
+			RecoilState.AimPitchAtBurstStart,
+			RecoilState.SampledAimPitch,
+			RecoilState.PlayerCompensationPitch,
+			RecoilState.RecoveryCoverPitch,
+			RecoilState.RecoveryCompensationPitch,
+			RecoilState.bRecoveryCoverApplied ? 1 : 0,
+			RecoilState.RecoveryPeakPitch,
+			RecoilState.RecoveryPeakYaw,
+			RecoilState.AccumulatedPitch,
+			RecoilState.AccumulatedYaw);
 	}
 }
 

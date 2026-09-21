@@ -266,14 +266,17 @@ void ULyraRecoilDebug::DrawDebugPanel(const UWorld* World, const ULyraRecoilProf
 
 	// 压枪量一行：排查"回正是不是按玩家的压枪量扣的"。
 	//   Push   ：实时压枪量（玩家相对本轮第一发把准星往反方向拉了多少，度）
-	//   Frozen ：进入回正时冻结的快照 —— 回正目标真正用的是它
+	//   Frozen ：进入回正时冻结的抵扣量 —— 回正目标真正用的是它
+	//            （★ 2026-09-21：来源从 PlayerCompensation 改为 RecoveryCoverPitch 累计量；
+	//              且"一梭只抵扣一次"，用过的会保持 0，见 Applied 标志）
 	//   AimNow ：最近一次采样到的玩家瞄准（ControlRotation），真值基准
 	const FString CompLine = FString::Printf(
-		TEXT("  PushComp P=%.3f Y=%.3f   FrozenComp P=%.3f Y=%.3f   AimNow=(%.2f, %.2f)"),
+		TEXT("  PushComp P=%.3f Y=%.3f   CoverUsed P=%.3f Y=%.3f   Applied=%s   AimNow=(%.2f, %.2f)"),
 		State.PlayerCompensationPitch,
 		State.PlayerCompensationYaw,
 		State.RecoveryCompensationPitch,
 		State.RecoveryCompensationYaw,
+		State.bRecoveryCoverApplied ? TEXT("Y") : TEXT("N"),
 		State.SampledAimPitch,
 		State.SampledAimYaw);
 

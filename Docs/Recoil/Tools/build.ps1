@@ -34,12 +34,12 @@
 #   cmd //c "<wrapper>.bat"   where the wrapper calls this command line.
 
 param(
-    [string]$EngineRoot = "D:\UE_5.8",
-    [string]$Project    = "D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject",
+    [string]$EngineRoot = "E:\UE_5.8",
+    [string]$Project    = "E:\TPSGunsDemo\TPSGunsDemo.uproject",
     [string]$Target     = "LyraEditor",
     [string]$Platform   = "Win64",
     [string]$Config     = "Development",
-    [string]$UBARootDir = "D:\TPSGunsDemo\TPSGunsDemo\Saved\UBACache"
+    [string]$UBARootDir = "E:\TPSGunsDemo\Saved\UBACache"
 )
 
 $buildBat = Join-Path $EngineRoot "Engine\Build\BatchFiles\Build.bat"

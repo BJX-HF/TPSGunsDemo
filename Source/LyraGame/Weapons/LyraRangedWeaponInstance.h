@@ -309,13 +309,6 @@ private:
 	// Time since this weapon was last fired (relative to world time)
 	double LastFireTime = 0.0;
 
-	// 本梭**首发那一刻**的玩家瞄准俯仰（度）。压枪量的基线。
-	//
-	// 为什么必须有基线：后坐力偏移与 ControlRotation 是两条独立量（云文档 §6.4 / 红线 R2），
-	// 只有"相对起枪点的俯仰差"才能区分「玩家往下压了 3°」和「后坐力把视角推高了 3°」。
-	// 每梭首发时刷新（见 AddRecoil），Reset 时清零。
-	float BurstStartAimPitch = 0.0f;
-
 	// The current heat
 	float CurrentHeat = 0.0f;
 
@@ -403,6 +396,12 @@ private:
 	 * 每帧 + 每次开火前各调一次（见 UpdateRecoil / AddRecoil）。
 	 * 这是**唯一**一处让算法层知道"玩家往哪压了"的地方 —— FRecoilRuntimeState 本身
 	 * 依旧不碰 UWorld，只接受数值，所以纯数值单测的隔离性没有被破坏。
+	 *
+	 * ★ 2026-09-21：内部走 `FRecoilRuntimeState::SamplePlayerAim()`，它是压枪量的
+	 *   **唯一定义点** —— 完成「与本梭首发基准做差」并同步写入 `AimCompensationPitch`
+	 *   （P12 钳制 / P14 回正抵扣的消费字段）。调用方不需要也不应该再单独喂该字段。
+	 *   读的是 `ControlRotation`，它**不含**后坐力偏移（偏移只作用于显示层 POV）。
+	 *   非本地控制（远程玩家 / 无 Pawn）时直接跳过，压枪量保持 0。
 	 */
 	void SampleRecoilPlayerAim();
 
@@ -411,22 +410,6 @@ private:
 
 	/** 后坐力侧的总姿态倍率 = 姿态倍率 × 瞄准混合倍率。 */
 	float ComputeRecoilPoseMultiplier() const;
-
-	/**
-	 * 取当前玩家瞄准俯仰（度）。无 Pawn / Controller 时返回 false 且不改动 OutPitchDegrees。
-	 *
-	 * 读的是 `ControlRotation` —— 它**不含**后坐力偏移（偏移只作用于显示层 POV），
-	 * 所以这个值就是"玩家自己瞄到哪"，正是压枪量的正确来源。
-	 */
-	bool TryGetAimPitch(float& OutPitchDegrees) const;
-
-	/**
-	 * 本梭的玩家压枪量（度，向下压枪为正，恒 ≥ 0）= `起枪点俯仰 − 当前俯仰`。
-	 *
-	 * 只在「本梭进行中」返回非零：`Idle` 时返回 0，避免上一梭的旧基线在休火期继续放宽上限。
-	 * 向上抬头（俯仰变大）按 0 处理 —— 不抬头也白送抵扣额度。
-	 */
-	float ComputeAimCompensationPitch() const;
 
 	/** 清零后坐力状态。装备/卸下时调用。 */
 	void ResetRecoilState();

@@ -10,7 +10,8 @@
 >
 > ⚠️ **编号说明**：本次与云端各自都用过「P10」。合并后按「回正相关以本次实现为主」的拍板，
 > **P11 = 本次的回正扣减压枪量**（见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md)），
-> 云端的 P10 / P12 / P14 仍保留在表里作为根因与历史记录，但**回正目标的代码只走 P11 一套**。
+> 云端的 P10 / P12 / P14 仍保留在表里作为根因与历史记录。**现行回正目标的代码只有一套实现** ——
+> `FRecoilRuntimeState::ComputeRecoveryTarget()`，口径为 **`终止值 = 本梭累计压枪量`**（2026-09-21 第二次拍板）。
 > 另：两把枪的 `SingleShotMode` 已统一为四段式 `Interpolated`。
 
 ---
@@ -294,10 +295,10 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P8** | **相机镜头 Roll 震屏** | **待验收** | ✅ 编译 + 测试 | ⏳ | [08_CameraRollShake.md](08_CameraRollShake.md) §7 |
 | **P9** | **单发插值模型（两套并存）** | **待验收** | ✅ 30/30（含 6 个 Interp） | ⏳ | [10_SingleShotInterpolation.md](10_SingleShotInterpolation.md) |
 | **P10** | **连发累积失效修复（Interpolated）** | **待 PIE 手测** | ✅ **编译通过 + 30/30 全绿** | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §7；**回正目标计算已由 P11 接管** |
-| **P11** | **回正扣减压枪量**（本次 · **回正计算的权威实现**） | **待验收** | ✅ **7 个 `Lyra.Recoil.Compensation.*` 全绿** | ⏳ | [11_RecoveryCompensation.md](11_RecoveryCompensation.md) §7 / §9 |
+| **P11** | **回正扣减压枪量** —— **现行回正计算的权威实现**（口径 2026-09-21 第二次修正） | **待验收** | ✅ **构建 `Result: Succeeded` + `Lyra.Recoil` 45/45 全绿 + 5 份 Golden md5 逐位未变** | ⏳ | [11_RecoveryCompensation.md](11_RecoveryCompensation.md) §7 / §8 / §9 |
 | **P12** | **垂直钳制实时抵扣压枪量**（编号对齐文档 §12，未占 P11） | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿 + Golden md5 未变** | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §12 |
 | **P13** | **散布并入后坐力配置表（姿态-角度直接模型）** | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿**（其中 7 个是新加的） | ⏳ | [12_SpreadInProfile.md](12_SpreadInProfile.md) §9 |
-| **P14** | **回正目标减去本梭累计压枪量**（编号对齐文档 §13，未占 P11） | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿 + Golden md5 未变**（用例喂 `cover=0`，证的是零回归；数值行为目前**只有仿真证据**） | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §13 |
+| **P14** | **回正目标减去本梭累计压枪量**（编号对齐文档 §13，未占 P11）—— ⚠️ **口径已被本次修正取代** | **待 PIE 手测** | ⚠️ 该版公式方向有误：屏幕 = `Ctrl(−P) + (峰值 − P)` = **峰值 − 2×压枪量** ⇒ 实机表现为**看地板** | ⏳ | 历史见 [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §13；**现行口径**见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md) |
 | ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 决定：本项目不做联机 |
 
 **测试用例清单（44 个 = P0–P5 的 19 个 + P8 的 5 个 + P9 的 6 个 + P11 回正扣压枪的 7 个 + P13 散布的 7 个）**
@@ -390,23 +391,35 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P13 资产是否已重生成** | **❌ 尚未**（`Content/Weapons/Recoil/*.uasset` 仍是 09-18 时间戳）⇒ PIE 里跑的还是旧 heat 模型 |
 | **P14 新增字段** | `FRecoilRuntimeState::RecoveryCoverPitch`（本梭累计压枪量，度；**默认 `0.0f` ⇒ 零回归**） |
 | **P14 累积规则** | `Advance()` 末尾 `RecoveryCoverPitch = max(RecoveryCoverPitch, AimCompensationPitch)` —— 单调不减、停火后冻结；新一梭 / `Reset()` 清零 |
-| **P14 回正目标式** | `T = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio − RecoveryCoverPitch`（水平 Yaw **不**抵扣） |
-| **P11 回正公式（本次，回正计算的权威实现）** | `终止值 = clamp(峰值 × RecoilReturnRatio + 压枪量, min(峰值, 峰值×Ratio), max(峰值, 峰值×Ratio))` |
+| **★ 回正目标式（现行权威口径，2026-09-21 第二次拍板）** | `终止值 = 本梭累计压枪量` —— **峰值不参与、无 clamp、无 Ratio、无地板**。屏幕口径 `POV = ControlRotation + 偏移`（相机修改器只做 `POV.Pitch += AppliedPitch`），玩家压 P 度 ⇒ `Ctrl = −P`，把偏移收敛到 P ⇒ 屏幕**精确回到开枪前**。水平 Yaw **默认不抵扣**（`bCompensationAwareRecoveryYaw = false`） |
+| **★ 已删除字段** | `RecoilReturnRatio`（残留比例缩放）、`RecoilCompensationMinResidualRatio`（残留地板）—— 大祥老师 2026-09-21：「以后如果我没要求别做这种自以为是的设计」 |
+| **★ 场景验收（大祥老师口径）** | K = 峰值（枪把镜头抬高多少），P = 玩家压枪位移。**不压枪 ⇒ 屏幕回零（回满）**；**整体上抬 10°、只往下压 5° ⇒ 回正只回 5°**（终止值 = 5）。自动化用例 `Lyra.Recoil.Compensation.UserContractScenarios`（4 组参数化，每条断言 ① 终止值 == P ② `−P + 终止值 == 0` ③ `K − 终止值 == 期望回正量`） |
+| **⚠️ 已作废的旧场景表** | 旧文档里的 `A=+5 / B=−5 / C=−10 / D=+10` 四场景是**误记**（大祥老师 2026-09-21：「放你妈的屁，谁告诉你我是这么拍的」）。现行口径下四组**屏幕都收敛到 0**，差异体现在「回正量 = K − P」而不是「屏幕停在哪」 |
+| **★ 为什么要让峰值退出** | 只要 `终止值` 与峰值挂钩，屏幕 = `Ctrl + 终止值` 就必然偏离开枪前：<br>· `峰值 × Ratio − 压枪量` ⇒ 钳制上界 = `峰值 × Ratio`，压枪量 ≥ `峰值×(1−Ratio)` 时残留被压到 `峰值 × Ratio` 附近 ⇒ **认真压枪必然归零**；<br>· `峰值 − 压枪量` ⇒ 屏幕 = `峰值 − 2 × 压枪量` ⇒ **压得越认真屏幕越低（看地板）**；<br>· 现行 `累计压枪量` ⇒ 屏幕 = `−P + P = 0` ✅。证据见 [11_RecoveryCompensation.md §8](11_RecoveryCompensation.md) |
+| **★ 本次两处修复（2026-09-21）** | **Bug B**：目标式 `峰值 − 压枪量` → `本梭累计压枪量`（移除形参 `Peak`）。**Bug A**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` —— 该标志在 `Settle→Drop` 已置 `true`，旧写法让**整个 Drop 段**目标恒为 0（acc 冻结在钳制上限 15.000 共 23 帧，收官帧瞬跳 3.950） |
+| **★ 本次验证** | 构建 `Result: Succeeded`；`Lyra.Recoil` **45/45 全绿**；5 份 Golden md5 逐位未变 |
+| ~~P14 回正目标式（历史）~~ | `T = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio − RecoveryCoverPitch` —— **已被现行口径取代** |
+| ~~P11 回正公式（历史，加法）~~ | `终止值 = clamp(峰值 × Ratio + 压枪量, ...)` —— 方向相反，已废弃 |
 | **P11 压枪量口径** | 以「本轮连发第一发的 ControlRotation」为基准取差值的**负值**（往下压 / 往左拉为正）；**Pitch / Yaw 两轴同规则** |
 | **P11 冻结时机** | `InstantWrite` = Accumulating→Recovering；`Interpolated` = Settle→Drop；长帧保护路径另冻一次 |
 | **P11 零输入回归** | 压枪量为 0 时**逐位**等于旧公式 —— 既有 30 个用例 / 3 份 Golden 一个都没改 |
 | **P11 与 P10/P12/P14 的关系** | 同源、同一处代码；**合并后只走 P11 一套**，其余三条在表里保留为根因与历史记录 |
 | **两把枪的 `SingleShotMode`（2026-09-20 起）** | `DA_Recoil_Rifle_S` 与 `DA_Recoil_Rifle_7` **都是四段式 `Interpolated`** |
-| **P14 `cover = 0` 等价性** | `Interpolated`：峰值 `4.0446` / 残留 `4.045`，与 P12 口径**逐位相同**；`InstantWrite`：峰值 `4.0000` / 残留 `0.6000`，同样逐位相同 |
-| **P14 `cover = 4.0°` 残留**（`Rifle_S` 30 发 @0.12s，60fps） | P12 裸残留 `5.327` / 净 `1.327` → P14 裸残留 **`0.260`** / 净 **`−3.740`**（允许负残留） |
-| **P14 抵扣是否严格线性** | **`InstantWrite` 基本是**（`Δ = −cover`，`cover ≥ 3` 后附加 −0.10~−0.22）；**`Interpolated` 不是**（`cover=4` 时 `Δ = −5.067`）—— 原因：`Rifle_S` 射速 0.12s = `RecoveryDelay`，30 发里触发 **7 次中途中止回正**，每次都扣一遍并通过 `InterpBasePitch = AccumulatedPitch` 反馈进下一发基底 |
-| **P14 无钳制自然峰值（校准 §12.5）** | P10 口径下是 **`5.5795`**；§12.5 写的 `5.1506` 是 pre-P10 公式（`sim8` 的 `base` 未赋值）算出来的，**数字以 5.5795 为准** |
+> **⚠️ 以下 5 行是 P14 时代（`终止值 = 峰值 × Ratio − 抵扣量`）的**修复前**数值记录，仅供追溯。**
+> 现行口径是 `终止值 = 本梭累计压枪量`，`cover = 0` ⇒ 残留恒为 `0`，因此这些数字**不再描述当前行为**。
+> 当前行为以 `Lyra.Recoil.*` 自动化用例（45/45 全绿）与 [11_RecoveryCompensation.md §7](11_RecoveryCompensation.md) 为准。
+
+| ~~P14 `cover = 0` 等价性（历史）~~ | `Interpolated`：峰值 `4.0446` / 残留 `4.045`，与 P12 口径**逐位相同**；`InstantWrite`：峰值 `4.0000` / 残留 `0.6000`，同样逐位相同 |
+| ~~P14 `cover = 4.0°` 残留（历史）~~（`Rifle_S` 30 发 @0.12s，60fps） | P12 裸残留 `5.327` / 净 `1.327` → P14 裸残留 **`0.260`** / 净 **`−3.740`**（允许负残留） |
+| ~~P14 抵扣是否严格线性（历史）~~ | **`InstantWrite` 基本是**（`Δ = −cover`，`cover ≥ 3` 后附加 −0.10~−0.22）；**`Interpolated` 不是**（`cover=4` 时 `Δ = −5.067`）—— 原因：`Rifle_S` 射速 0.12s = `RecoveryDelay`，30 发里触发 **7 次中途中止回正**，每次都扣一遍并通过 `InterpBasePitch = AccumulatedPitch` 反馈进下一发基底（**该问题已由 `bRecoveryCoverApplied` 收敛**） |
+| **P14 无钳制自然峰值（校准 §12.5）** | P10 口径下是 **`5.5795`**；§12.5 写的 `5.1506` 是 pre-P10 公式（`sim8` 的 `base` 未赋值）算出来的，**数字以 5.5795 为准**（此值不受本次修复影响） |
 | **P14 仿真脚本** | `%TEMP%\tps_recoil\sim11.py`（Interpolated）/ `sim12.py`（溯源 FULL vs REC）/ `sim14.py`（自然峰值）/ `sim15.py`（InstantWrite） |
 
 **P14 首版交付踩的坑（已修）：** 三处多行减法写成 `... * Ratio;\n − cover;` ——
 **分号提前结束语句，`− cover;` 变成一条丢弃结果的表达式语句**。
 `- x;` 是合法 C++ ⇒ **编译 `Result: Succeeded`、0 warning，减法静默失效**。
-自查：`grep -n "RecoilReturnRatio;$" LyraRecoilState.cpp` 不该出现 `*Pitch` 的行。
+自查：现行公式是单行 `return Peak - EffectiveCover;`（2026-09-21 起不再有跨行乘法），
+`ComputeRecoveryTarget` 里不该再出现任何 `* Ratio` 形式的跨行表达式。
 
 ---
 
@@ -518,7 +531,7 @@ Docs/Recoil/
 | 6 | 三份资产初始数值是占位值（P7 再调） | P1 §5.2 |
 | 7 | **武器实例接线（`DA_Recoil_*` → `B_WeaponInstance_*`）由谁做** ← **唯一阻塞手动验收的** | P1 §5.3 / P2 §3 步骤 0 |
 | 8 | `AccumulatedPitch` 的双重语义（既是累加量、又是回正量） | P2 §5.1 |
-| 9 | `RecoilReturnRatio = 0` 时"准星 ≠ 弹着点"是刻意设计 | P2 §5.2 |
+| 9 | 「准星 ≠ 弹着点」是刻意设计（弹道不随相机回正） | P2 §5.2 |
 | 10 | 姿态倍率瞬时切换、不插值 | P2 §5.3 / P4 §5.2 |
 | 11 | 后坐力偏移用 Pitch/Yaw 直接相加，而非四元数 | P3 §5.1 |
 | 12 | 垂直 Pattern 尾部"饱和"而非"继续爬升" | P3 §5.4 |
@@ -581,8 +594,8 @@ Docs/Recoil/
 
 | # | 事项 | 我的默认选择 | 备选 / 影响面 |
 | --- | --- | --- | --- |
-| 48 | **中途中止回正造成的抵扣叠加要不要收敛**（`Interpolated`；`cover=4` 时 `Δ = −5.067` 而非 `−4`） | **先保留现状**（口径最直白：回正目标一律减累计压枪量） | 收敛 ⇒ "中途回正不抵扣、只最终回正抵扣一次"，`Δ` 严格 = `−cover`；`cover=4` 时残留 `0.260 → 1.327`。需新增"本梭已抵扣"标志位 |
-| 49 | **压过头（`T_net < 0`）的手感底线** | 不设下限（字面减法，允许镜头最终低于起枪点） | 设下限如 `−0.5 × MaxV` ⇒ 再引入一个夹持常量；实机若"沉得慌"就回到这条 |
+| 48 | ~~**中途中止回正造成的抵扣叠加要不要收敛**~~ | ✅ **2026-09-21 已解决：收敛了**（新增 `bRecoveryCoverApplied`，"一梭只抵扣一次"） | 原问题：`Interpolated` 下 `RecoveryDelay ≤ 射速间隔` 时会触发多次中途回正，每次扣一遍 ⇒ `cover=4` 时 `Δ = −5.067` 而非 `−4`（抵扣被逐次放大）。现在 `Δ` 严格 = `−cover`。实现见 [11_BurstAccumulationFix.md §13.9](11_BurstAccumulationFix.md) |
+| 49 | ~~**压过头（`T_net < 0`）的手感底线**~~ | ✅ **2026-09-21 已定案：不设下限，字面减法**（大祥老师拍板） | 原先提供的 `RecoilCompensationMinResidualRatio` 残留地板**已删除** —— 属于"不被要求的额外设计"。口径就是压多少认多少，压过头就低于起枪点 |
 
 > 这两条**只有实机手感能定**，仿真给不出答案。`InstantWrite` 的枪（`Rifle_7`）偏差 ≤ 0.22°，可以不折腾。
 
@@ -590,10 +603,17 @@ Docs/Recoil/
 
 | # | 事项 | 我的默认选择 | 备选 / 影响面 |
 | --- | --- | --- | --- |
-| 50 | **yaw 轴也扣压枪量**（你已拍板「两轴同规则」） | 已按「一律扣」实现 | 副作用：连发中主动拉枪追目标，回正会把视角拽回开火前的位置。不想要么关 `bCompensationAwareRecovery`，要么改回只扣 Pitch |
-| 51 | **多轮连发时压枪量会一轮一轮垒进残留偏移**（顶到 `MaxVerticalKick` 后停住，不再增长） | 先按现状，等你实测 | 观感不可见（准星就是显示层），但鼠标会一轮比一轮多压一点。缓解：调小 `RecoilReturnRatio` / 加一条缓慢零位衰减 / 关开关 |
+| 50 | ~~**yaw 轴也扣压枪量**（原拍板「两轴同规则」）~~ | ✅ **2026-09-21 已处理：Yaw 摘出抵扣**（新增 `bCompensationAwareRecoveryYaw`，默认 `false`） | 实测门槛仅 **1.7°**（`MaxHorizontalKick` 2.0 × (1−0.15)）⇒ 水平方向没有"压枪"、只有转身，转身随时跨过门槛 ⇒ 水平回正**长期恒为 0**。勾上该开关可退回两轴同规则 |
+| 51 | **多轮连发时压枪量会一轮一轮垒进残留偏移**（顶到 `MaxVerticalKick` 后停住，不再增长） | 先按现状，等你实测 | 观感不可见（准星就是显示层），但鼠标会一轮比一轮多压一点。缓解：加一条缓慢零位衰减 / 关掉回正抵扣开关 |
 | 52 | **压枪量的冻结时机**：现在是"开始回正那一刻"（= 停火超过 `RecoveryDelay`）。若玩家在这 0.12~0.18s 内把枪抬回去，压枪量会缩水 → 回正又把你压的量还回来 | 先按现状（玩家通常保持下压姿态不动，鼠标是位置量不是弹簧） | 更稳的做法：改成**按本梭取峰值**（`max` 单调不减，仿 P14 的 `RecoveryCoverPitch` 思路），或冻结在"最后一发"。要做的话 `Compensation.*` 里 3 个用例的喂数方式要跟着改 |
 | 53 | **两把枪统一四段式后，时间轴是否分开调** | 目前两把共用 `0.045 / 0.030 / 0.72`（射速相同） | 想让"重枪更沉"就各改各的 `LiftDuration` |
+| 54 | ~~**Pitch 轴"压枪量必然吃满 ⇒ 回正归零"要不要修**~~ | ✅ **2026-09-21 已彻底解决（两次修正）**：先删 `RecoilReturnRatio`，再于第二次拍板把目标式定型为 `终止值 = 本梭累计压枪量` | 目标式只要与峰值挂钩就必然偏离开枪前：`峰值 × Ratio − P` 会归零、`峰值 − P` 会**看地板**。现行式让峰值退出 ⇒ 屏幕 = `Ctrl(−P) + 偏移(P) = 0`，**精确回到开枪前**。根因与实机 trace 证据见 [11_RecoveryCompensation.md §8](11_RecoveryCompensation.md) |
+| 55 | ~~**P11/P12/P14 三条压枪抵扣链的接线**~~ | ✅ **2026-09-21 全部接完**（P11 摘除、P14 生效、P12 钳制链连通） | 接线时暴露 **3 个 bug**：① 压枪量两份平行实现（`SamplePlayerAim` vs 武器实例）⇒ 收敛为唯一定义点；② 累计点位置错 ⇒ 插值模式抵扣恒 0；③ `Accumulating` 分支对插值模式双重冻结 ⇒ 抵扣被清回 0。完整记录见 [11_BurstAccumulationFix.md §13.9](11_BurstAccumulationFix.md) |
+| 56 | **`bCompensationAwareRecoveryYaw` 默认值** | 保持 `false`（水平轴不抵扣） | 现在这个开关**真的可用了**（修掉了"打开也不生效"的硬编码 0）。若要试两轴同规则，勾上即可 —— 但预期水平回正会长期贴近 0（门槛仅 1.7°） |
+| 57 | ~~**`RecoilCompensationMinResidualRatio` 默认值**~~ | ✅ **2026-09-21 字段已删除** | 该开关属于"不被要求的额外设计"。现行口径：无地板、无 clamp |
+| 58 | ~~**回正终值方向错 ⇒ 实机"看地板"**~~ | ✅ **2026-09-21 已修（Bug B）**：`终止值 = 峰值 − 压枪量` → **`终止值 = 本梭累计压枪量`**（形参 `Peak` 一并移除） | 旧式屏幕 = `Ctrl(−P) + (峰值 − P)` = `峰值 − 2×P`。实机 trace（`DA_Recoil_Rifle_S`）：峰值 `17.600` / 压枪 `13.650` ⇒ 旧值 `3.950` ⇒ 屏幕 **−9.700**；新值 `13.650` ⇒ 屏幕 **0.000** |
+| 59 | ~~**插值模式 Drop 段偏移冻结、收官帧瞬跳**~~ | ✅ **2026-09-21 已修（Bug A）**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` | 该标志在 `Settle→Drop` 处已置 `true`，旧写法让**整个 Drop 段**目标恒为 0 ⇒ `acc` 冻结在钳制上限 **15.000** 共 **23 帧**，收官帧瞬跳到 `3.950`（屏幕 `+2.75 → −8.30`）。用 `Lyra.Recoil.Trace 1` 抓到。修后 Drop 段平滑收敛，终点与收官值同源 |
+| 60 | **压过头（`P > K`）时偏移会升到峰值之上**（`回正量 = K − P < 0`，Drop 段相机向上补一段） | **暂按现状锁死**（`OverCompensationFollowsPull` 断言终止值 = 20.0） | 屏幕口径仍自洽（`−P + P = 0`），但要改观感有 3 条路：① `Cover` 上限取 `min(Cover, Peak)` ② 压过头走退化路径 ③ 维持现状（实战 `P ≈ K`）。**需你拍板**，见 [11_RecoveryCompensation.md §10](11_RecoveryCompensation.md) |
 
 ### P7 新增待拍板（两把步枪落地带来的）
 
@@ -690,3 +710,26 @@ Docs/Recoil/
       但会改 CSV 第 8 列 `SpreadAngle` 的内容 —— 如果做了逐发基线表，记得一起更新。
     - ⚠️ **Live Coding 接不住 P13 的改动**（新增了 `USTRUCT` 字段与 `UPROPERTY` 成员 = 改了反射类布局）。
       本次已经关编辑器整包重编过一次（`Result: Succeeded` + 37/37），后续再动这些结构体仍需同样处理。
+11. **2026-09-21 构建踩到新坑：UBA 报 9001，退回 `[NoUba]` 重试时用错了工具。**
+    现象：`Result: Failed (OtherCompilationError)`，日志里每个 action 先是
+    `Exited with error code 9001. This action will retry without UBA`，
+    同时刷出大量 `UbaSessionServer - SetFileInformationByHandle (FileDispositionInfo) failed ... (Access is denied.)`，
+    然后 `[NoUba]` 重试仍报 `Exited with error code 1`。
+    **关键判据：手工 `cl.exe @<同一个 rsp>` 全部成功** —— 所以代码与编译器都没问题，是构建通道的问题。
+    真因两条：
+    1. UBA 用 `FileDispositionInfo`（delete-on-close）删/替换输出文件，本机被拦 ⇒ action 9001；
+    2. 退到 `[NoUba]` 后，UBT 用 **link.exe** 去跑 import-library action，
+       而那个 rsp 是给 **lib.exe** 写的（裸 `/DEF` + `/NAME:`，见 `VCToolChain.cs:3305-3316`）
+       ⇒ `LINK : fatal error LNK1146: 没有用选项"/DEF"指定的参数`；
+       并且 UBA 阶段留下的**0 字节** `.lib` 会让后续 link 报 `LNK1136`（文件无效或损坏）。
+    **修法（不改代码、不重导 Golden）**：
+    ```bash
+    # 1) 手工用 lib.exe 补齐两个 import library（每模块一条）
+    cd "E:/UE_5.8/Engine/Source"
+    "<MSVC>/bin/Hostx64/x64/lib.exe" @"E:/TPSGunsDemo/Intermediate/Build/Win64/x64/UnrealEditor/Development/LyraGame/UnrealEditor-LyraGame.lib.rsp"
+    # 2) 删掉被弄坏的 0 字节 .lib / .exp / .pdb
+    # 3) 重跑构建 —— UBT 见输出比输入新就跳过这些 action，直接 link DLL
+    ```
+    结果：`Result: Succeeded`（5.94s，3 个 action），`44 tests performed`、`Result={Fail}` = 0、Golden md5 逐位未变。
+    > ⚠️ 别把**单独一条** `FileDispositionInfo ... memgroups` 当失败信号 —— 只有它时无害（skill 里已记）。
+    > 它与 `error code 9001` 同时刷屏，才是本次这个坑。

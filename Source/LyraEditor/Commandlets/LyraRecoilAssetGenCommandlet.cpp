@@ -30,7 +30,6 @@ namespace LyraRecoilAssetGen
 		// 恢复
 		float RecoveryDelay = 0.15f;
 		float RecoveryTime = 0.35f;
-		float RecoilReturnRatio = 0.2f;
 
 		// 上限
 		float MaxVerticalKick = 8.0f;
@@ -126,7 +125,6 @@ namespace LyraRecoilAssetGen
 		Spec.RecoilPerShot_Horizontal = 0.18f;
 		Spec.RecoveryDelay = 0.15f;
 		Spec.RecoveryTime = 0.35f;
-		Spec.RecoilReturnRatio = 0.20f;
 		Spec.MaxVerticalKick = 8.0f;
 		Spec.MaxHorizontalKick = 4.0f;
 		Spec.PatternLength = 8;
@@ -164,7 +162,6 @@ namespace LyraRecoilAssetGen
 		Spec.RecoilPerShot_Horizontal = 0.24f;
 		Spec.RecoveryDelay = 0.08f;
 		Spec.RecoveryTime = 0.22f;
-		Spec.RecoilReturnRatio = 0.10f;
 		Spec.MaxVerticalKick = 4.0f;
 		Spec.MaxHorizontalKick = 2.5f;
 		Spec.PatternLength = 5;
@@ -204,7 +201,6 @@ namespace LyraRecoilAssetGen
 		Spec.RecoilPerShot_Horizontal = 0.55f;
 		Spec.RecoveryDelay = 0.30f;
 		Spec.RecoveryTime = 0.55f;
-		Spec.RecoilReturnRatio = 0.35f;
 		Spec.MaxVerticalKick = 11.0f;
 		Spec.MaxHorizontalKick = 5.0f;
 		Spec.PatternLength = 3;
@@ -253,7 +249,6 @@ namespace LyraRecoilAssetGen
 		Spec.RecoilPerShot_Horizontal = 0.17f;
 		Spec.RecoveryDelay = 0.12f;   // 插值模式下 = Settle 段时长
 		Spec.RecoveryTime = 0.32f;    // 插值模式下 = Drop 段时长
-		Spec.RecoilReturnRatio = 0.22f;
 		Spec.MaxVerticalKick = 7.5f;
 		Spec.MaxHorizontalKick = 3.8f;
 		Spec.PatternLength = 8;
@@ -307,7 +302,6 @@ namespace LyraRecoilAssetGen
 		Spec.RecoilPerShot_Horizontal = 0.20f;
 		Spec.RecoveryDelay = 0.14f;
 		Spec.RecoveryTime = 0.30f;
-		Spec.RecoilReturnRatio = 0.18f;
 		Spec.MaxVerticalKick = 8.0f;
 		Spec.MaxHorizontalKick = 4.0f;
 		Spec.PatternLength = 8;
@@ -350,7 +344,6 @@ namespace LyraRecoilAssetGen
 
 		Profile.RecoveryDelay = Spec.RecoveryDelay;
 		Profile.RecoveryTime = Spec.RecoveryTime;
-		Profile.RecoilReturnRatio = Spec.RecoilReturnRatio;
 
 		Profile.MaxVerticalKick = Spec.MaxVerticalKick;
 		Profile.MaxHorizontalKick = Spec.MaxHorizontalKick;

@@ -18,8 +18,8 @@
 #   powershell -ExecutionPolicy Bypass -File .\run-recoil-tests.ps1 -TestFilter "Lyra.Recoil.State"
 
 param(
-    [string]$EngineRoot = "D:\UE_5.8",
-    [string]$Project    = "D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject",
+    [string]$EngineRoot = "E:\UE_5.8",
+    [string]$Project    = "E:\TPSGunsDemo\TPSGunsDemo.uproject",
     [string]$TestFilter = "Lyra.Recoil"
 )
 

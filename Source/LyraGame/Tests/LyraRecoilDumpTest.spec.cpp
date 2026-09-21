@@ -69,7 +69,6 @@ namespace LyraRecoilDumpTest
 
 		Profile->RecoveryDelay = 0.1f;
 		Profile->RecoveryTime = 0.4f;
-		Profile->RecoilReturnRatio = 0.25f;
 
 		Profile->MaxVerticalKick = 1000.0f;
 		Profile->MaxHorizontalKick = 1000.0f;

@@ -188,31 +188,64 @@ public:
 	float RecoveryTime = 0.35f;
 
 	/**
-	 * 核心手感开关（开发计划 §3.3 决策 3）。
-	 *   0 = 相机完全回正（弹道不回正，玩家需自己压枪，竞技向）
-	 *   1 = 相机完全不回正
+	 * ★ 2026-09-21 已删除 `RecoilReturnRatio`。
 	 *
-	 * 语义实现：回正目标 = 峰值偏移 × RecoilReturnRatio。
-	 * 因此 0 时稳态偏移为 0，1 时稳态偏移等于峰值。
+	 * 原字段语义是「不压枪时镜头残留 = 峰值 × Ratio」（0 = 完全回正 / 1 = 完全不回）。
+	 * 大祥老师拍板删除，理由：这是不被要求的设计 —— 期望表现是**镜头停在哪完全由
+	 * 「玩家压了多少」决定**，不由一个额外的残留比例二次缩放。
+	 *
+	 * 现行回正口径（唯一）：终止值 = 本梭累计压枪量（见 ComputeRecoveryTarget）。
+	 * 场景对照：枪抬 10°、压 5° → 偏移停 5°（屏幕回开枪前）；完全不压 → 偏移回满 0°（同样回开枪前）。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float RecoilReturnRatio = 0.2f;
 
 	/**
-	 * 回正时是否扣除玩家的压枪量。
+	 * 回正时是否把「后坐力偏移」收敛到玩家的累计压枪量。**默认 true。**
 	 *
-	 * true（默认）：回正量 = 原本回正量 − 压枪量，两端钳制。
-	 *   玩家往下压 4°、峰值 10°、Ratio 0.15
-	 *     → 终止值 = 10×0.15 + 4 = 5.5（回正 4.5°，而不是 8.5°）
-	 *   压枪量超过可回正量时终止值停在峰值（"只回正到最后一发子弹射出的位置"）
-	 *   压枪量为 0 时与关闭本开关**完全一致**，所以打开它不影响任何既有验收。
+	 * true（默认）：**终止值 = 本梭累计压枪量**
+	 *   玩家往下压 4° → 终止值 = 4（因为 Ctrl 也低了 4°，屏幕恰好回到开枪前）
+	 *   完全不压枪    → 终止值 = 0（偏移回满，屏幕回开枪前）
+	 *   压过头同理    → 偏移 = 压枪量，屏幕仍然回开枪前
 	 *
-	 * false：退回旧公式（终止值 = 峰值 × RecoilReturnRatio），保留 A/B 对照能力。
+	 * false：不抵扣，回正目标直接 = 0（偏移完全回满），保留 A/B 对照能力。
 	 *
-	 * 实现与验收见 Docs/Recoil/11_RecoveryCompensation.md。
+	 * 累积量取的是**本梭累计**（单调不减、停火后冻结），不是实时值 ——
+	 * 理由见 LyraRecoilState.h 里 RecoveryCoverPitch 的注释：停火后玩家必然松手，
+	 * 读实时值会让回正目标在半路跳回旧值（非单调甩镜）。
+	 *
+	 * 实现与验收见 Docs/Recoil/11_BurstAccumulationFix.md §13。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery")
 	bool bCompensationAwareRecovery = true;
+
+	/**
+	 * ★ 2026-09-21 已删除 `RecoilCompensationMinResidualRatio`（残留地板）。
+	 *
+	 * 原字段给"抵扣后可能为负的终止值"设一条下限，默认 0 = 不设地板 = 开关无效，
+	 * 属于**不被要求的额外设计**（大祥老师 2026-09-21：「以后如果我没要求别做这种自以为是的设计」）。
+	 *
+	 * 现行口径：`终止值 = 本梭累计压枪量`，不做任何底/顶夹取。
+	 */
+
+	/**
+	 * 水平（Yaw）轴是否**也**扣压枪量。**默认 false。**
+	 *
+	 * === 为什么默认关掉（2026-09-21）===
+	 *
+	 * 水平方向不存在"压枪"这个动作。玩家在连发中往左右动的鼠标是**转身追目标**，
+	 * 不是对抗后坐力 —— 但采样口径对它一视同仁，全都被记成压枪量。
+	 *
+	 * 后果比垂直轴严重得多：垂直要把偏移顶到峰值才会归零，
+	 * 而水平峰值上限 MaxHorizontalKick 只有 2.0°，实机里"转身超过它"是随时发生的动作
+	 * ⇒ 水平回正量**长期恒为 0**。
+	 *
+	 * true ：两轴同规则（水平也收敛到「位移量」，保留 A/B 对照能力）。
+	 * false（默认）：Yaw 偏移回满到 0。压枪量照常被记录
+	 *        （调试面板仍能看数），只是不参与回正。
+	 *
+	 * 实现与验收见 Docs/Recoil/11_RecoveryCompensation.md §3.3。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery")
+	bool bCompensationAwareRecoveryYaw = false;
 
 	// ---------------------------------------------------------------------
 	// 上限（Clamp）
@@ -538,6 +571,11 @@ public:
 	/** 取 RecoveryCurve 在 NormalizedTime 处的回正进度，已 Clamp 到 [0,1]。 */
 	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
 	float GetRecoveryAlpha(float NormalizedTime) const;
+
+	/**
+	 * ★ 2026-09-21：`GetRecoilCompensationResidualFloor()` / `HasRecoilCompensationResidualFloor()`
+	 * 随 `RecoilCompensationMinResidualRatio` 一并删除。回正终止值现为字面减法、无地板。
+	 */
 
 	/**
 	 * 取 LiftCurve 在 NormalizedTime 处的上抬完成度，已 Clamp 到 [0,1]。
