@@ -74,7 +74,9 @@ Lift→Rebound→Settle→Drop 时间轴，发间隔抖过 Lift+Rebound+Settle �
 `ApplyShot` 把它误判成"回正中再次开火 = 全新梭"，反复重锚 `BurstStart` 并清空压枪账本
 ⇒ ① 停火后偏移冻结在 35.42° 不回正；② 压 13° 被算成 33°；
 ③ 钳制上限随重锚上抬、偏移冲到 40.29°（远超资产 15°）；④ `ShotIndex` 清零、爬升曲线反复归零。
-修复口径：**打在上一发 Drop 段里 = 本梭继续**；只有整发时间轴走完（Idle）后才是新一轮。
+该口径已于 **2026-09-23 被 Drop/Recovering 合并方案取代**：Drop 现在就是正式回正，
+Drop 中开火会中断旧回正，并以当前可见偏移为起点开始新一轮。旧问题改由单一回正入口和
+连续起点保证解决，不再把 Drop 伪装成 Accumulating。
 配套把 `FreezeCompensationForRecovery` 的「额度用尽→置 0」短路改为**总是刷新快照**
 （P14 增量公式时代的封口，在现行 `min()` 绝对公式下只剩害处：中途回正被猛拉回基线、
 长帧收敛丢抵扣）。`InstantWrite` 逐位不变；测试改 1 重写 + 新增 1。
@@ -371,7 +373,7 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | `Lyra.Recoil.Interp.StageShape` | **P9**（1） |
 | `Lyra.Recoil.Interp.LongFrameSafety` | **P9**（1） |
 | `Lyra.Recoil.Interp.RefireContinuity` | **P9**（1） |
-| `Lyra.Recoil.Interp.RefireDuringDropContinuesBurst` | **2026-09-22**（1；由旧用例 `RefireDuringDropStartsNewBurst` 按新口径重写） |
+| `Lyra.Recoil.Interp.RefireDuringDropStartsNewBurst` | **2026-09-23**（1；锁定 Drop=Recovering、旧回正中断、当前点重建新轮） |
 | `Lyra.Recoil.Interp.RefireAfterIdleStartsNewBurst` | **2026-09-22**（1，新增） |
 | `Lyra.Recoil.Compensation.ZeroInputMatchesBaseline` | **P11**（1） |
 | `Lyra.Recoil.Compensation.RetainsPullDown` | **P11**（1） |
@@ -423,7 +425,7 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **★ 峰值当前作用** | 峰值不参与未压住区间的回正计算，只作为压枪抵扣上限：`P≤K` 时仍是 `−P+P=0`；仅在 `P>K` 时把目标夹为 K，避免回正反向抬镜头。 |
 | **★ 本次两处修复（2026-09-21）** | **Bug B**：目标式 `峰值 − 压枪量` → `本梭累计压枪量`（移除形参 `Peak`）。**Bug A**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` —— 该标志在 `Settle→Drop` 已置 `true`，旧写法让**整个 Drop 段**目标恒为 0（acc 冻结在钳制上限 15.000 共 23 帧，收官帧瞬跳 3.950） |
 | **★ 本次验证** | 构建 `Result: Succeeded`；`Lyra.Recoil` **45/45 全绿**；5 份 Golden md5 逐位未变 |
-| **★ 2026-09-22 连发误判新一轮（§14）** | 触发条件：`Interpolated` 下发间隔 > Lift+Rebound+Settle（Rifle_S ≈ 0.195s）。实机四症状：停火冻结 35.42° / 压枪 13°→33° / 偏移冲 40.29°（上限应为 15°）/ ShotIndex 反复清零。修复：Drop 段被打断 = 本梭继续；`FreezeCompensationForRecovery` 改为总是刷新快照（`bRecoveryCoverApplied` 转纯观测位）。`InstantWrite` 逐位不变。 |
+| **★ 2026-09-22 连发误判新一轮（历史 §14；现行见 §15）** | 当时通过“Drop 仍属 Accumulating”规避重复重锚；2026-09-23 已改为更直接的统一模型：Drop=`Recovering`，Drop 中开火从当前点重建新轮，回正只走 `ApplyRecoveryStep`。完整账本重置和连续起点防止旧问题复发。 |
 | ~~P14 回正目标式（历史）~~ | `T = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio − RecoveryCoverPitch` —— **已被现行口径取代** |
 | ~~P11 回正公式（历史，加法）~~ | `终止值 = clamp(峰值 × Ratio + 压枪量, ...)` —— 方向相反，已废弃 |
 | **P11 压枪量口径** | 以「本轮连发第一发的 ControlRotation」为基准取差值的**负值**（往下压 / 往左拉为正）；**Pitch / Yaw 两轴同规则** |

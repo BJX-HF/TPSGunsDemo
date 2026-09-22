@@ -1008,14 +1008,10 @@ bool FLyraRecoilInterpRefireTest::RunTest(const FString& Parameters)
 }
 
 //////////////////////////////////////////////////////////////////////////
-// 插值模式用例 7：连发途中打在上一发 Drop 段里 = 本梭继续（2026-09-22 修复）
-//
-// 旧口径（已删除）把这种情况判成"全新一轮"：BurstStart 重锚到当前抬升值、
-// 压枪账本清零 —— 实机表现为停火后偏移冻结在高处不回正（trace 冻结在 35.42°）。
-// 现行口径：只有整发时间轴走完（Idle）后的再次开火才是新一轮（用例 8）。
+// 插值模式用例 7：Drop 就是正式回正；回正中重开火必须开始新一轮
 //////////////////////////////////////////////////////////////////////////
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilInterpDropRefireTest, "Lyra.Recoil.Interp.RefireDuringDropContinuesBurst",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilInterpDropRefireTest, "Lyra.Recoil.Interp.RefireDuringDropStartsNewBurst",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
@@ -1036,24 +1032,26 @@ bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
 	}
 
 	TestTrue(TEXT("First burst is in Drop recovery"), State.InterpStage == ERecoilInterpStage::Drop);
+	TestTrue(TEXT("Drop uses the common Recovering state"), State.State == ERecoilState::Recovering);
 	TestTrue(TEXT("First burst already froze its recovery cover"), State.bRecoveryCoverApplied);
 
 	const float PitchBeforeRefire = State.AccumulatedPitch;
 	const float CameraBeforeRefire = State.CameraOffsetPitch;
 	State.ApplyShot(Profile, 1.0f);
 
-	// ---- 本梭继续：阶段时间轴重启，但所有「梭级」账本都不得被动 ----
+	// ---- 回正被中断：以当前可见点重建新一轮 ----
 	TestTrue(TEXT("Drop refire restarts interpolation at Lift"), State.InterpStage == ERecoilInterpStage::Lift);
-	TestEqual(TEXT("Drop refire continues the shot index"), State.ShotIndex, 2);
-	TestTrue(FString::Printf(TEXT("Burst baseline is NOT re-anchored (expected 0.0, actual %.4f)"),
+	TestTrue(TEXT("Refire leaves the recovery state"), State.State == ERecoilState::Accumulating);
+	TestEqual(TEXT("Drop refire resets the shot index for the new burst"), State.ShotIndex, 1);
+	TestTrue(FString::Printf(TEXT("New burst baseline is the refire point (expected %.4f, actual %.4f)"),
+		PitchBeforeRefire,
 		State.BurstStartPitchOffset),
-		FMath::IsNearlyZero(State.BurstStartPitchOffset, Tolerance));
-	TestTrue(FString::Printf(TEXT("Burst cover is NOT cleared (expected 0.2, actual %.4f)"),
-		State.RecoveryCoverPitch),
-		FMath::IsNearlyEqual(State.RecoveryCoverPitch, 0.2f, Tolerance));
-	TestTrue(FString::Printf(TEXT("Live clamp credit is NOT cleared (expected 0.2, actual %.4f)"),
-		State.AimCompensationPitch),
-		FMath::IsNearlyEqual(State.AimCompensationPitch, 0.2f, Tolerance));
+		FMath::IsNearlyEqual(State.BurstStartPitchOffset, PitchBeforeRefire, Tolerance));
+	TestTrue(TEXT("New burst clears the old recovery cover"),
+		FMath::IsNearlyZero(State.RecoveryCoverPitch, Tolerance));
+	TestTrue(TEXT("New burst clears the old live clamp credit"),
+		FMath::IsNearlyZero(State.AimCompensationPitch, Tolerance));
+	TestTrue(TEXT("New burst has not consumed recovery compensation"), !State.bRecoveryCoverApplied);
 	TestTrue(FString::Printf(TEXT("ApplyShot itself does not jump the camera (before %.4f, after %.4f)"),
 		CameraBeforeRefire, State.CameraOffsetPitch),
 		FMath::IsNearlyEqual(State.CameraOffsetPitch, CameraBeforeRefire, Tolerance));
@@ -1071,10 +1069,9 @@ bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("New burst converges to Idle"), State.State == ERecoilState::Idle);
 	TestTrue(TEXT("New interpolation timeline finishes"), State.InterpStage == ERecoilInterpStage::None);
-	// ★ 核心回归锁：停火后偏移必须收敛到「本梭回正目标 = min(压枪量, 峰值) = 0.2」，
-	//   而不是冻结在连发途中被抬到的位置（旧 bug：冻结在重火那一刻的 0.2778）。
-	const float ExpectedSteady = 0.2f;
-	TestTrue(FString::Printf(TEXT("Recovery lands on the burst target %.4f, not the mid-Drop refire point (actual %.4f)"),
+	// 第二轮没有新的压枪输入，所以应回到它自己的起枪点。
+	const float ExpectedSteady = PitchBeforeRefire;
+	TestTrue(FString::Printf(TEXT("Recovery lands on the new burst baseline %.4f (actual %.4f)"),
 		ExpectedSteady, State.AccumulatedPitch),
 		FMath::IsNearlyEqual(State.AccumulatedPitch, ExpectedSteady, 0.03f));
 

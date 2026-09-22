@@ -28,12 +28,12 @@ struct FRecoilShotKick
 /**
  * 插值模式下的单发阶段。
  *
- * 对应《FPS 相机镜头设计与实现》§2「后座」的四段式，本项目合并为三段：
+ * 对应《FPS 相机镜头设计与实现》§2「后座」的四段式：
  *
  *   参考文档:  t0 上抬  →  t1 瞬时回弹  →  t2 稳定  →  t3 下降 / 回正
- *   本项目:    Lift     →  Rebound      →  [RecoveryDelay] →  Drop
- *                                          ↑
- *                                  复用 RecoveryDelay，不引入重复语义的参数
+ *   本项目:    Lift     →  Rebound      →  Settle         →  Drop / Recovering
+ *                                            ↑                    ↑
+ *                                  时长复用 RecoveryDelay   正式回正，同一状态与算法
  *
  * 注意：这个枚举**只在 SingleShotMode == Interpolated 时被使用**。
  * InstantWrite 模式下状态机仍然是 ERecoilState 的 Idle/Accumulating/Recovering 三态。
@@ -56,7 +56,7 @@ enum class ERecoilInterpStage : uint8
 	 */
 	Settle		UMETA(DisplayName = "Settle"),
 
-	/** t2：从回弹终点收敛到「回正目标 = 本梭累计压枪量」，形状由 RecoveryCurve 决定 */
+	/** t3：正式回正阶段的显示名；状态为 Recovering，统一走 ApplyRecoveryStep */
 	Drop		UMETA(DisplayName = "Drop")
 };
 
@@ -309,10 +309,11 @@ public:
 	float RecoveryPeakYaw = 0.0f;
 
 	/**
-	 * 进入 Recovering 时「本发开始那一刻已经累加好的偏移」（度）。
+	 * 进入 Recovering 时的可见起点（度）。
 	 *
-	 * 现行回正口径：目标 = min(本梭累计压枪量, 本轮峰值)（见 ComputeRecoveryTarget），
-	 * 不再做「按比例衰减」的插值口径 —— 该字段当前仅供插值链与诊断读取。
+	 * InstantWrite 下等于进入回正时的累计偏移；Interpolated 下等于 Rebound 终点。
+	 * 回正目标仍由 RecoveryPeak（完整峰值）计算，插值则从本字段开始。这样 Drop
+	 * 与 Recovering 能共用 ApplyRecoveryStep，同时不会把“小回弹”重复算进回正。
 	 *
 	 * ★ 2026-09-20 修复引入（见 Docs/Recoil/11_BurstAccumulationFix.md）：
 	 * 旧公式曾按 `RecoveryBase + (Peak − Base) × RecoilReturnRatio` 衰减，

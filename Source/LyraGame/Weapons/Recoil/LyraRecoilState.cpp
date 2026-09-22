@@ -76,8 +76,12 @@ namespace LyraRecoilStatePrivate
 			Profile.bCompensationAwareRecoveryYaw);
 
 		RecoilState.RecoveryProgress = Alpha;
-		RecoilState.AccumulatedPitch = FMath::Lerp(RecoilState.RecoveryPeakPitch, TargetPitch, Alpha);
-		RecoilState.AccumulatedYaw = FMath::Lerp(RecoilState.RecoveryPeakYaw, TargetYaw, Alpha);
+		// RecoveryBase is the visible value at the instant recovery begins. For
+		// Interpolated shots this is the rebound end, while RecoveryPeak remains
+		// the full pre-rebound peak used to clamp compensation. Keeping those two
+		// anchors separate lets Drop and normal recovery use this single path.
+		RecoilState.AccumulatedPitch = FMath::Lerp(RecoilState.RecoveryBasePitch, TargetPitch, Alpha);
+		RecoilState.AccumulatedYaw = FMath::Lerp(RecoilState.RecoveryBaseYaw, TargetYaw, Alpha);
 
 		// ---------------------------------------------------------------------
 		// 回正阶段也要维护补间输出，但注意两套模式的口径不同：
@@ -85,15 +89,11 @@ namespace LyraRecoilStatePrivate
 		//   InstantWrite ：相机直接读逻辑偏移，所以补间输出恒等拷贝过去即可。
 		//                  这就是「切模式时既有行为零变化」的保证点。
 		//
-		//   Interpolated ：**绝不能被覆盖成逻辑偏移**，否则整个插值链在回正阶段崩掉。
-		//                  它的推进由 AdvanceInterpolatedStages() 的「目标值差分」负责，
-		//                  这里什么都不用做。
+		//   Interpolated ：Drop 现在就是 Recovering 本身，因此同样直接读取这份结果，
+		//                  不再由阶段机重复计算第二条下降曲线。
 		// ---------------------------------------------------------------------
-		if (!Profile.IsInterpolatedSingleShot())
-		{
-			RecoilState.CameraOffsetPitch = RecoilState.AccumulatedPitch;
-			RecoilState.CameraOffsetYaw = RecoilState.AccumulatedYaw;
-		}
+		RecoilState.CameraOffsetPitch = RecoilState.AccumulatedPitch;
+		RecoilState.CameraOffsetYaw = RecoilState.AccumulatedYaw;
 
 		if (NormalizedTime >= 1.0f)
 		{
@@ -174,7 +174,7 @@ namespace LyraRecoilStatePrivate
 		//   Base       —— 开火那一刻的逻辑偏移，是本发所有阶段的「地面」
 		//   Peak       —— Base + 完整幅度，上抬段的终点
 		//   ReboundEnd —— 从 Peak 回弹到 `Base + 幅度 × ReboundRatio`
-		//   SteadyEnd  —— 从 ReboundEnd 收敛到「本梭累计压枪量」（本发的最终姿态）
+		//   Drop       —— 不在本函数计算；它直接进入统一的 ApplyRecoveryStep
 		//
 		// ★ 2026-09-20 修复：Rebound / Drop 的终点必须锚在「本发幅度」上，而不是「绝对峰值」。
 		//
@@ -194,31 +194,6 @@ namespace LyraRecoilStatePrivate
 
 		const float ReboundEndPitch = BasePitch + State.InterpShotAmplitudePitch * Profile.ReboundRatio;
 		const float ReboundEndYaw = BaseYaw + State.InterpShotAmplitudeYaw * Profile.ReboundRatio;
-
-		// Drop 段的终点必须与 ApplyRecoveryStep 收尾时落的值**完全一致**，
-		// 否则在 Drop 结束那一帧会跳一下。
-		//
-		// ★ 2026-09-21（第二次修正）：读数源改回「已冻结的累计压枪量」。
-		//
-		//   上一版写的是 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch`，本意是
-		//   「本函数可能在冻结之前被调用，那时读快照会拿到 0」。但实机时序恰好相反：
-		//   FreezeCompensationForRecovery() 在 Settle→Drop 切换处就把标志置成了 true，
-		//   于是**整个 Drop 段**每帧都推导出 0 ⇒ 目标 = 不抵扣 ⇒ 逻辑偏移冻结在峰值
-		//   纹丝不动，直到收官那帧 ApplyRecoveryStep 用快照算对，一帧跳过去。
-		//
-		//   实机 trace 佐证（DA_Recoil_Rifle_S 连发）：
-		//     Drop 段 23 帧 acc 恒为 15.000 ⇒ 收尾瞬跳 3.950 ⇒ 屏幕 −8.30（看地板）。
-		//
-		//   现在直接读 RecoveryCompensationPitch（= Freeze 时锁定的本梭累计压枪量），
-		//   与 ApplyRecoveryStep 完全同源 ⇒ Drop 段平滑收敛，终点与收官值一致、不再跳。
-		const float StageCoverPitch = State.RecoveryCompensationPitch;
-
-		const float SteadyEndPitch = FRecoilRuntimeState::ComputeRecoveryTarget(
-			Profile, State.BurstStartPitchOffset, PeakPitch, StageCoverPitch);
-		// 水平轴同源取自己的快照；默认开关 false ⇒ 本式返回 0，Yaw 回正回满。
-		const float SteadyEndYaw = FRecoilRuntimeState::ComputeRecoveryTarget(
-			Profile, State.BurstStartYawOffset, PeakYaw, State.RecoveryCompensationYaw,
-			Profile.bCompensationAwareRecoveryYaw);
 
 		const float Duration = GetStageDuration(Profile, State.InterpStage);
 		const float Progress = (Duration > KINDA_SMALL_NUMBER)
@@ -255,10 +230,10 @@ namespace LyraRecoilStatePrivate
 
 		case ERecoilInterpStage::Drop:
 		{
-			// 从回弹终点下降到稳态残留，形状走回正曲线（复用现有 RecoveryCurve）
-			const float Alpha = Profile.GetRecoveryAlpha(Progress);
-			OutPitch = FMath::Lerp(ReboundEndPitch, SteadyEndPitch, Alpha);
-			OutYaw = FMath::Lerp(ReboundEndYaw, SteadyEndYaw, Alpha);
+			// AdvanceInterpolatedSubStepBy 会在调用本函数之前把 Drop 路由到
+			// ApplyRecoveryStep。这里只保留防御性回退，不维护第二套回正公式。
+			OutPitch = State.CameraOffsetPitch;
+			OutYaw = State.CameraOffsetYaw;
 			break;
 		}
 
@@ -327,6 +302,18 @@ namespace LyraRecoilStatePrivate
 			State.StageElapsed = FMath::Min(Advanced, StageDuration);
 		}
 
+		// Drop is only the four-stage presentation name for the common Recovering
+		// state. Its timing, curve, compensation target and completion all run
+		// through ApplyRecoveryStep; there is no second recovery calculation.
+		if (State.InterpStage == ERecoilInterpStage::Drop)
+		{
+			State.RecoveryElapsed = State.StageElapsed;
+			ApplyRecoveryStep(State, Profile);
+			State.LastTargetPitch = State.CameraOffsetPitch;
+			State.LastTargetYaw = State.CameraOffsetYaw;
+			return;
+		}
+
 		// --- 2) 按当前时刻算目标值，取增量推给相机 ---
 		float TargetPitch = 0.0f;
 		float TargetYaw = 0.0f;
@@ -379,28 +366,10 @@ namespace LyraRecoilStatePrivate
 
 			if (NextStage == ERecoilInterpStage::None)
 			{
-				// 下降段走完：交回常规回正状态机做统一收尾。
-				// 这里刻意不直接置 Idle —— 由 ApplyRecoveryStep 负责落稳态、
-				// 清计数器、回 Idle，避免两处各写一遍收尾逻辑。
-				//
-				// ★ 关键：必须把 RecoveryPeakPitch 设成**本发峰值**，不能沿用旧值。
-				// ApplyRecoveryStep 会算 `Target = 峰值 × 残留比 + 压枪量`，
-				// 而此刻 AccumulatedPitch 已经是「峰值 × 回正比」的稳态值了。
-				// 若让 RecoveryPeakPitch 停留在 ReboundEnd 之类的中间值上，
-				// 回正比就会被**再乘一次**，最终残留值整体偏小（实测 0.075 而非 0.125）。
-				const float PeakPitch = State.InterpBasePitch + State.InterpShotAmplitudePitch;
-				const float PeakYaw = State.InterpBaseYaw + State.InterpShotAmplitudeYaw;
-
+				// 防御性收尾。正常 Drop 在函数前半段已经统一路由到
+				// ApplyRecoveryStep，并由它完成 Drop → Idle。
 				State.InterpStage = ERecoilInterpStage::None;
 				State.StageElapsed = 0.0f;
-				State.RecoveryPeakPitch = PeakPitch;
-				State.RecoveryPeakYaw = PeakYaw;
-				// ★ 基底必须一并带上，否则回正会把整条已累加偏移一起衰减掉（见 ApplyRecoveryStep）。
-				State.RecoveryBasePitch = State.InterpBasePitch;
-				State.RecoveryBaseYaw = State.InterpBaseYaw;
-				State.RecoveryElapsed = Profile.RecoveryTime;
-				State.State = ERecoilState::Recovering;
-				ApplyRecoveryStep(State, Profile);
 			}
 			else
 			{
@@ -415,6 +384,20 @@ namespace LyraRecoilStatePrivate
 				// 它的结束正好是"停火超过 RecoveryDelay"的同一时刻，语义对齐。
 				if (NextStage == ERecoilInterpStage::Drop)
 				{
+					const float PeakPitch = State.InterpBasePitch + State.InterpShotAmplitudePitch;
+					const float PeakYaw = State.InterpBaseYaw + State.InterpShotAmplitudeYaw;
+					const float ReboundEndPitch = State.InterpBasePitch
+						+ State.InterpShotAmplitudePitch * Profile.ReboundRatio;
+					const float ReboundEndYaw = State.InterpBaseYaw
+						+ State.InterpShotAmplitudeYaw * Profile.ReboundRatio;
+
+					State.RecoveryPeakPitch = PeakPitch;
+					State.RecoveryPeakYaw = PeakYaw;
+					State.RecoveryBasePitch = ReboundEndPitch;
+					State.RecoveryBaseYaw = ReboundEndYaw;
+					State.RecoveryElapsed = State.StageElapsed;
+					State.RecoveryProgress = 0.0f;
+					State.State = ERecoilState::Recovering;
 					FreezeCompensationForRecovery(State);
 				}
 
@@ -806,29 +789,14 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 		return false;
 	}
 
-	// 只有「本梭已经彻底结束」后的再次开火才算新一轮：
+	// Idle 后开火，或正式回正（Interpolated 的 Drop / InstantWrite 的 Recovering）
+	// 过程中再次开火，都算新一轮：
 	//   · Idle       —— 上一梭回正已完成，残留偏移就是它的落点；
 	//   · Recovering —— InstantWrite 的整梭回正进行中再次扣扳机（既有口径，保持不变）。
 	//
-	// ★ 2026-09-22 修复：插值模式「打在上一发的 Drop 段里」不再算回正中重开火。
-	//
-	//   旧口径把 `InterpStage == Drop` 也当新梭。但插值模式每发自带
-	//   Lift→Rebound→Settle→Drop 时间轴，发与发的间隔只要抖过 Lift+Rebound+Settle
-	//   总时长（Rifle_S ≈ 0.195s > 射速 0.12s，全自动下常发生），下一发就会落进
-	//   上一发的可见回正段 ⇒ 连发途中被反复误判成"新梭"，每次都：
-	//     1. BurstStartPitchOffset 重锚到当前抬升值 → 回正目标被抬高，停火后
-	//        偏移冻结在高处（实机 trace：冻结在 35.42°，而非回到基线）；
-	//     2. 清零累计压枪量与压枪基准 → 一路压 ~13° 被算成 33°；
-	//     3. 上限 = BurstStart + MaxVerticalKick 随重锚一路上抬 → 偏移冲到
-	//        40.29°（远超资产的 15°）；
-	//     4. ShotIndex 清零 → 弹道爬升曲线每发重新起步。
-	//   四个症状共用这一个根因，实机 trace 全部坐实（11_BurstAccumulationFix.md §14）。
-	//
-	//   新口径：这种情况 = 本梭继续。旧口径想保证的两件事都不依赖"新梭"：
-	//   上一发的 Drop 被本发的 Lift 立即接管（旧回正不会继续拉镜头），本发的
-	//   InterpBase = 当前偏移（补间输出无跳变，见下方插值分支）。
-	//   真正的新一轮只发生在整发时间轴走完（Drop 收尾 → Idle）之后 —— 那时
-	//   偏移已收敛到本梭回正目标，以它为新零点正是 2026-09-20 的既定语义。
+	// Drop 已与 Recovering 合并，所以无需再通过 InterpStage 做第二套判断。
+	// 新一轮以当前可见偏移为零点，并清空上一轮的压枪/钳制账本；ApplyShot
+	// 随后立即把阶段切回 Lift，从而中断旧回正且保持画面连续。
 	const bool bRefireDuringRecovery = (State == ERecoilState::Recovering);
 	const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecovery;
 	if (bStartsNewBurst)
@@ -1109,10 +1077,9 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 
 				// 时间轴一次性收尾：转常规回正状态机，由它把 State 推到 Idle 并清计数器。
 				//
-				// ★ RecoveryPeakPitch 必须设成**本发峰值**：ApplyRecoveryStep 会算
-				// `Target = 峰值 × 残留比 + 压枪量`，而此刻 AccumulatedPitch
-				// 已经是稳态值（含压枪量的终值）。若沿用 AccumulatedPitch，残留比会被
-				// 再乘一次，终值整体偏小（实测 0.0312 而非 0.1250）。
+				// RecoveryPeak 保存本发完整峰值，只用于压枪补偿上限；
+				// RecoveryBase 保存当前可见起点。长帧直接把进度设为 100%，
+				// 所以两者不会引入第二次下降。
 				const float PeakPitch = InterpBasePitch + InterpShotAmplitudePitch;
 				const float PeakYaw = InterpBaseYaw + InterpShotAmplitudeYaw;
 
@@ -1163,19 +1130,9 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 			RecoveryPeakPitch = AccumulatedPitch;
 			RecoveryPeakYaw = AccumulatedYaw;
 
-			// ★ 回正基底：InstantWrite 恒为 0（= 旧公式，零行为变化）；
-			//   插值模式取「本发基底」，这样即使 RecoveryDelay 恰好撞上射速间隔、
-			//   在连发中途误触发一次回正，也不会把已累加偏移按比例吃掉。
-			if (Profile->IsInterpolatedSingleShot())
-			{
-				RecoveryBasePitch = InterpBasePitch;
-				RecoveryBaseYaw = InterpBaseYaw;
-			}
-			else
-			{
-				RecoveryBasePitch = 0.0f;
-				RecoveryBaseYaw = 0.0f;
-			}
+			// 回正插值从进入 Recovering 时的当前可见值开始。
+			RecoveryBasePitch = AccumulatedPitch;
+			RecoveryBaseYaw = AccumulatedYaw;
 
 			RecoveryElapsed = TimeSinceLastFire - Profile->RecoveryDelay;
 			State = ERecoilState::Recovering;
@@ -1190,9 +1147,8 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 
 	case ERecoilState::Recovering:
 	{
-		// 插值模式下，下降段由子步循环自己走完并置 None；
-		// 此时若这里再累一次 RecoveryElapsed，回正会走两遍（补间输出会跳）。
-		// 所以只在「插值链已收尾」或「非插值模式」时才推进常规回正。
+		// Interpolated 的 Drop 与本状态共用 ApplyRecoveryStep，但时间由固定子步推进；
+		// 这里不能再用原始 DeltaSeconds 推一次，否则同一回正会被重复计时。
 		if (Profile->IsInterpolatedSingleShot() && (InterpStage != ERecoilInterpStage::None))
 		{
 			break;

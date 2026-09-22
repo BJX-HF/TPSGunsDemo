@@ -207,8 +207,8 @@ Pitch 与 Yaw **共用同一条公式**，但**只有 Pitch 默认参与抵扣**
 | 时机 | 动作 |
 | --- | --- |
 | `ApplyShot` 且状态为 `Idle`（= 新一轮连发第一发） | 基准 := 当前采样值；压枪量清零 |
-| `ApplyShot` 且状态为 `Recovering`（`InstantWrite` 整梭回正中重开火） | 同上 —— 既有口径，算**新一轮**（以当前残留为新零点） |
-| `ApplyShot` 且状态为 `Accumulating`（连发中，含★插值模式打在上一发 `Drop` 段里） | 基准**不变**（还是同一轮连发；★ 2026-09-22 起 `Drop` 中重开火不再误判为新梭，见 [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §14） |
+| `ApplyShot` 且状态为 `Recovering`（含 `InstantWrite` 回正与 `Interpolated` 的 Drop） | **中断旧回正并开始新一轮**；基准 := 当前可见偏移，压枪/钳制账本清零 |
+| `ApplyShot` 且状态为 `Accumulating`（Lift / Rebound / Settle） | 基准**不变**，仍是同一轮连发 |
 | `Reset`（换枪 / 卸枪） | 基准、采样值、快照全部清零 |
 
 ### 4.3 冻结时机（重要）

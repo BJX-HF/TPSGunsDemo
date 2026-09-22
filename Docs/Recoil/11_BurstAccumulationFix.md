@@ -1224,6 +1224,10 @@ dotnet.exe "E:/UE_5.8/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll
 
 ## §14 连发误判「新一轮」—— 停火后偏移冻结在高处（2026-09-22）
 
+> **历史方案，已于 2026-09-23 被 §15 取代。** 本节保留用于解释当时 trace 和失败原因；
+> 当前代码已将 Drop 与正式 `Recovering` 合并，Drop 中开火按新一轮处理，但由统一回正入口、
+> 当前可见点重锚和完整账本重置保证连续性，不再采用“Drop 仍属 Accumulating”的绕行方案。
+
 ### 14.1 症状（实机 trace，DA_Recoil_Rifle_S 全自动连发 + 持续下压）
 
 | # | 症状 | trace 证据 |
@@ -1281,7 +1285,7 @@ const bool bRefireDuringRecovery = (State == ERecoilState::Recovering);   // 仅
 const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecovery;
 ```
 
-- **打在上一发 Drop 段里 = 本梭继续**：不重锚 BurstStart、不清 cover、不清压枪基准、
+- **【历史口径】打在上一发 Drop 段里 = 本梭继续**：不重锚 BurstStart、不清 cover、不清压枪基准、
   ShotIndex 连续；单发时间轴照常重启（Lift、`InterpBase = 当前偏移`、LastTarget 对齐）。
 - `InstantWrite` 的 `Recovering` 分支**一字未动** —— 既有用例 / Golden / CSV 零变化。
 
@@ -1302,12 +1306,27 @@ const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecov
 
 ### 14.6 验收
 
-- `Lyra.Recoil.Interp.RefireDuringDropContinuesBurst`（重写自 `RefireDuringDropStartsNewBurst`）：
+- 【历史用例，现已删除】`Lyra.Recoil.Interp.RefireDuringDropContinuesBurst`：
   锁死"账本不动 + 停火收敛到 min(压枪, 峰值)"；
 - `Lyra.Recoil.Interp.RefireAfterIdleStartsNewBurst`（新增）：锁死"Idle 后才是新一轮，
   以残留为新零点"；
 - 实机复验：`Lyra.Recoil.Trace 1`，连发 30 发（可故意放慢几发制造间隔抖动），
   停火后看 `push` 回落到 `min(cover, peak)`、`BurstStart` 全程不动、`cover` ≈ 实际压枪量。
+
+## §15 Drop 与正式回正合并（2026-09-23，现行）
+
+现行四段语义：`Lift（上抬）→ Rebound（小回弹）→ Settle（短暂停留）→ Drop（正式回正）`。
+
+- `Settle → Drop` 时立即把主状态切为 `ERecoilState::Recovering`；
+- Drop 不再计算第二条下降曲线，只调用统一的 `ApplyRecoveryStep()`；
+- `RecoveryTime`、`RecoveryCurve`、冻结压枪量、`ComputeRecoveryTarget()` 与完成收尾只有一个入口；
+- `RecoveryBase` 保存回弹终点（回正可见起点），`RecoveryPeak` 保存完整峰值（补偿钳制上限），
+  避免把“小回弹”重复算进回正；
+- Drop 中重新开火会中断旧回正，以当前可见偏移重建 `BurstStart`，清空上一轮压枪/钳制账本，
+  并从新一轮 `Lift` 开始；`ApplyShot` 本身不改变相机偏移，因此没有跳帧。
+
+验证：`Lyra.Recoil.Interp.RefireDuringDropStartsNewBurst`、插值专项 8/8、完整
+`Lyra.Recoil` **49/49** 通过，`LyraEditor` Development 构建成功。
 
 ---
 

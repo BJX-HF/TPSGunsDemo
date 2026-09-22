@@ -27,11 +27,14 @@
 
 ---
 
-## 1. 阶段划分（三段式）
+## 1. 阶段划分（四段式；Drop 与正式回正合并）
 
 参考文档 §2 给的是四段（`t0 上抬` / `t1 瞬时回弹` / `t2 稳定` / `t3 下降`）。
 
-本项目落地时**合并为三段** —— 因为「稳定段」在本项目里已经有一个现成的旋钮 `RecoveryDelay`（停火后开始回正的延迟），它的语义和文档里的 t2 完全重合，没必要再引入一个意思一样的参数。
+本项目保留四个阶段名，但不再维护两套回正：`Settle` 的时长复用
+`RecoveryDelay`；进入 `Drop` 的同一刻，主状态正式切为 `Recovering`。从此 Drop 只是
+四段式的显示名称，下降计时、`RecoveryCurve`、压枪快照、回正终点和完成收尾全部走
+`ApplyRecoveryStep()`。
 
 ```
 幅度
@@ -51,7 +54,7 @@
 | t0 上抬 | `LiftDuration` | 秒 | 从 0 抬到**本发目标幅度** |
 | t1 回弹 | `ReboundDuration` | 秒 | 从峰值回弹到 `峰值 × ReboundRatio` |
 | t2 稳定 | `RecoveryDelay` | 秒 | **复用现有参数**，期间偏移冻结 |
-| t3 下降 | `RecoveryTime` | 秒 | **复用现有参数**，回正到 `峰值 × RecoilReturnRatio` |
+| t3 Drop / 回正 | `RecoveryTime` | 秒 | **复用正式回正参数**，收敛到现行压枪补偿终点 |
 
 三条曲线：
 
@@ -398,8 +401,8 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 
 | 文档要求 | 本文落地 | 位置 |
 | --- | --- | --- |
-| 单发射击拆为多个阶段 | 三段式（稳定段复用 `RecoveryDelay`） | §1 |
-| 各阶段持续时间可配 | `LiftDuration` / `RecoveryDelay` / `RecoveryTime` | §1 |
+| 单发射击拆为多个阶段 | 四段式；Drop 与 `Recovering` 是同一过程 | §1 |
+| 各阶段持续时间可配 | `LiftDuration` / `ReboundDuration` / `RecoveryDelay` / `RecoveryTime` | §1 |
 | 上抬/下降使用插值曲线 | `LiftCurve` / `RecoveryCurve` | §1 |
 | Pitch/Yaw 应用「相对上一帧」的增量 | `CameraOffsetPitch += 目标值差分` | §3.2 第三步 |
 | 关键逻辑放在固定步长更新（如 60Hz） | 累加器 + 1/60 秒固定子步长 | §4.2 ① |
@@ -413,7 +416,7 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 | 独立 t2 稳定段时长参数 | 与现有 `RecoveryDelay` 语义完全重合，并入后者（用户决策） |
 | 下降曲线单独一条 | 现有 `RecoveryCurve` 就是下降曲线，继续复用 |
 | 回正忽略阈值 | 现有模型回正必然走完，阈值属于优化项，本轮不引入（记为待办） |
-| 四段拆成完整独立四个阶段 | 见上，合并为三段，不并存两套语义重叠的参数 |
+| 为 Settle / Drop 再造一套延迟和回正参数 | 不采纳；复用正式回正的 `RecoveryDelay` / `RecoveryTime` / `RecoveryCurve` |
 
 ---
 
