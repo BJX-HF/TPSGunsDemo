@@ -389,6 +389,10 @@
 		{
 			"Name": "ModelContextProtocol",
 			"Enabled": true
+		},
+		{
+			"Name": "AssetQuickOpen",
+			"Enabled": true
 		}
 	],
 	"EpicSampleNameHash": "451731683"
