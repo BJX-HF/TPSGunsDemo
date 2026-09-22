@@ -29,7 +29,7 @@ protected:
 	virtual void UpdateView(float DeltaTime) override;
 
 	void UpdateForTarget(float DeltaTime);
-	void UpdatePreventPenetration(float DeltaTime);
+	void UpdatePreventPenetration(float DeltaTime, const FRotator& CameraOrbitRotation);
 	void PreventCameraPenetration(class AActor const& ViewTarget, FVector const& SafeLoc, FVector& CameraLoc, float const& DeltaTime, float& DistBlockedPct, bool bSingleRayOnly);
 
 	virtual void DrawDebug(UCanvas* Canvas) const override;

@@ -78,6 +78,14 @@ public:
 	float GetYawOffsetDegrees() const { return YawOffsetDegrees; }
 	float GetRollOffsetDegrees() const { return RollOffsetDegrees; }
 
+	/**
+	 * 当前真正施加到最终 POV 的 Pitch/Yaw。
+	 * 正常驱动时等于目标值；卸枪/关闭系统的释放衰减期间会逐帧趋近 0。
+	 * 第三人称相机模式用这两个值计算相机轨道位置，保证位置与最终可见朝向使用同一套角度。
+	 */
+	float GetAppliedPitchOffsetDegrees() const { return AppliedPitchDegrees; }
+	float GetAppliedYawOffsetDegrees() const { return AppliedYawDegrees; }
+
 	//~UCameraModifier interface
 	virtual bool ModifyCamera(float DeltaTime, FMinimalViewInfo& InOutPOV) override;
 	//~End of UCameraModifier interface

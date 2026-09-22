@@ -1,7 +1,9 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "LyraCameraMode_ThirdPerson.h"
+#include "Camera/LyraCameraModifier_WeaponRecoil.h"
 #include "Camera/LyraCameraMode.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/PrimitiveComponent.h"
 #include "Camera/LyraPenetrationAvoidanceFeeler.h"
 #include "Curves/CurveVector.h"
@@ -10,6 +12,7 @@
 #include "LyraCameraAssistInterface.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
 #include "Math/RotationMatrix.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(LyraCameraMode_ThirdPerson)
@@ -17,6 +20,39 @@
 namespace LyraCameraMode_ThirdPerson_Statics
 {
 	static const FName NAME_IgnoreCameraCollision = TEXT("IgnoreCameraCollision");
+
+	/**
+	 * 后坐力修改器在相机模式栈之后才改最终 POV Rotation。
+	 * 第三人称相机的位置却在模式栈内就按 ControlRotation 算完了；如果玩家压枪使
+	 * ControlRotation 大幅向下、再由后坐力显示偏移把 POV 抬回去，两者会脱节，
+	 * 表现为画面仍看向前方但相机端点沿轨道永久升高。
+	 *
+	 * 这里只读取修改器“实际施加值”来计算轨道，不改变逻辑瞄准，也不在这里重复修改 View.Rotation。
+	 */
+	static FRotator GetAppliedRecoilOrbitOffset(const AActor* TargetActor)
+	{
+		const APawn* TargetPawn = Cast<APawn>(TargetActor);
+		const APlayerController* PlayerController = TargetPawn
+			? Cast<APlayerController>(TargetPawn->GetController())
+			: nullptr;
+		APlayerCameraManager* CameraManager = PlayerController ? PlayerController->PlayerCameraManager : nullptr;
+		if (CameraManager == nullptr)
+		{
+			return FRotator::ZeroRotator;
+		}
+
+		const UCameraModifier_WeaponRecoil* RecoilModifier = Cast<UCameraModifier_WeaponRecoil>(
+			CameraManager->FindCameraModifierByClass(UCameraModifier_WeaponRecoil::StaticClass()));
+		if (RecoilModifier == nullptr)
+		{
+			return FRotator::ZeroRotator;
+		}
+
+		return FRotator(
+			RecoilModifier->GetAppliedPitchOffsetDegrees(),
+			RecoilModifier->GetAppliedYawOffsetDegrees(),
+			0.0f);
+	}
 }
 
 ULyraCameraMode_ThirdPerson::ULyraCameraMode_ThirdPerson()
@@ -42,6 +78,13 @@ void ULyraCameraMode_ThirdPerson::UpdateView(float DeltaTime)
 
 	PivotRotation.Pitch = FMath::ClampAngle(PivotRotation.Pitch, ViewPitchMin, ViewPitchMax);
 
+	// 位置轨道必须与最终显示朝向使用同一套 Pitch/Yaw。
+	// View.Rotation 仍保持逻辑 PivotRotation；相机修改器随后只把同一份偏移加到最终 POV 一次。
+	FRotator CameraOrbitRotation = PivotRotation +
+		LyraCameraMode_ThirdPerson_Statics::GetAppliedRecoilOrbitOffset(GetTargetActor());
+	CameraOrbitRotation.Pitch = FMath::ClampAngle(CameraOrbitRotation.Pitch, ViewPitchMin, ViewPitchMax);
+	CameraOrbitRotation.Normalize();
+
 	View.Location = PivotLocation;
 	View.Rotation = PivotRotation;
 	View.ControlRotation = View.Rotation;
@@ -52,23 +95,23 @@ void ULyraCameraMode_ThirdPerson::UpdateView(float DeltaTime)
 	{
 		if (TargetOffsetCurve)
 		{
-			const FVector TargetOffset = TargetOffsetCurve->GetVectorValue(PivotRotation.Pitch);
-			View.Location = PivotLocation + PivotRotation.RotateVector(TargetOffset);
+			const FVector TargetOffset = TargetOffsetCurve->GetVectorValue(CameraOrbitRotation.Pitch);
+			View.Location = PivotLocation + CameraOrbitRotation.RotateVector(TargetOffset);
 		}
 	}
 	else
 	{
 		FVector TargetOffset(0.0f);
 
-		TargetOffset.X = TargetOffsetX.GetRichCurveConst()->Eval(PivotRotation.Pitch);
-		TargetOffset.Y = TargetOffsetY.GetRichCurveConst()->Eval(PivotRotation.Pitch);
-		TargetOffset.Z = TargetOffsetZ.GetRichCurveConst()->Eval(PivotRotation.Pitch);
+		TargetOffset.X = TargetOffsetX.GetRichCurveConst()->Eval(CameraOrbitRotation.Pitch);
+		TargetOffset.Y = TargetOffsetY.GetRichCurveConst()->Eval(CameraOrbitRotation.Pitch);
+		TargetOffset.Z = TargetOffsetZ.GetRichCurveConst()->Eval(CameraOrbitRotation.Pitch);
 
-		View.Location = PivotLocation + PivotRotation.RotateVector(TargetOffset);
+		View.Location = PivotLocation + CameraOrbitRotation.RotateVector(TargetOffset);
 	}
 
 	// Adjust final desired camera location to prevent any penetration
-	UpdatePreventPenetration(DeltaTime);
+	UpdatePreventPenetration(DeltaTime, CameraOrbitRotation);
 }
 
 void ULyraCameraMode_ThirdPerson::UpdateForTarget(float DeltaTime)
@@ -108,7 +151,7 @@ void ULyraCameraMode_ThirdPerson::DrawDebug(UCanvas* Canvas) const
 #endif
 }
 
-void ULyraCameraMode_ThirdPerson::UpdatePreventPenetration(float DeltaTime)
+void ULyraCameraMode_ThirdPerson::UpdatePreventPenetration(float DeltaTime, const FRotator& CameraOrbitRotation)
 {
 	if (!bPreventPenetration)
 	{
@@ -135,7 +178,7 @@ void ULyraCameraMode_ThirdPerson::UpdatePreventPenetration(float DeltaTime)
 		// Pick closest point on capsule to our aim line.
 		FVector ClosestPointOnLineToCapsuleCenter;
 		FVector SafeLocation = PPActor->GetActorLocation();
-		FMath::PointDistToLine(SafeLocation, View.Rotation.Vector(), View.Location, ClosestPointOnLineToCapsuleCenter);
+		FMath::PointDistToLine(SafeLocation, CameraOrbitRotation.Vector(), View.Location, ClosestPointOnLineToCapsuleCenter);
 
 		// Adjust Safe distance height to be same as aim line, but within capsule.
 		float const PushInDistance = PenetrationAvoidanceFeelers[0].Extent + CollisionPushOutDistance;

@@ -1222,8 +1222,97 @@ dotnet.exe "E:/UE_5.8/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll
 
 ---
 
-_本文档由祥子整理，2026-09-20；§13.9 追加于 2026-09-21；§13.10 删 Ratio；§13.11 于 2026-09-21 修正方向和 Drop；2026-09-22 压过头规则定型。_
-_修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣（P14 → §13.10 字面减法 → §13.11 累计压枪量）。_
+## §14 连发误判「新一轮」—— 停火后偏移冻结在高处（2026-09-22）
+
+### 14.1 症状（实机 trace，DA_Recoil_Rifle_S 全自动连发 + 持续下压）
+
+| # | 症状 | trace 证据 |
+| --- | --- | --- |
+| 1 | **停火后偏移不回正，冻结在高处** | 第二梭（cover=0）收尾 Drop 只从 39.821 降到 35.424 就 Idle，之后 175+ 帧纹丝不动 —— 而 35.424 恰好等于连发途中某次"误判新梭"那一发的偏移值 |
+| 2 | **压枪量被算大** | 玩家一路下压 ~13°，被记成 cover 33.040 |
+| 3 | **偏移冲过钳制上限** | 第一轮日志里还能看到 15.0000 的钳制平台，第二轮 push 冲到 40.29° —— 重锚把 `BurstStart + MaxVerticalKick` 一路顶了上去 |
+| 4 | **相机 Z 一路上升且停火后不回落** | POV−Stack ≡ 0（无任何位移写入）；camZ 是 Ctrl 俯仰的纯函数（~6.3cm/°）。偏移冻结 ⇒ 视角看起来是平的 ⇒ 玩家保持下压 ⇒ 吊臂把 Z 顶在 290cm |
+
+### 14.2 根因
+
+`Interpolated` 模式下**每发**自带 Lift→Rebound→Settle→Drop 时间轴。Rifle_S 射速 0.12s，
+但一发走到 Drop 开始需要 Lift(0.045)+Rebound(0.030)+Settle(0.120) ≈ 0.195s。
+全自动连发时只要某一发的实际间隔抖过 0.195s（触发时序抖动，30 发里多次发生），
+下一发就会**落在上一发的 Drop 段里**。
+
+旧口径（`ApplyShot`）把这种情况判定成"回正中再次开火 = 全新的一轮"：
+
+```cpp
+const bool bRefireDuringRecovery =
+    (State == ERecoilState::Recovering) ||                       // InstantWrite：正确
+    (Profile->IsInterpolatedSingleShot() &&
+     (InterpStage == ERecoilInterpStage::Drop));                 // ★ Interpolated：错判
+```
+
+于是连发途中每错判一次，就执行一遍"新梭"重置：
+
+1. `BurstStartPitchOffset = AccumulatedPitch` —— 回正基准被锚到**当前已抬高的偏移**。
+   回正目标 = `BurstStart + min(cover, |peak−BurstStart|)`，基准被抬高 ⇒ 目标被抬高
+   ⇒ 停火后偏移落在被抬高的位置（症状 1）；同时钳制上限
+   `BurstStart + MaxVerticalKick` 随重锚一路上抬（症状 3）。
+2. `RecoveryCoverPitch = 0` + 压枪基准 `AimPitchAtBurstStart` 重锚到**当前**瞄准 ——
+   玩家已经压下去的角度被"重新归零"，压枪量在剩余弹里再累计一遍（症状 2）。
+3. `ShotIndex = 0` —— 弹道爬升曲线每发重新起步。
+
+四个症状共用这一个根因。
+
+### 14.3 为什么旧口径是错的
+
+旧口径的依据是"插值模式的 Drop 就是可见回正段，回正中再次开火必须按新一轮处理"。
+它想保证两件事：① 旧回正不要继续拉镜头；② 当前偏移成为新一轮的零点。
+
+但**每发的 Drop 是单发时间轴的一部分，不是"整梭回正"**：
+
+- ① 不需要"新梭"：下一发的 Lift 立即接管，被打断的 Drop 停在原地即可；
+- ② 的"零点"只对**单发补间**（`InterpBase = 当前偏移`）成立 —— 这部分本来就在做；
+  把**梭级**账本（BurstStart / cover / ShotIndex / 压枪基准）一起清掉，才是错的。
+- 整梭回正只发生在**最后一发**的 Drop 走完时；玩家"停火再打"的间隔通常 ≥ 整发时间轴，
+  那时 State 已是 Idle —— 真正的新一轮判定走 `State == Idle`，根本轮不到这条。
+
+### 14.4 修复
+
+```cpp
+const bool bRefireDuringRecovery = (State == ERecoilState::Recovering);   // 仅 InstantWrite 整梭回正
+const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecovery;
+```
+
+- **打在上一发 Drop 段里 = 本梭继续**：不重锚 BurstStart、不清 cover、不清压枪基准、
+  ShotIndex 连续；单发时间轴照常重启（Lift、`InterpBase = 当前偏移`、LastTarget 对齐）。
+- `InstantWrite` 的 `Recovering` 分支**一字未动** —— 既有用例 / Golden / CSV 零变化。
+
+### 14.5 配套：`FreezeCompensationForRecovery` 改为「总是刷新快照」
+
+修掉误判后，同一梭内会出现**多次** Settle→Drop（每抖动一次就进一次 Drop）。
+旧实现里"额度已用尽 → 快照置 0"的短路就会咬人：第二发的 Drop 目标退化成
+`BurstStart + min(0, …) = BurstStart` —— 相机在**连发途中**被猛拉回基线。
+另外长帧保护（≥150ms）落在 Drop 途中时，也会把已冻结好的抵扣清零、稳态丢压枪量。
+
+置 0 短路的历史：P14 公式 `峰值 × Ratio − 抵扣` 是**增量式**，中途回正每扣一遍就
+复利放大一次（§13.5.3），必须封口。现行公式是**绝对式**
+`BurstStart + min(压枪, |峰值−BurstStart|)`：每次回正的目标从同一对锚点独立算出，
+抵扣天然只用一次，反复刷新**不可能**放大 —— 短路只剩害处，删除。
+
+`bRecoveryCoverApplied` 字段**保留**（大祥老师 2026-09-21 明确保留），语义改为纯观测位：
+「本梭内已经至少进入过一次回正」。
+
+### 14.6 验收
+
+- `Lyra.Recoil.Interp.RefireDuringDropContinuesBurst`（重写自 `RefireDuringDropStartsNewBurst`）：
+  锁死"账本不动 + 停火收敛到 min(压枪, 峰值)"；
+- `Lyra.Recoil.Interp.RefireAfterIdleStartsNewBurst`（新增）：锁死"Idle 后才是新一轮，
+  以残留为新零点"；
+- 实机复验：`Lyra.Recoil.Trace 1`，连发 30 发（可故意放慢几发制造间隔抖动），
+  停火后看 `push` 回落到 `min(cover, peak)`、`BurstStart` 全程不动、`cover` ≈ 实际压枪量。
+
+---
+
+_本文档由祥子整理，2026-09-20；§13.9 追加于 2026-09-21；§13.10 删 Ratio；§13.11 于 2026-09-21 修正方向和 Drop；2026-09-22 压过头规则定型、§14 连发误判新一轮修复。_
+_修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣（P14 → §13.10 字面减法 → §13.11 累计压枪量）+ §14 连发误判「新一轮」（重开火重锚 BurstStart）。_
 _根因一句话：回弹/回正锚在绝对峰值 → 连发几何衰减；修复：锚在「基底 + 本发幅度」，两模式在 `InstantWrite` 下逐位等价。_
 _**现行一句话：回正目标 = min(本梭累计压枪量, 本轮峰值)** ⇒ 未压住时回到开枪前，压过头时保留超压角度。_
 _相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、[11_RecoveryCompensation.md](11_RecoveryCompensation.md)（**现行权威口径**）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_

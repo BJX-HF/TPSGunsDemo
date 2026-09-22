@@ -7,9 +7,9 @@
 | 配置主体 | `ULyraRecoilProfile::bCompensationAwareRecovery` |
 | 采样接入点 | `ULyraRangedWeaponInstance::SampleRecoilPlayerAim()` |
 | 建立日期 | 2026-09-20 |
-| **最近修订** | **2026-09-22（第三次定型）—— 公式改为 `终止值 = min(累计压枪量, 本轮峰值)`；压过头时保留超压角度** |
+| **最近修订** | **2026-09-22—— 修复第三人称相机轨道仍按裸 `ControlRotation` 计算、压枪后相机端点永久升高** |
 | 前置文档 | `04_PoseMatrix.md`（回正与姿态）、`10_SingleShotInterpolation.md`（单发模型）、`11_BurstAccumulationFix.md §13`（回正抵扣终稿） |
-| 验证状态 | **构建 `Result: Succeeded`；`Lyra.Recoil` 45/45 全绿；5 份 Golden md5 逐位未变** |
+| 验证状态 | **构建 `Result: Succeeded`；`Lyra.Recoil` 48/48 全绿；相机位置修复待 PIE 观感复验** |
 
 ---
 
@@ -71,6 +71,8 @@
 | **2026-09-21（本次）** | **口径二次修正：`终止值 = 峰值 − 压枪量` → `终止值 = 本梭累计压枪量`（形参 `Peak` 移除）** | 上一版方向错误：屏幕 = `峰值 − 2 × 压枪量` ⇒ 压枪越认真越"看地板"。实机 trace 坐实，见 §8 |
 | **2026-09-21（本次）** | **修 Bug A：`ComputeStageTarget` 的 Drop 段改读已冻结的 `RecoveryCompensationPitch`** | 上一版读 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch`，而该标志在 `Settle→Drop` 处已置 `true` ⇒ **整个 Drop 段**目标恒为 0，偏移冻结在钳制上限，直到收官帧一帧跳过去 |
 | **2026-09-22（本次）** | **压过头规则：`终止值 = min(累计压枪量, 本轮峰值)`，形参 `Peak` 恢复** | `P≤K` 仍回到起枪角；`P>K` 不再向上补偿，保留 `K−P` 的超压角度（10° / 11° ⇒ −1°） |
+| **2026-09-22（本次）** | **冻结改为总是刷新快照：删掉 `bRecoveryCoverApplied` 短路置 0；该字段降级为纯观测位** | 短路是 P14 增量公式时代的封口，现行绝对式公式下重复冻结无害；留着它反而在「连发打在上一发 Drop 段」时把已生效的抵扣清 0（[11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §14） |
+| **2026-09-22（本次）** | **第三人称相机轨道改用 `ControlRotation + AppliedRecoilOffset` 计算位置、曲线与防穿透瞄准线** | 旧链路先按裸 ControlRotation 算相机端点，后坐力修改器只改最终 POV Rotation；压枪时两套角度分离，画面接近水平但相机端点沿轨道升高并永久停留 |
 
 > ## ⚠️ P11 已废弃（2026-09-21）
 >
@@ -205,7 +207,8 @@ Pitch 与 Yaw **共用同一条公式**，但**只有 Pitch 默认参与抵扣**
 | 时机 | 动作 |
 | --- | --- |
 | `ApplyShot` 且状态为 `Idle`（= 新一轮连发第一发） | 基准 := 当前采样值；压枪量清零 |
-| `ApplyShot` 且状态非 `Idle`（连发中 / 回正中被再次开火） | 基准**不变**（还是同一轮连发） |
+| `ApplyShot` 且状态为 `Recovering`（`InstantWrite` 整梭回正中重开火） | 同上 —— 既有口径，算**新一轮**（以当前残留为新零点） |
+| `ApplyShot` 且状态为 `Accumulating`（连发中，含★插值模式打在上一发 `Drop` 段里） | 基准**不变**（还是同一轮连发；★ 2026-09-22 起 `Drop` 中重开火不再误判为新梭，见 [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §14） |
 | `Reset`（换枪 / 卸枪） | 基准、采样值、快照全部清零 |
 
 ### 4.3 冻结时机（重要）
@@ -218,15 +221,15 @@ Pitch 与 Yaw **共用同一条公式**，但**只有 Pitch 默认参与抵扣**
 | `Interpolated` | `Settle → Drop`（Drop 段就是回正段） | 同上 |
 | 长帧保护 | 时间被丢弃、直接跳到稳态残留之前 | 同上 |
 
-冻结函数体：
+冻结函数体（★ 2026-09-22 起**总是刷新快照**，不再短路）：
 
 ```cpp
-if (RecoilState.bRecoveryCoverApplied)      // 额度已用尽
-{
-    RecoilState.RecoveryCompensationPitch = 0.0f;   // 本次（中途）回正不再重复抵扣
-    RecoilState.RecoveryCompensationYaw   = 0.0f;
-    return;
-}
+// 旧版这里有 if (RecoilState.bRecoveryCoverApplied) { 置 0; return; } 的短路 —— 已删除。
+// 那是 P14 增量公式（峰值×Ratio − 抵扣）时代的封口：增量式每次回正都接着上一次的余量扣，
+// 中途回正反复冻结会把同一梭的压枪量复利消费。现行公式是**绝对式**
+// 终止值 = BurstStart + min(压枪, |峰值 − BurstStart|)，每次回正从同一对锚点独立算出，
+// 反复刷新不可能重复消费 —— 短路只剩害处（§14：连发打在上一发 Drop 段时，
+// 第二次的冻结会把已生效的抵扣清回 0，相机半路被拽回基线）。
 RecoilState.RecoveryCompensationPitch = RecoilState.RecoveryCoverPitch;  // 累计量，非实时量
 RecoilState.RecoveryCompensationYaw   = RecoilState.RecoveryCoverYaw;
 RecoilState.bRecoveryCoverApplied     = true;
@@ -236,9 +239,13 @@ RecoilState.bRecoveryCoverApplied     = true;
 1. 回正目标是 `f(压枪量)`。若回正途中还读**实时**值，玩家手指再动一下目标就会改向 ——
    表现为回正在半路突然拐弯。冻结之后回正是一条确定曲线，可以被自动化测试逐点断言。
 2. 用**累计量**而非实时量：停火后玩家必然松手，实时值会缩回 0。
-3. `bRecoveryCoverApplied` 是**一梭一次的收敛**（大祥老师 2026-09-21 明确保留）：
-   连发途中的中途回正抵扣过一遍后，后续（中途）回正不再重复扣，
-   否则同一梭的压枪量会被反复消费，偏移被越扣越负。
+3. **重复冻结无害**（2026-09-22）：现行绝对式公式的锚点（`BurstStart` + 本梭累计压枪量）
+   对同一梭是**常量**，冻结一次与冻结 N 次得到的快照完全相同；
+   连发途中每发自己的 Drop 段（Settle → Drop 切换）都各冻一次，正是这一步保证
+   第 N 发的 Drop 目标里带上前 N−1 发累计的压枪量。
+4. `bRecoveryCoverApplied` 是**纯观测位**（大祥老师 2026-09-21 明确保留字段）：
+   语义 =「本梭内已经至少进入过一次回正」。它**不再参与任何控制流**，
+   供调试面板 / 测试断言用；新一轮连发（`Idle` 后开火）与 `Reset` 时清零。
 
 > 注意"冻结"发生在**停火延迟之后**：`RecoveryDelay` 之内玩家继续压的枪仍然算数。
 
@@ -435,6 +442,40 @@ const float StageCoverPitch = State.bRecoveryCoverApplied ? 0.0f : State.Recover
 
 > 历史备选方案（**未采用**）：曾计划新增 `RecoveryCompensationMaxShare`（0~1）
 > 给抵扣设"硬上限比例"，以保留一部分回正量。该方案与"压多少认多少"的期望冲突，已废弃。
+
+---
+
+## 12. 第三人称相机高度永久抬升（2026-09-22）
+
+### 12.1 Trace 结论
+
+最新实机记录中，压枪结束后 `PawnLoc.Z` 恒定、`POVLoc == StackLoc`，排除了 Pawn/Pivot 上移和
+CameraModifier/CameraShake 注入位置偏移。但裸 `ControlRotation.Pitch` 已降到约 −58.38°，
+后坐力显示偏移保留 +50.12°，最终画面只有约 −8.26°；第三人称相机端点却仍按 −58.38° 的裸角度计算，
+所以 `CamRel.Z` 从约 101 cm 升到约 393 cm，并在 Idle 后保持不变。
+
+### 12.2 根因与修复
+
+旧执行顺序：
+
+1. `ULyraCameraMode_ThirdPerson` 用裸 `ControlRotation` 求 `TargetOffsetCurve` 和相机位置；
+2. 相机模式栈完成后，`UCameraModifier_WeaponRecoil` 只给最终 POV Rotation 加后坐力；
+3. 因此位置与玩家真正看到的朝向分别由两套 Pitch 驱动。
+
+现行修复：相机模式从后坐力修改器读取 **Applied** Pitch/Yaw（包含卸枪释放衰减的真实施加值），
+使用 `ControlRotation + AppliedRecoilOffset` 统一驱动：
+
+- `TargetOffsetCurve` / RuntimeFloatCurve 的 Pitch 取值；
+- `TargetOffset` 的世界空间旋转；
+- 防穿透 SafeLocation 的瞄准线。
+
+`View.Rotation` 仍保留裸 ControlRotation，后坐力修改器随后只给最终 POV 加一次偏移，因而不会双加；
+弹道和玩家逻辑瞄准也没有被相机位置修复反向污染。
+
+### 12.3 PIE 复验
+
+开启 `Lyra.Recoil.Trace 1`，重复长连发并持续下压：最终 POV 角度规则不变；`PawnLoc` 不动时，
+`CamRel.Z` 应跟随最终 POV 的正常第三人称轨道，不再跟随裸 ControlRotation 一路升到数百厘米并冻结。
 
 ---
 

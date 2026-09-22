@@ -384,23 +384,23 @@ public:
 	float RecoveryCoverYaw = 0.0f;
 
 	/**
-	 * 本梭的累计抵扣是否**已经用在过一次回正上**。**默认 false。**
+	 * 本梭是否**已经进入过回正**。**默认 false。**
 	 *
-	 * === 为什么需要这个标志位（2026-09-21）===
+	 * === 语义（2026-09-22 更新）===
 	 *
-	 * `Interpolated` 模式下，`RecoveryDelay` 与射速间隔可能相等（`Rifle_S` 正是如此：
-	 * 射速 0.12s == `RecoveryDelay` 0.12s），于是 30 发里会触发**多次「中途中止回正」**。
+	 * 这个标志位最早（2026-09-21）是「一梭只抵扣一次」的封口：P14 时代的回正公式
+	 * `峰值 × Ratio − 抵扣` 是**增量式**，连发途中每次中途回正都把 `RecoveryCoverPitch`
+	 * 再减一遍，抵扣被逐次放大（`cover = 4` 实测 `Δ = −5.067`，见文档 §13.5.3），
+	 * 于是用它在第二次及以后的冻结里把快照置 0。
 	 *
-	 * 旧实现（无此标志）每次中途回正都扣一遍 `RecoveryCoverPitch`，而被压低的值
-	 * 又通过 `ApplyShot` 里的 `InterpBasePitch = AccumulatedPitch` 成为下一发的基底
-	 * ⇒ 抵扣被**逐次放大**。实测 `cover = 4` 时 `Δ = −5.067` 而非 `−4`（见文档 §13.5.3）。
+	 * 现行回正公式是**绝对式** `BurstStart + min(压枪, |峰值 − BurstStart|)`：
+	 * 每次回正的目标都从同一对锚点独立算出，抵扣天然只用一次、不可能复利。
+	 * 置 0 短路在这个公式下只剩害处（连发途中把整梭累计一笔清、长帧收敛丢抵扣），
+	 * 已于 2026-09-22 移除 —— 冻结改为**每次进入回正都刷新**为最新累计量
+	 * （见 FreezeCompensationForRecovery）。
 	 *
-	 * 本标志位把口径收敛成"**一梭只抵扣一次**"：
-	 *   - 首次进入回正（Accumulating→Recovering，或 Settle→Drop）时抵扣并置 true；
-	 *   - 之后同一梭内的中途回正**不再抵扣**（只做本发贡献的衰减）；
-	 *   - 新一梭 / Reset 时清零。
-	 *
-	 * 效果：`Δ` 严格等于 `−cover`，口径可手算复核。
+	 * 标志位保留，现语义为纯观测值：「本梭内已经至少进入过一次回正」，
+	 * 供调试面板与自动化测试判断中途回正是否发生过。新一梭 / Reset 时清零。
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
 	bool bRecoveryCoverApplied = false;

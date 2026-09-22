@@ -6,6 +6,7 @@
 
 #include "Camera/LyraCameraRollShake.h"
 #include "Camera/LyraCameraShakeTypes.h"
+#include "Camera/LyraCameraModifier_WeaponRecoil.h"
 #include "Curves/RichCurve.h"
 #include "UObject/Package.h"
 #include "Weapons/Recoil/LyraRecoilProfile.h"
@@ -489,6 +490,34 @@ bool FLyraRollShakeCurveTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("Zero duration/period does not produce NaN or Inf (%.6f)"), Value),
 			FMath::IsFinite(Value));
 	}
+
+	return true;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 6) Modifier chaining: recoil must not defer later camera shakes
+//////////////////////////////////////////////////////////////////////////
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilModifierChainTest, "Lyra.Recoil.RollShake.ModifierDoesNotBlockLaterEffects",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLyraRecoilModifierChainTest::RunTest(const FString& Parameters)
+{
+	UCameraModifier_WeaponRecoil* Modifier = NewObject<UCameraModifier_WeaponRecoil>();
+	if (!TestNotNull(TEXT("Weapon recoil camera modifier can be created"), Modifier))
+	{
+		return false;
+	}
+
+	Modifier->SetRecoilOffset(/*Pitch=*/2.0f, /*Yaw=*/-0.5f, /*Roll=*/0.75f);
+
+	FMinimalViewInfo POV;
+	const bool bStopModifierChain = Modifier->ModifyCamera(1.0f / 60.0f, POV);
+
+	TestFalse(TEXT("Recoil modifier leaves subsequent camera effects enabled"), bStopModifierChain);
+	TestTrue(TEXT("Pitch offset is still applied"), FMath::IsNearlyEqual(POV.Rotation.Pitch, 2.0f));
+	TestTrue(TEXT("Yaw offset is still applied"), FMath::IsNearlyEqual(POV.Rotation.Yaw, -0.5f));
+	TestTrue(TEXT("Roll offset is still applied"), FMath::IsNearlyEqual(POV.Rotation.Roll, 0.75f));
 
 	return true;
 }

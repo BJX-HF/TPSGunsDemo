@@ -367,6 +367,20 @@ Roll 是"一瞬间往复震动、幅度 < 3°"的值，归一化是多余开销�
 > 它已经完全按文档 §2.1 实现。差异分析与迁移代价见
 > → **[09_SingleShotCurveGap.md](09_SingleShotCurveGap.md)**。
 
+### 8.1 回正完成后 Roll 突跳修复（2026-09-22）
+
+实机 `Lyra.Recoil.Trace` 显示：回正完成帧自研通道已经是 `push.Roll=0`，下一帧最终
+`POV.Roll` 却突然变为约 `1.017°`，同时 `POVLoc` 与相机栈位置开始分离。说明突跳不是
+Roll 解析解或回正状态产生的，而是后续 legacy `CameraShake` 被重新放行。
+
+根因是 `UCameraModifier_WeaponRecoil::ModifyCamera()` 在存在任意后坐力偏移时返回 `true`。
+UE 的该返回值表示“停止遍历后续 CameraModifier”，导致开火期间后面的 CameraShake 不推进；
+后坐力恰好归零时函数改走 `false`，被冻结的 CameraShake 才从起点突然出现，Roll 最明显。
+
+修复后该修改器仍正常叠加 Pitch/Yaw/Roll，但始终返回 `false`，不再截断相机效果链。
+新增自动化用例 `Lyra.Recoil.RollShake.ModifierDoesNotBlockLaterEffects`，验证偏移照常施加且
+后续修改器不会被阻断。完整 `Lyra.Recoil` 回归为 **49/49 通过**。
+
 ---
 
 _本文档由祥子整理，2026-09-17。依据《FPS 相机镜头设计与实现（脱敏版）》§1/§2/§2.1/§2.2/§7。_

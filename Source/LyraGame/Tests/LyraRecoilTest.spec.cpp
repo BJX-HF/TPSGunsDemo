@@ -1008,10 +1008,14 @@ bool FLyraRecoilInterpRefireTest::RunTest(const FString& Parameters)
 }
 
 //////////////////////////////////////////////////////////////////////////
-// 插值模式用例 7：Drop 回正中再次开火必须切成全新一轮
+// 插值模式用例 7：连发途中打在上一发 Drop 段里 = 本梭继续（2026-09-22 修复）
+//
+// 旧口径（已删除）把这种情况判成"全新一轮"：BurstStart 重锚到当前抬升值、
+// 压枪账本清零 —— 实机表现为停火后偏移冻结在高处不回正（trace 冻结在 35.42°）。
+// 现行口径：只有整发时间轴走完（Idle）后的再次开火才是新一轮（用例 8）。
 //////////////////////////////////////////////////////////////////////////
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilInterpDropRefireTest, "Lyra.Recoil.Interp.RefireDuringDropStartsNewBurst",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilInterpDropRefireTest, "Lyra.Recoil.Interp.RefireDuringDropContinuesBurst",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
@@ -1038,22 +1042,27 @@ bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
 	const float CameraBeforeRefire = State.CameraOffsetPitch;
 	State.ApplyShot(Profile, 1.0f);
 
+	// ---- 本梭继续：阶段时间轴重启，但所有「梭级」账本都不得被动 ----
 	TestTrue(TEXT("Drop refire restarts interpolation at Lift"), State.InterpStage == ERecoilInterpStage::Lift);
-	TestEqual(TEXT("Drop refire resets shot index for a new burst"), State.ShotIndex, 1);
-	TestTrue(TEXT("Old recovery-cover consumption is cleared"), !State.bRecoveryCoverApplied);
-	TestTrue(TEXT("New burst starts with zero accumulated cover"),
-		FMath::IsNearlyZero(State.RecoveryCoverPitch, Tolerance));
-	TestTrue(TEXT("New burst starts with zero live clamp credit"),
-		FMath::IsNearlyZero(State.AimCompensationPitch, Tolerance));
-	TestTrue(FString::Printf(TEXT("New baseline is the exact refire point (expected %.4f, actual %.4f)"),
-		PitchBeforeRefire, State.BurstStartPitchOffset),
-		FMath::IsNearlyEqual(State.BurstStartPitchOffset, PitchBeforeRefire, Tolerance));
+	TestEqual(TEXT("Drop refire continues the shot index"), State.ShotIndex, 2);
+	TestTrue(FString::Printf(TEXT("Burst baseline is NOT re-anchored (expected 0.0, actual %.4f)"),
+		State.BurstStartPitchOffset),
+		FMath::IsNearlyZero(State.BurstStartPitchOffset, Tolerance));
+	TestTrue(FString::Printf(TEXT("Burst cover is NOT cleared (expected 0.2, actual %.4f)"),
+		State.RecoveryCoverPitch),
+		FMath::IsNearlyEqual(State.RecoveryCoverPitch, 0.2f, Tolerance));
+	TestTrue(FString::Printf(TEXT("Live clamp credit is NOT cleared (expected 0.2, actual %.4f)"),
+		State.AimCompensationPitch),
+		FMath::IsNearlyEqual(State.AimCompensationPitch, 0.2f, Tolerance));
 	TestTrue(FString::Printf(TEXT("ApplyShot itself does not jump the camera (before %.4f, after %.4f)"),
 		CameraBeforeRefire, State.CameraOffsetPitch),
 		FMath::IsNearlyEqual(State.CameraOffsetPitch, CameraBeforeRefire, Tolerance));
 
 	State.Advance(Profile, StepSeconds);
 	TestTrue(TEXT("New lift proceeds upward from the refire point"), State.CameraOffsetPitch > CameraBeforeRefire);
+	TestTrue(FString::Printf(TEXT("Logic offset also climbs past the refire point (before %.4f, after %.4f)"),
+		PitchBeforeRefire, State.AccumulatedPitch),
+		State.AccumulatedPitch > PitchBeforeRefire);
 
 	for (int32 Step = 0; Step < 120; ++Step)
 	{
@@ -1062,9 +1071,67 @@ bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("New burst converges to Idle"), State.State == ERecoilState::Idle);
 	TestTrue(TEXT("New interpolation timeline finishes"), State.InterpStage == ERecoilInterpStage::None);
-	TestTrue(FString::Printf(TEXT("New recovery returns to the refire baseline (expected %.4f, actual %.4f)"),
-		PitchBeforeRefire, State.AccumulatedPitch),
-		FMath::IsNearlyEqual(State.AccumulatedPitch, PitchBeforeRefire, 0.03f));
+	// ★ 核心回归锁：停火后偏移必须收敛到「本梭回正目标 = min(压枪量, 峰值) = 0.2」，
+	//   而不是冻结在连发途中被抬到的位置（旧 bug：冻结在重火那一刻的 0.2778）。
+	const float ExpectedSteady = 0.2f;
+	TestTrue(FString::Printf(TEXT("Recovery lands on the burst target %.4f, not the mid-Drop refire point (actual %.4f)"),
+		ExpectedSteady, State.AccumulatedPitch),
+		FMath::IsNearlyEqual(State.AccumulatedPitch, ExpectedSteady, 0.03f));
+
+	return true;
+}
+
+//////////////////////////////////////////////////////////////////////////
+// 插值模式用例 8：整发时间轴走完（Idle）后的再次开火才是真正的新一轮
+//
+// 新一轮以「上一梭的回正落点」为新零点（残留 = min(压枪量, 峰值)），
+// 这是 2026-09-20 以来「保留上一轮已经发生的镜头位移」的既定语义。
+//////////////////////////////////////////////////////////////////////////
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilInterpIdleRefireTest, "Lyra.Recoil.Interp.RefireAfterIdleStartsNewBurst",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLyraRecoilInterpIdleRefireTest::RunTest(const FString& Parameters)
+{
+	using namespace LyraRecoilTestHelpers;
+
+	ULyraRecoilProfile* Profile = MakeInterpolatedTestProfile();
+	FRecoilRuntimeState State;
+	State.Reset(Profile);
+	State.SamplePlayerAim(0.0f, 0.0f);
+	State.ApplyShot(Profile, 1.0f);
+	State.SamplePlayerAim(-0.3f, 0.0f);
+
+	// 跑完整条时间轴（Lift 6 + Rebound 6 + Settle 12 + Drop 18 = 42 步）：残留 = min(0.3, 0.5) = 0.3
+	for (int32 Step = 0; Step < 60; ++Step)
+	{
+		State.Advance(Profile, StepSeconds);
+	}
+
+	TestTrue(TEXT("First burst fully recovered to Idle"), State.State == ERecoilState::Idle);
+	const float Residual = State.AccumulatedPitch;
+	TestTrue(FString::Printf(TEXT("Residual offset = min(cover, peak) = 0.3 (actual %.4f)"), Residual),
+		FMath::IsNearlyEqual(Residual, 0.3f, Tolerance));
+
+	// 新一轮：以残留为新零点，压枪基准重锚、账本清零
+	State.ApplyShot(Profile, 1.0f);
+
+	TestEqual(TEXT("Refire after Idle resets the shot index"), State.ShotIndex, 1);
+	TestTrue(FString::Printf(TEXT("New burst baseline = previous residual (expected %.4f, actual %.4f)"),
+		Residual, State.BurstStartPitchOffset),
+		FMath::IsNearlyEqual(State.BurstStartPitchOffset, Residual, Tolerance));
+	TestTrue(TEXT("New burst cleared the old cover ledger"), !State.bRecoveryCoverApplied);
+
+	for (int32 Step = 0; Step < 60; ++Step)
+	{
+		State.Advance(Profile, StepSeconds);
+	}
+
+	// 第二梭没有再压枪（压枪基准已重锚到当前瞄准）⇒ 回正目标 = 新零点本身
+	TestTrue(TEXT("Second burst converges to Idle"), State.State == ERecoilState::Idle);
+	TestTrue(FString::Printf(TEXT("Second recovery returns to the new baseline (expected %.4f, actual %.4f)"),
+		Residual, State.AccumulatedPitch),
+		FMath::IsNearlyEqual(State.AccumulatedPitch, Residual, 0.03f));
 
 	return true;
 }

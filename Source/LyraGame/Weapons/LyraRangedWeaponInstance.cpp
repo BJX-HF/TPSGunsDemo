@@ -40,6 +40,8 @@ namespace LyraRecoilWeaponPrivate
 		bRecoilTrace,
 		TEXT("Log one line per frame comparing the offset pushed to the camera against the camera's actual POV.\n")
 		TEXT("Use it to tell 'the offset chain is broken' apart from 'the offset is applied but overwritten'.\n")
+		TEXT("Also logs camera location: final POV vs camera-stack (component) vs pawn, pawn-relative offset\n")
+		TEXT("and per-frame delta, to catch translation injected by other camera modifiers while firing.\n")
 		TEXT("Default: 0 - leave it off outside of a diagnostic session."),
 		ECVF_Default);
 }
@@ -644,7 +646,17 @@ void ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()
 	//   push  = 本帧推给相机修改器的目标（= 状态层的补间输出 CameraOffset）
 	//   Ctrl  = 玩家的控制旋转（鼠标输入直接写的就是它，真值基准）
 	//   POV   = 相机管理器最终给出的朝向（已含相机修改器的施加结果）
-	//   delta = POV − Ctrl，即修改器**实际**作用到显示层的角度
+	//   delta = POV − Ctrl，即修改器**实际**作用到显示层的角度（UnwindDegrees 处理 ±360 环绕）
+	//
+	// 2026-09-22 追加**位置链**取证（用户反馈"开火时相机明显上移，不该只是旋转"）：
+	// 本系统的修改器只写 Rotation，位置理论上只随 Pawn / 控制旋转走。要区分"真平移"与
+	// "别的相机修改器注入的位置量"（头号嫌疑：GCN_Weapon_Rifle_Fire 播放的 Legacy CameraShake
+	// —— CS_Weapon_Fire_Rifle，自带位置震荡），再打四个量：
+	//   POVLoc   = 相机管理器最终位置（含全部修改器，渲染真值）
+	//   StackLoc = 相机组件位置（相机模式栈输出，**不含**修改器）—— POVLoc−StackLoc 就是
+	//              所有修改器合计的位置量；后坐力只写 Rotation，若这里非零，来源必然是别的修改器
+	//   PawnLoc / CamRel = Pawn 世界位置 / POVLoc 换到 Pawn 本地系（人物移动时也成立）
+	//   LocD     = POVLoc 逐帧差分（>500cm 视为瞬移/换局，重置基线）
 	//
 	// 注意 POV 是"上一帧"的结果（相机管理器的 tick 与武器 tick 不同步），
 	// 所以这里看的是趋势而不是逐帧精确对应。
@@ -655,18 +667,42 @@ void ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()
 		const FRotator POVRot = CameraManager->GetCameraRotation();
 		const FRotator CtrlRot = (TracePawn != nullptr) ? TracePawn->GetControlRotation() : FRotator::ZeroRotator;
 
+		static FVector LastPOVLoc = FVector::ZeroVector;
+		static bool bHasLastPOVLoc = false;
+
+		const FVector POVLoc = CameraManager->GetCameraLocation();
+		FVector PawnLoc = FVector::ZeroVector;
+		FVector CamRel = FVector::ZeroVector;
+		FVector StackLoc = FVector::ZeroVector;
+		if (TracePawn != nullptr)
+		{
+			PawnLoc = TracePawn->GetActorLocation();
+			CamRel = TracePawn->GetActorTransform().InverseTransformPosition(POVLoc);
+			if (const ULyraCameraComponent* TraceCamComp = TracePawn->FindComponentByClass<ULyraCameraComponent>())
+			{
+				StackLoc = TraceCamComp->GetComponentLocation();
+			}
+		}
+		const FVector LocD = (bHasLastPOVLoc && FVector::DistSquared(POVLoc, LastPOVLoc) < FMath::Square(500.0f))
+			? (POVLoc - LastPOVLoc)
+			: FVector::ZeroVector;
+		LastPOVLoc = POVLoc;
+		bHasLastPOVLoc = true;
+
 		UE_LOG(LogLyraRecoilWeapon, Log,
-			TEXT("[RecoilTrace] enable=%d mode=%s state=%d stage=%d | push=(%.4f,%.4f) | Ctrl=(%.3f,%.3f) POV=(%.3f,%.3f) delta=(%.4f,%.4f) | aimBase=%.3f aimNow=%.3f pushComp=%.3f | cover=%.3f coverUsed=%.3f applied=%d | peak=(%.3f,%.3f) acc=(%.3f,%.3f)"),
+			TEXT("[RecoilTrace] enable=%d mode=%s state=%d stage=%d | push=(%.4f,%.4f,%.4f) | Ctrl=(%.3f,%.3f) POV=(%.3f,%.3f,%.3f) delta=(%.4f,%.4f,%.4f) | aimBase=%.3f aimNow=%.3f pushComp=%.3f | cover=%.3f coverUsed=%.3f applied=%d | peak=(%.3f,%.3f) acc=(%.3f,%.3f) | POVLoc=(%.2f,%.2f,%.2f) StackLoc=(%.2f,%.2f,%.2f) PawnLoc=(%.2f,%.2f,%.2f) CamRel=(%.3f,%.3f,%.3f) LocD=(%.3f,%.3f,%.3f)"),
 			ULyraRecoilDebug::IsRecoilEnabled() ? 1 : 0,
 			(RecoilProfile != nullptr && RecoilProfile->IsInterpolatedSingleShot()) ? TEXT("Interpolated") : TEXT("InstantWrite"),
 			static_cast<int32>(RecoilState.State),
 			static_cast<int32>(RecoilState.InterpStage),
 			RecoilState.GetCameraPitchOffset(),
 			RecoilState.GetCameraYawOffset(),
+			RecoilState.GetCameraRollOffset() * ULyraRecoilDebug::GetRollShakeScale(),
 			CtrlRot.Pitch, CtrlRot.Yaw,
-			POVRot.Pitch, POVRot.Yaw,
-			POVRot.Pitch - CtrlRot.Pitch,
-			POVRot.Yaw - CtrlRot.Yaw,
+			POVRot.Pitch, POVRot.Yaw, POVRot.Roll,
+			FMath::UnwindDegrees(POVRot.Pitch - CtrlRot.Pitch),
+			FMath::UnwindDegrees(POVRot.Yaw - CtrlRot.Yaw),
+			FMath::UnwindDegrees(POVRot.Roll - CtrlRot.Roll),
 			// ↓ 2026-09-21 追加：压枪量链路（排查"回正有没有按玩家压枪量扣"）
 			RecoilState.AimPitchAtBurstStart,
 			RecoilState.SampledAimPitch,
@@ -677,7 +713,13 @@ void ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()
 			RecoilState.RecoveryPeakPitch,
 			RecoilState.RecoveryPeakYaw,
 			RecoilState.AccumulatedPitch,
-			RecoilState.AccumulatedYaw);
+			RecoilState.AccumulatedYaw,
+			// ↓ 2026-09-22 追加：位置链取证（排查"开火时相机是否真的在平移、是谁在动它"）
+			POVLoc.X, POVLoc.Y, POVLoc.Z,
+			StackLoc.X, StackLoc.Y, StackLoc.Z,
+			PawnLoc.X, PawnLoc.Y, PawnLoc.Z,
+			CamRel.X, CamRel.Y, CamRel.Z,
+			LocD.X, LocD.Y, LocD.Z);
 	}
 }
 

@@ -37,21 +37,19 @@ namespace LyraRecoilStatePrivate
 	 *   2. 插值模式：Settle → Drop（Drop 段就是回正本身）
 	 *   3. 长帧保护：时间被丢弃后直接跳到稳态残留
 	 *
-	 * ★ 2026-09-21：本函数同时负责「一梭只抵扣一次」的收敛 ——
-	 *   若 `bRecoveryCoverApplied` 已为 true，说明本梭的抵扣额度已经用掉了，
-	 *   这次的（中途）回正**不再重复抵扣**，把 `RecoveryCompensationPitch` 置 0。
-	 *   原因见 `bRecoveryCoverApplied` 的注释。
+	 * ★ 2026-09-22：每次进入回正都**刷新**快照为最新的累计压枪量，不再做
+	 *   「额度已用尽 → 置 0」的短路。旧短路属于 P14 `峰值×Ratio − 抵扣` 增量
+	 *   公式时代（那时每次回正把抵扣再减一遍、会复利放大，需要标志位封口，
+	 *   见 11_BurstAccumulationFix.md §13.5.3）；现行绝对式公式
+	 *   `BurstStart + min(压枪, |峰值−BurstStart|)` 下，每次回正的目标都是从
+	 *   同一对锚点独立算出的绝对值，抵扣天然只用一次，反复冻结**不可能**放大。
+	 *   旧短路在此公式下只剩害处：连发途中第二发的 Drop 目标退化成 BurstStart
+	 *   （整梭累计被一笔清、相机在连发途中被猛拉回基线）；长帧保护落在 Drop
+	 *   途中时把已冻结好的抵扣清零、稳态收敛丢掉压枪量。
+	 *   标志位保留，语义改为「本梭已经进入过回正」的观测值（调试面板/测试用）。
 	 */
 	static void FreezeCompensationForRecovery(FRecoilRuntimeState& RecoilState)
 	{
-		if (RecoilState.bRecoveryCoverApplied)
-		{
-			// 抵扣额度已用完：本次回正只衰减本发贡献，不再扣累计压枪量。
-			RecoilState.RecoveryCompensationPitch = 0.0f;
-			RecoilState.RecoveryCompensationYaw = 0.0f;
-			return;
-		}
-
 		// 用累计量而非实时量 —— 停火后玩家必然松手，实时值会缩回 0。
 		RecoilState.RecoveryCompensationPitch = RecoilState.RecoveryCoverPitch;
 		// ★ 2026-09-21：水平轴改用**自己的**累计量。
@@ -808,11 +806,30 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 		return false;
 	}
 
-	// 回正中再次开火时，上一轮回正立即作废；当前偏移成为新一轮的零点。
-	// 插值模式的 Drop 就是可见回正段，虽然外层 State 仍为 Accumulating，也必须按新一轮处理。
-	const bool bRefireDuringRecovery =
-		(State == ERecoilState::Recovering) ||
-		(Profile->IsInterpolatedSingleShot() && (InterpStage == ERecoilInterpStage::Drop));
+	// 只有「本梭已经彻底结束」后的再次开火才算新一轮：
+	//   · Idle       —— 上一梭回正已完成，残留偏移就是它的落点；
+	//   · Recovering —— InstantWrite 的整梭回正进行中再次扣扳机（既有口径，保持不变）。
+	//
+	// ★ 2026-09-22 修复：插值模式「打在上一发的 Drop 段里」不再算回正中重开火。
+	//
+	//   旧口径把 `InterpStage == Drop` 也当新梭。但插值模式每发自带
+	//   Lift→Rebound→Settle→Drop 时间轴，发与发的间隔只要抖过 Lift+Rebound+Settle
+	//   总时长（Rifle_S ≈ 0.195s > 射速 0.12s，全自动下常发生），下一发就会落进
+	//   上一发的可见回正段 ⇒ 连发途中被反复误判成"新梭"，每次都：
+	//     1. BurstStartPitchOffset 重锚到当前抬升值 → 回正目标被抬高，停火后
+	//        偏移冻结在高处（实机 trace：冻结在 35.42°，而非回到基线）；
+	//     2. 清零累计压枪量与压枪基准 → 一路压 ~13° 被算成 33°；
+	//     3. 上限 = BurstStart + MaxVerticalKick 随重锚一路上抬 → 偏移冲到
+	//        40.29°（远超资产的 15°）；
+	//     4. ShotIndex 清零 → 弹道爬升曲线每发重新起步。
+	//   四个症状共用这一个根因，实机 trace 全部坐实（11_BurstAccumulationFix.md §14）。
+	//
+	//   新口径：这种情况 = 本梭继续。旧口径想保证的两件事都不依赖"新梭"：
+	//   上一发的 Drop 被本发的 Lift 立即接管（旧回正不会继续拉镜头），本发的
+	//   InterpBase = 当前偏移（补间输出无跳变，见下方插值分支）。
+	//   真正的新一轮只发生在整发时间轴走完（Drop 收尾 → Idle）之后 —— 那时
+	//   偏移已收敛到本梭回正目标，以它为新零点正是 2026-09-20 的既定语义。
+	const bool bRefireDuringRecovery = (State == ERecoilState::Recovering);
 	const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecovery;
 	if (bStartsNewBurst)
 	{

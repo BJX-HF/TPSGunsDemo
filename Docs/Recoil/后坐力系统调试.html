@@ -1342,15 +1342,16 @@ Docs/Recoil/Tools/run-all-checks.ps1   编译 → 资产 → Golden → 测试�
   <tr><th>字段</th><th>是什么</th></tr>
   <tr><td><code>PushComp P / Y</code></td><td>实时压枪量：相对本轮第一发，你把准星往后坐力反方向拉了多少度。往下压 / 往左拉为正</td></tr>
   <tr><td><code>CoverUsed P / Y</code></td><td>进入回正时冻结的抵扣额度 —— <strong>回正目标真正用的是它</strong>。与本梭累计压枪量同源</td></tr>
-  <tr><td><code>Applied</code></td><td>"本梭抵扣额度是否已用掉"（<code>Y</code> / <code>N</code>）。<code>Y</code> 之后再触发的回正<strong>不再重复抵扣</strong>（防连发中途反复扣）</td></tr>
+  <tr><td><code>Applied</code></td><td>"本梭内是否已经进入过至少一次回正"（<code>Y</code> / <code>N</code>）—— 纯观测位（2026-09-22 起）。现行 <code>min()</code> 公式下重复冻结无害，它<strong>不再控制任何行为</strong>，只供看板/测试断言用</td></tr>
   <tr><td><code>AimNow</code></td><td>最近一次采样到的 <code>ControlRotation</code>，真值基准</td></tr>
 </table>
 
 <div class="box warn">
   <span class="t">四条容易被当成 bug 的行为（都是刻意的）</span>
-  ① <strong>抵扣额度一梭只扣一次。</strong>插值模式下<code>RecoveryDelay</code>可能撞上射速间隔，
-     触发多次"中途中止回正"；旧实现每次都扣一遍，抵扣被逐次放大（<code>cover=4</code> 时实测 <code>Δ=−5.067</code> 而非 <code>−4</code>）。
-     现在由 <code>Applied</code> 标志收敛为"一次"。<br>
+  ① <strong>中途回正不会把抵扣放大。</strong>插值模式下<code>RecoveryDelay</code>可能撞上射速间隔，
+     触发多次"中途中止回正"；旧增量公式每次都扣一遍（<code>cover=4</code> 时实测 <code>Δ=−5.067</code> 而非 <code>−4</code>）。
+     现行 <code>min()</code> 绝对公式下每次回正从同一对锚点独立算出，重复冻结天然无害（2026-09-22 起短路已删，
+     <code>Applied</code> 只做观测）。<br>
   ② <strong>压枪量只在"开始回正"那一刻冻结。</strong><code>RecoveryDelay</code> 之内继续压的枪算数；
      回正开始之后再动鼠标<strong>不会改变落点</strong>。<br>
   ③ <strong>连续多轮开火时，压枪量会一轮一轮垒进残留偏移</strong>，顶到

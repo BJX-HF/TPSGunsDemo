@@ -133,5 +133,9 @@ bool UCameraModifier_WeaponRecoil::ModifyCamera(float DeltaTime, FMinimalViewInf
 	InOutPOV.Rotation.Pitch = FRotator::NormalizeAxis(InOutPOV.Rotation.Pitch);
 	InOutPOV.Rotation.Yaw = FRotator::NormalizeAxis(InOutPOV.Rotation.Yaw);
 
-	return true;
+	// This modifier is additive and must not consume the camera-modifier chain.
+	// Returning true here suppressed later camera shakes while recoil was non-zero;
+	// the residual shake (most visibly Roll) then appeared in one frame as recovery
+	// reached zero and this function started returning false.
+	return false;
 }
