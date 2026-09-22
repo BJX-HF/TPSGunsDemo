@@ -560,7 +560,7 @@ D:\TPSGunsDemo\TPSGunsDemo\Docs\RecoilDevelopmentPlan.md
 | **P8** | **相机镜头 Roll 震屏 + 镜头模式** | **待验收** | ✅ 编译 + 5 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/08_CameraRollShake.md](Recoil/08_CameraRollShake.md) |
 | **P9** | **单发插值模型（InstantWrite / Interpolated 两套并存）** | **待验收** | ✅ 编译 + 6 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/10_SingleShotInterpolation.md](Recoil/10_SingleShotInterpolation.md) |
 | **P10** | **连发累积失效修复（Interpolated 锚点）**（云端） | **待 PIE 手测** | ✅ 编译 + 全绿 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/11_BurstAccumulationFix.md](Recoil/11_BurstAccumulationFix.md)。**回正目标的计算已由 P11 接管**（2026-09-20 合并决定：回正相关以本次实现为主），本条保留为根因分析与连发锚点的记录 |
-| **P11** | **回正扣减压枪量**（本次，**回正计算的权威实现**） | **待验收** | ✅ 7 个 `Lyra.Recoil.Compensation.*` 用例 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/11_RecoveryCompensation.md](Recoil/11_RecoveryCompensation.md)。两轴同规则 + `bCompensationAwareRecovery` 总开关；与 P10/P12/P14 同源，代码**只走这一条** |
+| **P11** | **回正扣减压枪量**（本次，**回正计算的权威实现**） | **待验收** | ✅ 8 个 `Lyra.Recoil.Compensation.*` 用例；全量 45/45 | ⏳ 待确认 | 2026-09-22 | 见 [Recoil/11_RecoveryCompensation.md](Recoil/11_RecoveryCompensation.md)。现行目标 `min(P,K)`：未压住回起枪点，压过头保留 `K−P`；代码**只走这一条** |
 | **P12** | **垂直钳制实时抵扣压枪量** | **待 PIE 手测** | ✅ 编译 + 37/37 全绿 | ⏳ 待确认 | 2026-09-20 | 同上 §12（编号未占 P11）；钳制口径仍成立，回正目标部分由 P11 提供 |
 | **P13** | **散布并入后坐力配置表（姿态-角度直接模型）** | **待 PIE 手测** | ✅ 编译 + 37/37 全绿 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/12_SpreadInProfile.md](Recoil/12_SpreadInProfile.md)；验收请求 [Recoil/Acceptance/P13_验收请求.md](Recoil/Acceptance/P13_验收请求.md) |
 

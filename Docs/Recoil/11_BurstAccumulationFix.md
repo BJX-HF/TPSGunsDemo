@@ -626,17 +626,18 @@ rm -rf Intermediate/Build/Win64/UnrealEditor/Inc/LyraGame
 > ### ⚠️ 本节描述的公式已被 **§13.10 → §13.11** 两次修订取代
 >
 > §13.0 ~ §13.9 记录的是 **P14 阶段**（`T = ...× RecoilReturnRatio − RecoveryCoverPitch`）。
-> 2026-09-21 经过两次修订，现行口径定型为：
+> 2026-09-21 经过两次修订；2026-09-22 又按压过头需求完成第三次定型：
 >
 > ```
-> T = 本梭累计压枪量          ← 峰值不参与、无 clamp、无 Ratio、无地板
+> T = min(本梭累计压枪量, 本轮峰值)  ← 峰值仅作上限、无 Ratio、无地板
 > ```
 >
 > - **§13.10**：删掉 `RecoilReturnRatio`，一度改为 `T = 峰值 − 压枪量`（⚠️ 后证方向有误 ⇒ 实机"看地板"）
-> - **§13.11**：**现行权威** —— 目标式改为 `本梭累计压枪量`，并修掉 Drop 段冻结 bug
+> - **§13.11**：历史第二版 —— 目标式改为 `本梭累计压枪量`，并修掉 Drop 段冻结 bug
+> - **2026-09-22 第三版**：目标式改为 `min(累计压枪量, 本轮峰值)`；压过头保留 `K−P`
 >
 > 本节保留为**设计沿革记录**（P14 的推导、接线三坑、数值证据都仍然有效且有价值）；
-> 但"当前行为"一律以 **§13.11** 为准。
+> 但"当前行为"一律以 [11_RecoveryCompensation.md](11_RecoveryCompensation.md) 为准。
 
 ### 13.0 一句话
 
@@ -1221,8 +1222,8 @@ dotnet.exe "E:/UE_5.8/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll
 
 ---
 
-_本文档由祥子整理，2026-09-20；§13.9 追加于 2026-09-21；§13.10 删 Ratio；**§13.11 口径二次修正于 2026-09-21（目标式 → 累计压枪量 + 修 Drop 段冻结）**。_
+_本文档由祥子整理，2026-09-20；§13.9 追加于 2026-09-21；§13.10 删 Ratio；§13.11 于 2026-09-21 修正方向和 Drop；2026-09-22 压过头规则定型。_
 _修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣（P14 → §13.10 字面减法 → §13.11 累计压枪量）。_
 _根因一句话：回弹/回正锚在绝对峰值 → 连发几何衰减；修复：锚在「基底 + 本发幅度」，两模式在 `InstantWrite` 下逐位等价。_
-_**终版一句话：回正目标 = 本梭累计压枪量**（峰值不参与、无 clamp、无 Ratio、无地板）⇒ 屏幕精确回到开枪前。_
+_**现行一句话：回正目标 = min(本梭累计压枪量, 本轮峰值)** ⇒ 未压住时回到开枪前，压过头时保留超压角度。_
 _相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、[11_RecoveryCompensation.md](11_RecoveryCompensation.md)（**现行权威口径**）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_

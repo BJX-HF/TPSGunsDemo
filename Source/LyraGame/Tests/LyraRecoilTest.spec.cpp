@@ -462,8 +462,6 @@ bool FLyraRecoilStateRefireTest::RunTest(const FString& Parameters)
 		State.ApplyShot(Profile, 1.0f);
 	}
 
-	const int32 ShotIndexBeforeRecovery = State.ShotIndex;
-
 	// 推进到 Recovering 中途：0.3s > RecoveryDelay(0.1)，但回正只走完一半（RecoveryTime = 0.4）
 	constexpr int32 StepsToRecovering = 18;   // 0.3s
 	for (int32 Step = 0; Step < StepsToRecovering; ++Step)
@@ -481,7 +479,11 @@ bool FLyraRecoilStateRefireTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("ApplyShot during recovery succeeded"), State.ApplyShot(Profile, 1.0f));
 
 	TestTrue(TEXT("State returns to Accumulating"), State.State == ERecoilState::Accumulating);
-	TestEqual(TEXT("ShotIndex keeps counting within the same burst"), State.ShotIndex, ShotIndexBeforeRecovery + 1);
+	TestEqual(TEXT("Refire starts a new burst at shot 1"), State.ShotIndex, 1);
+	TestTrue(
+		FString::Printf(TEXT("New burst baseline equals the refire point (expected %.4f, actual %.4f)"),
+			PitchBeforeRefire, State.BurstStartPitchOffset),
+		FMath::IsNearlyEqual(State.BurstStartPitchOffset, PitchBeforeRefire, Tolerance));
 	TestTrue(
 		FString::Printf(TEXT("No jump: AccumulatedPitch == before + one kick (expected %.4f, actual %.4f)"),
 			PitchBeforeRefire + ExpectedVerticalPerShot, State.AccumulatedPitch),
@@ -496,8 +498,9 @@ bool FLyraRecoilStateRefireTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("State returns to Idle after the second recovery"), State.State == ERecoilState::Idle);
 	TestTrue(
-		FString::Printf(TEXT("Second recovery steady state == 0 (no compensation) (actual %.4f)"), State.AccumulatedPitch),
-		FMath::IsNearlyZero(State.AccumulatedPitch, Tolerance));
+		FString::Printf(TEXT("Second recovery returns to the refire point (expected %.4f, actual %.4f)"),
+			PitchBeforeRefire, State.AccumulatedPitch),
+		FMath::IsNearlyEqual(State.AccumulatedPitch, PitchBeforeRefire, Tolerance));
 
 	return true;
 }
@@ -1003,16 +1006,80 @@ bool FLyraRecoilInterpRefireTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+//////////////////////////////////////////////////////////////////////////
+// 插值模式用例 7：Drop 回正中再次开火必须切成全新一轮
+//////////////////////////////////////////////////////////////////////////
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilInterpDropRefireTest, "Lyra.Recoil.Interp.RefireDuringDropStartsNewBurst",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
+{
+	using namespace LyraRecoilTestHelpers;
+
+	ULyraRecoilProfile* Profile = MakeInterpolatedTestProfile();
+	FRecoilRuntimeState State;
+	State.Reset(Profile);
+	State.SamplePlayerAim(0.0f, 0.0f);
+	State.ApplyShot(Profile, 1.0f);
+	State.SamplePlayerAim(-0.2f, 0.0f);
+
+	// Lift 6 + Rebound 6 + Settle 12 后进入 Drop，再推进 4 步确保正在可见回正。
+	for (int32 Step = 0; Step < 28; ++Step)
+	{
+		State.Advance(Profile, StepSeconds);
+	}
+
+	TestTrue(TEXT("First burst is in Drop recovery"), State.InterpStage == ERecoilInterpStage::Drop);
+	TestTrue(TEXT("First burst already froze its recovery cover"), State.bRecoveryCoverApplied);
+
+	const float PitchBeforeRefire = State.AccumulatedPitch;
+	const float CameraBeforeRefire = State.CameraOffsetPitch;
+	State.ApplyShot(Profile, 1.0f);
+
+	TestTrue(TEXT("Drop refire restarts interpolation at Lift"), State.InterpStage == ERecoilInterpStage::Lift);
+	TestEqual(TEXT("Drop refire resets shot index for a new burst"), State.ShotIndex, 1);
+	TestTrue(TEXT("Old recovery-cover consumption is cleared"), !State.bRecoveryCoverApplied);
+	TestTrue(TEXT("New burst starts with zero accumulated cover"),
+		FMath::IsNearlyZero(State.RecoveryCoverPitch, Tolerance));
+	TestTrue(TEXT("New burst starts with zero live clamp credit"),
+		FMath::IsNearlyZero(State.AimCompensationPitch, Tolerance));
+	TestTrue(FString::Printf(TEXT("New baseline is the exact refire point (expected %.4f, actual %.4f)"),
+		PitchBeforeRefire, State.BurstStartPitchOffset),
+		FMath::IsNearlyEqual(State.BurstStartPitchOffset, PitchBeforeRefire, Tolerance));
+	TestTrue(FString::Printf(TEXT("ApplyShot itself does not jump the camera (before %.4f, after %.4f)"),
+		CameraBeforeRefire, State.CameraOffsetPitch),
+		FMath::IsNearlyEqual(State.CameraOffsetPitch, CameraBeforeRefire, Tolerance));
+
+	State.Advance(Profile, StepSeconds);
+	TestTrue(TEXT("New lift proceeds upward from the refire point"), State.CameraOffsetPitch > CameraBeforeRefire);
+
+	for (int32 Step = 0; Step < 120; ++Step)
+	{
+		State.Advance(Profile, StepSeconds);
+	}
+
+	TestTrue(TEXT("New burst converges to Idle"), State.State == ERecoilState::Idle);
+	TestTrue(TEXT("New interpolation timeline finishes"), State.InterpStage == ERecoilInterpStage::None);
+	TestTrue(FString::Printf(TEXT("New recovery returns to the refire baseline (expected %.4f, actual %.4f)"),
+		PitchBeforeRefire, State.AccumulatedPitch),
+		FMath::IsNearlyEqual(State.AccumulatedPitch, PitchBeforeRefire, 0.03f));
+
+	return true;
+}
+
 //////////////////////////////////////////////////////////////////////////
 // 回正收敛到「玩家压枪量」（Docs/Recoil/11_BurstAccumulationFix.md §13）
 //
-// ★ 2026-09-21 **二次**定型口径（大祥老师拍板，最终版）：
+// ★ 2026-09-22 **三次**定型口径：
 //
-//   公式：**终止值 = 本梭累计压枪量**（= 玩家自己往下压了多少）
+//   公式：**终止值 = min(本梭累计压枪量, 本轮后坐力峰值)**
 //
 //   屏幕视角 = ControlRotation（含玩家压枪）+ 后坐力偏移，于是
 //     不压枪   ⇒ 终止值 0  ⇒ 偏移回满 ⇒ 屏幕回开枪前
-//     压 N 度   ⇒ 终止值 N  ⇒ 玩家的 Ctrl 已低了 N 度 ⇒ 屏幕同样回开枪前
+//     压 N≤K 度 ⇒ 终止值 N  ⇒ 屏幕回开枪前
+//     压 N>K 度 ⇒ 终止值 K  ⇒ 屏幕保留 K−N 的超压角度
 //
 //   ⚠ 上一版是 `峰值 − 压枪量`，屏幕 = 峰值 − 2×压枪量 ⇒ 压在真实弹道上就是**看地板**。
 //     实机 trace 坐实（DA_Recoil_Rifle_S 连发）：峰值 17.6 / 压枪 13.65
@@ -1139,16 +1206,10 @@ bool FLyraRecoilCompensationRetainsPullDownTest::RunTest(const FString& Paramete
 }
 
 /**
- * 压过头（压枪量 20° > 峰值 5°）：终止值 = 压枪量本身（20°），屏幕依旧回到开枪前。
- *
- * ★ 口径变化（2026-09-21 二次定型）：
- *   旧式 `峰值 − 压枪量` 在压过头时给 −15（偏移反向），屏幕 = −20 + (−15) = −35 ⇒ 极端看地板。
- *   现行 `压枪量` 给 +20，屏幕 = −20 + 20 = 0 ⇒ 仍然精确回到开枪前。
- *
- * 注意：压过头时偏移不是"下降"而是**上升**（从峰值 5 升到 20）。
- * 这是"屏幕必须回开枪前"这条口径的数学必然，不是笔误。
+ * 压过头（压枪量 11° > 峰值 10°）：终止偏移夹在峰值 10°，屏幕保留 −1° 超压角度。
+ * 回正绝不为了回到起枪点而反向增加后坐力偏移。
  */
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilCompensationOverPullTest, "Lyra.Recoil.Compensation.OverCompensationFollowsPull",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilCompensationOverPullTest, "Lyra.Recoil.Compensation.OverCompensationPreservesOvershoot",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FLyraRecoilCompensationOverPullTest::RunTest(const FString& Parameters)
@@ -1156,32 +1217,32 @@ bool FLyraRecoilCompensationOverPullTest::RunTest(const FString& Parameters)
 	using namespace LyraRecoilTestHelpers;
 	using namespace LyraRecoilCompensationHelpers;
 
-	constexpr float Peak = 5.0f;      // 10 发 × 0.5
-	constexpr float Pull = 20.0f;     // 远超峰值
+	constexpr float Peak = 10.0f;     // 20 发 × 0.5
+	constexpr float Pull = 11.0f;     // 比峰值多压 1°
 
 	ULyraRecoilProfile* Profile = MakeTestProfile();
 
 	FRecoilRuntimeState State;
-	RunBurstWithCompensation(State, *Profile, 10, Pull);
+	RunBurstWithCompensation(State, *Profile, 20, Pull);
 
 	AdvanceToSteady(State, *Profile);
 
 	TestTrue(TEXT("回正结束后回到 Idle"), State.State == ERecoilState::Idle);
 
-	// 终止值 = 压枪量 = 20.0
+	// 终止值不能超过本轮累计后坐力 = 10.0
 	TestTrue(
-		FString::Printf(TEXT("压过头时终止值 = 压枪量（期望 %.4f，实际 %.4f）"), Pull, State.AccumulatedPitch),
-		FMath::IsNearlyEqual(State.AccumulatedPitch, Pull, Tolerance));
+		FString::Printf(TEXT("压过头时终止值夹在峰值（期望 %.4f，实际 %.4f）"), Peak, State.AccumulatedPitch),
+		FMath::IsNearlyEqual(State.AccumulatedPitch, Peak, Tolerance));
 
-	// 屏幕 = Ctrl(−20) + 偏移(20) = 0 —— 仍精确回到开枪前
+	// 屏幕 = Ctrl(−11) + 偏移(10) = −1 —— 保留玩家压过头的 1°
 	TestTrue(
-		FString::Printf(TEXT("屏幕仍回到开枪前（−P + 偏移 = %.4f）"), -Pull + State.AccumulatedPitch),
-		FMath::IsNearlyZero(-Pull + State.AccumulatedPitch, Tolerance));
+		FString::Printf(TEXT("屏幕保留超压角度（期望 −1.0000，实际 %.4f）"), -Pull + State.AccumulatedPitch),
+		FMath::IsNearlyEqual(-Pull + State.AccumulatedPitch, -1.0f, Tolerance));
 
-	// 回正量 = 峰值 − 终止值 = 5 − 20 = −15：偏移反而**上升**（屏幕归位所需）
+	// 已经压过头，无需再回正，也不能反向抬镜头。
 	TestTrue(
-		FString::Printf(TEXT("回正量为负（偏移上升）%.4f < 0"), Peak - State.AccumulatedPitch),
-		(Peak - State.AccumulatedPitch) < 0.0f);
+		FString::Printf(TEXT("压过头时回正量为 0（实际 %.4f）"), Peak - State.AccumulatedPitch),
+		FMath::IsNearlyZero(Peak - State.AccumulatedPitch, Tolerance));
 
 	return true;
 }
@@ -1191,13 +1252,13 @@ bool FLyraRecoilCompensationOverPullTest::RunTest(const FString& Parameters)
  *
  *   设 K = 本轮峰值（枪把镜头抬高多少度）、P = 玩家压枪位移（向下为正）。
  *
- *   口径：**回正后「后坐力偏移」= P**，于是
- *         屏幕视角 = ControlRotation(−P) + 偏移(P) = 0 ⇒ 精确回到开枪前。
+ *   口径：**回正后「后坐力偏移」= min(P, K)**，于是
+ *         P≤K 时屏幕回到开枪前；P>K 时屏幕保留 K−P 的超压角度。
  *
  *   逐条含义：
  *     · 完全不压枪   P = 0  ⇒ 偏移回满到 0   ⇒ 屏幕回开枪前（回正量 = K）
  *     · 上抬 10 压 5 P = 5  ⇒ 偏移收敛到 5   ⇒ 屏幕回开枪前（回正量 = K − P = 5）
- *     · 压过头       P > K  ⇒ 偏移升到 P     ⇒ 屏幕仍回开枪前（回正量为负）
+ *     · 压过头       P > K  ⇒ 偏移保持 K     ⇒ 屏幕停在 K−P（不反向补偿）
  *
  *   ⚠ 上一版口径是 `K − P`，屏幕 = K − 2P。实机 trace（峰值 17.6 / 压枪 13.65）
  *     给出屏幕 −9.70（**看地板**）⇒ 已推翻，本用例锁死现行口径。
@@ -1220,7 +1281,7 @@ bool FLyraRecoilRecoveryContractScenariosTest::RunTest(const FString& Parameters
 		const TCHAR* Name;
 		int32 Shots;             // K = Shots × 0.5
 		float Pull;              // P
-		float ExpectedRecovery;  // 回正量 = K − P
+		float ExpectedRecovery;  // 回正量 = max(K − P, 0)
 	};
 
 	const FScenario Scenarios[] =
@@ -1228,7 +1289,8 @@ bool FLyraRecoilRecoveryContractScenariosTest::RunTest(const FString& Parameters
 		{ TEXT("上抬 5、完全不压枪"),        10,  0.0f,   5.0f },
 		{ TEXT("上抬 5、压 3"),              10,  3.0f,   2.0f },
 		{ TEXT("上抬 10、压 5（老师原例）"), 20,  5.0f,   5.0f },
-		{ TEXT("上抬 5、压过头 10"),         10, 10.0f,  -5.0f },
+		{ TEXT("上抬 5、压过头 10"),         10, 10.0f,   0.0f },
+		{ TEXT("上抬 10、压过头 11"),        20, 11.0f,   0.0f },
 	};
 
 	for (const FScenario& S : Scenarios)
@@ -1249,22 +1311,52 @@ bool FLyraRecoilRecoveryContractScenariosTest::RunTest(const FString& Parameters
 
 		TestTrue(TEXT("回正结束后回到 Idle"), State.State == ERecoilState::Idle);
 
-		// ① 回正后偏移 = 压枪量 P
-		TestTrue(
-			FString::Printf(TEXT("%s：回正后偏移 = P = %.2f（实际 %.4f）"), S.Name, P, State.AccumulatedPitch),
-			FMath::IsNearlyEqual(State.AccumulatedPitch, P, Tolerance));
+		const float ExpectedTarget = FMath::Min(P, K);
+		const float ExpectedScreen = K - P < 0.0f ? K - P : 0.0f;
 
-		// ② 屏幕视角精确回到开枪前：屏幕 = Ctrl(−P) + 偏移(P) = 0
+		// ① 回正后偏移 = min(P, K)
 		TestTrue(
-			FString::Printf(TEXT("%s：屏幕回开枪前（−P + 偏移 = %.4f）"), S.Name, -P + State.AccumulatedPitch),
-			FMath::IsNearlyZero(-P + State.AccumulatedPitch, Tolerance));
+			FString::Printf(TEXT("%s：回正后偏移 = min(P,K) = %.2f（实际 %.4f）"), S.Name, ExpectedTarget, State.AccumulatedPitch),
+			FMath::IsNearlyEqual(State.AccumulatedPitch, ExpectedTarget, Tolerance));
 
-		// ③ 回正量 = K − P（老师原例：10 − 5 = 5）
+		// ② 未压住时回到开枪前；压过头时保留 K−P。
 		TestTrue(
-			FString::Printf(TEXT("%s：回正量 = K − P = %.2f（实际 %.4f）"),
+			FString::Printf(TEXT("%s：屏幕终点期望 %.2f（实际 %.4f）"), S.Name, ExpectedScreen, -P + State.AccumulatedPitch),
+			FMath::IsNearlyEqual(-P + State.AccumulatedPitch, ExpectedScreen, Tolerance));
+
+		// ③ 回正量 = max(K − P, 0)
+		TestTrue(
+			FString::Printf(TEXT("%s：回正量 = max(K − P, 0) = %.2f（实际 %.4f）"),
 				S.Name, S.ExpectedRecovery, K - State.AccumulatedPitch),
 			FMath::IsNearlyEqual(K - State.AccumulatedPitch, S.ExpectedRecovery, Tolerance));
 	}
+
+	return true;
+}
+
+/** 垂直硬顶只约束本轮净抬升；持续压枪额度和上一轮保留偏移都不能被截掉。 */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilEffectiveLimitUsesBurstBaselineTest,
+	"Lyra.Recoil.Compensation.EffectiveLimitUsesBurstBaseline",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLyraRecoilEffectiveLimitUsesBurstBaselineTest::RunTest(const FString& Parameters)
+{
+	using namespace LyraRecoilTestHelpers;
+
+	ULyraRecoilProfile* Profile = MakeTestProfile();
+	Profile->MaxVerticalKick = 7.5f;
+
+	FRecoilRuntimeState State;
+	State.Reset(Profile);
+
+	State.AimCompensationPitch = 26.5f;
+	TestTrue(TEXT("Compression credit is not capped at one MaxVerticalKick"),
+		FMath::IsNearlyEqual(State.GetEffectiveVerticalKickLimit(*Profile), 34.0f, Tolerance));
+
+	State.BurstStartPitchOffset = 17.6f;
+	State.AimCompensationPitch = 0.0f;
+	TestTrue(TEXT("A retained prior-burst offset is outside the new burst clamp budget"),
+		FMath::IsNearlyEqual(State.GetEffectiveVerticalKickLimit(*Profile), 25.1f, Tolerance));
 
 	return true;
 }

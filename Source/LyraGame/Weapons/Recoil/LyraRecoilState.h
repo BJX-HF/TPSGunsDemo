@@ -87,7 +87,7 @@ enum class ERecoilInterpStage : uint8
  *   Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Recovering ──回正完成──► Idle
  *                      ▲                                        │
  *                      └──────────── 再次开火 ──────────────────┘
- *   注：Idle 表示"回正已完成、数值不再变化"。现行口径下回正目标是「本梭累计压枪量」，
+ *   注：Idle 表示"回正已完成、数值不再变化"。现行口径下回正目标是「min(累计压枪量, 本轮峰值)」，
  *       不压枪时偏移回满到 0、屏幕回到开枪前（不再有 RecoilReturnRatio 的比例缩放）。
  */
 USTRUCT(BlueprintType)
@@ -311,7 +311,7 @@ public:
 	/**
 	 * 进入 Recovering 时「本发开始那一刻已经累加好的偏移」（度）。
 	 *
-	 * 现行回正口径：目标 = 本梭累计压枪量（见 ComputeRecoveryTarget），
+	 * 现行回正口径：目标 = min(本梭累计压枪量, 本轮峰值)（见 ComputeRecoveryTarget），
 	 * 不再做「按比例衰减」的插值口径 —— 该字段当前仅供插值链与诊断读取。
 	 *
 	 * ★ 2026-09-20 修复引入（见 Docs/Recoil/11_BurstAccumulationFix.md）：
@@ -329,6 +329,17 @@ public:
 	/** 进入 Recovering 时的水平基底（度）。语义同 RecoveryBasePitch。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
 	float RecoveryBaseYaw = 0.0f;
+
+	/**
+	 * 本轮连发开始时已经存在的垂直偏移（度）。
+	 * 压过头后偏移可能非 0；钳制和回正必须以本值为零点，避免新一轮首发砍掉旧残留。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float BurstStartPitchOffset = 0.0f;
+
+	/** 本轮连发开始时已经存在的水平偏移（度）。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Recoil|Internal")
+	float BurstStartYawOffset = 0.0f;
 
 	/**
 	 * 本梭「累计玩家压枪量」（度，向下压枪为正，恒 ≥ 0）。回正目标要从峰值里减掉它。
@@ -563,11 +574,11 @@ public:
 	}
 
 	/**
-	 * 垂直钳制**实际生效**的上限（度）= `MaxVerticalKick + 压枪抵扣`。
+	 * 垂直钳制**实际生效**的绝对上限（度）=
+	 * `本轮起始偏移 + MaxVerticalKick + 本轮压枪量`。
 	 *
-	 * 钳制净值 `偏移 − 压枪量 ≤ MaxVerticalKick` 的等价实现。
-	 * 抵扣量夹在「1 个 MaxVerticalKick」以内，于是裸偏移的硬顶 = `2 × MaxVerticalKick` ——
-	 * 保留一个安全阀，避免本梭结束后的回正从一个离谱的值开始回落。
+	 * 等价于只钳制本轮净抬升：
+	 * `偏移 − 本轮起始偏移 − 本轮压枪量 ≤ MaxVerticalKick`。
 	 *
 	 * 定义在 .cpp：`ULyraRecoilProfile` 在本头文件里只有前向声明。
 	 */
@@ -600,27 +611,27 @@ public:
 	/**
 	 * 回正终止值的唯一实现（含累计压枪量抵扣）。
 	 *
-	 * ★ 2026-09-21 **二次**定型：口径为「**终止值 = 本梭累计压枪量**」。
+	 * ★ 2026-09-22 定型：口径为「**终止值 = min(本梭累计压枪量, 本轮后坐力峰值)**」。
 	 *
-	 *       终止值 = 本梭累计压枪量
+	 *       终止值 = sign(峰值) × min(累计压枪量, abs(峰值))
 	 *
-	 *   语义：回正把「后坐力偏移」收敛到**玩家自己压下去的量**。
+	 *   语义：回正把「后坐力偏移」收敛到 `min(玩家压枪量, 本轮后坐力峰值)`。
 	 *   因为 屏幕视角 = ControlRotation（含压枪）+ 后坐力偏移，
-	 *   偏移收敛到压枪量时屏幕正好回到开枪前 —— 不压枪回满、压 N 度也回开枪前。
+	 *   玩家没压住时屏幕正好回到开枪前；玩家压过头时不反向补偿，保留超压后的角度。
 	 *
 	 *   实机 trace 佐证（DA_Recoil_Rifle_S 连发，见 Docs/Recoil 与 memory）：
 	 *     峰值 17.600、累计压枪 13.650、玩家 Ctrl 低了 13.650
 	 *       · 旧式 `峰值 − 压枪量` = 3.950 ⇒ 屏幕 −9.700（**看地板**，错误）
 	 *       · 现行 `压枪量`       = 13.650 ⇒ 屏幕  0.000（回到开枪前，正确）
 	 *
-	 *   ⇒ **峰值不参与本式**，故形参中已无 Peak。
+	 *   例如峰值 10°、玩家压 11°：终止偏移夹在 10°，屏幕最终为 −11° + 10° = −1°。
 	 *
 	 *   历史沿革（仅供追溯，现行一律走上式）：
 	 *     · 更早：`峰值 × RecoilReturnRatio`（残留比例缩放，该字段已删除）
 	 *     · P11 ：`峰值 × Ratio + 压枪量`（加法，压枪的人停得**更高**）
 	 *     · P14 ：`峰值 × Ratio − 累计抵扣`（减法，压枪的人停得**更低**）
 	 *     · 上一版：`峰值 − 累计抵扣`（去掉了 Ratio，但方向仍错 ⇒ 压在真实弹道上"看地板"）
-	 *     · 现行：`累计压枪量`（屏幕精确回到开枪前）
+	 *     · 现行：`sign(Peak) × min(Cover, abs(Peak))`（未压住归位，压过头保留超压）
 	 *
 	 * bCompensationAwareRecovery 关闭时（或本轴不参与时）返回 0 —— 偏移完全回满。
 	 *
@@ -629,7 +640,7 @@ public:
 	 *        理由见 LyraRecoilProfile.h 里 bCompensationAwareRecoveryYaw 的注释 ——
 	 *        水平位移是"转身"不是"压枪"，且 MaxHorizontalKick 小，扣了会长期归零。
 	 */
-	static float ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float Cover,
+	static float ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float BurstStart, float Peak, float Cover,
 		bool bApplyCover = true);
 
 	// ---------------------------------------------------------------------

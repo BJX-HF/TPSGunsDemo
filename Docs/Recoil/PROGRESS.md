@@ -11,7 +11,7 @@
 > ⚠️ **编号说明**：本次与云端各自都用过「P10」。合并后按「回正相关以本次实现为主」的拍板，
 > **P11 = 本次的回正扣减压枪量**（见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md)），
 > 云端的 P10 / P12 / P14 仍保留在表里作为根因与历史记录。**现行回正目标的代码只有一套实现** ——
-> `FRecoilRuntimeState::ComputeRecoveryTarget()`，口径为 **`终止值 = 本梭累计压枪量`**（2026-09-21 第二次拍板）。
+> `FRecoilRuntimeState::ComputeRecoveryTarget()`，口径为 **`终止值 = min(累计压枪量, 本轮峰值)`**（2026-09-22 第三次拍板）。
 > 另：两把枪的 `SingleShotMode` 已统一为四段式 `Interpolated`。
 
 ---
@@ -391,11 +391,11 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P13 资产是否已重生成** | **❌ 尚未**（`Content/Weapons/Recoil/*.uasset` 仍是 09-18 时间戳）⇒ PIE 里跑的还是旧 heat 模型 |
 | **P14 新增字段** | `FRecoilRuntimeState::RecoveryCoverPitch`（本梭累计压枪量，度；**默认 `0.0f` ⇒ 零回归**） |
 | **P14 累积规则** | `Advance()` 末尾 `RecoveryCoverPitch = max(RecoveryCoverPitch, AimCompensationPitch)` —— 单调不减、停火后冻结；新一梭 / `Reset()` 清零 |
-| **★ 回正目标式（现行权威口径，2026-09-21 第二次拍板）** | `终止值 = 本梭累计压枪量` —— **峰值不参与、无 clamp、无 Ratio、无地板**。屏幕口径 `POV = ControlRotation + 偏移`（相机修改器只做 `POV.Pitch += AppliedPitch`），玩家压 P 度 ⇒ `Ctrl = −P`，把偏移收敛到 P ⇒ 屏幕**精确回到开枪前**。水平 Yaw **默认不抵扣**（`bCompensationAwareRecoveryYaw = false`） |
+| **★ 回正目标式（现行权威口径，2026-09-22 第三次拍板）** | `终止值 = min(累计压枪量 P, 本轮峰值 K)`。`P≤K` 时屏幕回到开枪前；`P>K` 时终止偏移为 K、屏幕保留 `K−P` 的超压角度（10° / 11° ⇒ −1°）。无 Ratio、无地板；水平 Yaw 默认不抵扣。 |
 | **★ 已删除字段** | `RecoilReturnRatio`（残留比例缩放）、`RecoilCompensationMinResidualRatio`（残留地板）—— 大祥老师 2026-09-21：「以后如果我没要求别做这种自以为是的设计」 |
-| **★ 场景验收（大祥老师口径）** | K = 峰值（枪把镜头抬高多少），P = 玩家压枪位移。**不压枪 ⇒ 屏幕回零（回满）**；**整体上抬 10°、只往下压 5° ⇒ 回正只回 5°**（终止值 = 5）。自动化用例 `Lyra.Recoil.Compensation.UserContractScenarios`（4 组参数化，每条断言 ① 终止值 == P ② `−P + 终止值 == 0` ③ `K − 终止值 == 期望回正量`） |
-| **⚠️ 已作废的旧场景表** | 旧文档里的 `A=+5 / B=−5 / C=−10 / D=+10` 四场景是**误记**（大祥老师 2026-09-21：「放你妈的屁，谁告诉你我是这么拍的」）。现行口径下四组**屏幕都收敛到 0**，差异体现在「回正量 = K − P」而不是「屏幕停在哪」 |
-| **★ 为什么要让峰值退出** | 只要 `终止值` 与峰值挂钩，屏幕 = `Ctrl + 终止值` 就必然偏离开枪前：<br>· `峰值 × Ratio − 压枪量` ⇒ 钳制上界 = `峰值 × Ratio`，压枪量 ≥ `峰值×(1−Ratio)` 时残留被压到 `峰值 × Ratio` 附近 ⇒ **认真压枪必然归零**；<br>· `峰值 − 压枪量` ⇒ 屏幕 = `峰值 − 2 × 压枪量` ⇒ **压得越认真屏幕越低（看地板）**；<br>· 现行 `累计压枪量` ⇒ 屏幕 = `−P + P = 0` ✅。证据见 [11_RecoveryCompensation.md §8](11_RecoveryCompensation.md) |
+| **★ 场景验收（大祥老师口径）** | K = 峰值，P = 玩家压枪位移。**P≤K ⇒ 屏幕回零**；**P>K ⇒ 屏幕停在 K−P**。自动化用例 `Lyra.Recoil.Compensation.UserContractScenarios`（5 组参数化）及 `OverCompensationPreservesOvershoot` 已覆盖 10° / 11° ⇒ −1°。 |
+| **⚠️ 已作废的旧场景表** | 旧文档里的 `A=+5 / B=−5 / C=−10 / D=+10` 四场景是历史误记。现行口径统一为：`P≤K` 时屏幕回 0；`P>K` 时屏幕保留 `K−P`。 |
+| **★ 峰值当前作用** | 峰值不参与未压住区间的回正计算，只作为压枪抵扣上限：`P≤K` 时仍是 `−P+P=0`；仅在 `P>K` 时把目标夹为 K，避免回正反向抬镜头。 |
 | **★ 本次两处修复（2026-09-21）** | **Bug B**：目标式 `峰值 − 压枪量` → `本梭累计压枪量`（移除形参 `Peak`）。**Bug A**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` —— 该标志在 `Settle→Drop` 已置 `true`，旧写法让**整个 Drop 段**目标恒为 0（acc 冻结在钳制上限 15.000 共 23 帧，收官帧瞬跳 3.950） |
 | **★ 本次验证** | 构建 `Result: Succeeded`；`Lyra.Recoil` **45/45 全绿**；5 份 Golden md5 逐位未变 |
 | ~~P14 回正目标式（历史）~~ | `T = RecoveryBase + (RecoveryPeak − RecoveryBase) × RecoilReturnRatio − RecoveryCoverPitch` —— **已被现行口径取代** |
@@ -406,7 +406,7 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P11 与 P10/P12/P14 的关系** | 同源、同一处代码；**合并后只走 P11 一套**，其余三条在表里保留为根因与历史记录 |
 | **两把枪的 `SingleShotMode`（2026-09-20 起）** | `DA_Recoil_Rifle_S` 与 `DA_Recoil_Rifle_7` **都是四段式 `Interpolated`** |
 > **⚠️ 以下 5 行是 P14 时代（`终止值 = 峰值 × Ratio − 抵扣量`）的**修复前**数值记录，仅供追溯。**
-> 现行口径是 `终止值 = 本梭累计压枪量`，`cover = 0` ⇒ 残留恒为 `0`，因此这些数字**不再描述当前行为**。
+> 现行口径是 `终止值 = min(本梭累计压枪量, 本轮峰值)`，`cover = 0` ⇒ 残留恒为 `0`，因此这些数字**不再描述当前行为**。
 > 当前行为以 `Lyra.Recoil.*` 自动化用例（45/45 全绿）与 [11_RecoveryCompensation.md §7](11_RecoveryCompensation.md) 为准。
 
 | ~~P14 `cover = 0` 等价性（历史）~~ | `Interpolated`：峰值 `4.0446` / 残留 `4.045`，与 P12 口径**逐位相同**；`InstantWrite`：峰值 `4.0000` / 残留 `0.6000`，同样逐位相同 |
@@ -607,13 +607,13 @@ Docs/Recoil/
 | 51 | **多轮连发时压枪量会一轮一轮垒进残留偏移**（顶到 `MaxVerticalKick` 后停住，不再增长） | 先按现状，等你实测 | 观感不可见（准星就是显示层），但鼠标会一轮比一轮多压一点。缓解：加一条缓慢零位衰减 / 关掉回正抵扣开关 |
 | 52 | **压枪量的冻结时机**：现在是"开始回正那一刻"（= 停火超过 `RecoveryDelay`）。若玩家在这 0.12~0.18s 内把枪抬回去，压枪量会缩水 → 回正又把你压的量还回来 | 先按现状（玩家通常保持下压姿态不动，鼠标是位置量不是弹簧） | 更稳的做法：改成**按本梭取峰值**（`max` 单调不减，仿 P14 的 `RecoveryCoverPitch` 思路），或冻结在"最后一发"。要做的话 `Compensation.*` 里 3 个用例的喂数方式要跟着改 |
 | 53 | **两把枪统一四段式后，时间轴是否分开调** | 目前两把共用 `0.045 / 0.030 / 0.72`（射速相同） | 想让"重枪更沉"就各改各的 `LiftDuration` |
-| 54 | ~~**Pitch 轴"压枪量必然吃满 ⇒ 回正归零"要不要修**~~ | ✅ **2026-09-21 已彻底解决（两次修正）**：先删 `RecoilReturnRatio`，再于第二次拍板把目标式定型为 `终止值 = 本梭累计压枪量` | 目标式只要与峰值挂钩就必然偏离开枪前：`峰值 × Ratio − P` 会归零、`峰值 − P` 会**看地板**。现行式让峰值退出 ⇒ 屏幕 = `Ctrl(−P) + 偏移(P) = 0`，**精确回到开枪前**。根因与实机 trace 证据见 [11_RecoveryCompensation.md §8](11_RecoveryCompensation.md) |
+| 54 | ~~**Pitch 轴"压枪量必然吃满 ⇒ 回正归零"要不要修**~~ | ✅ **2026-09-21 已解决**：删 `RecoilReturnRatio` 并修正抵扣方向 | `P≤K` 区间仍按 `偏移=P` 精确回到开枪前；2026-09-22 仅为 `P>K` 增加峰值上限，避免压过头时反向补偿。根因见 [11_RecoveryCompensation.md §8](11_RecoveryCompensation.md) |
 | 55 | ~~**P11/P12/P14 三条压枪抵扣链的接线**~~ | ✅ **2026-09-21 全部接完**（P11 摘除、P14 生效、P12 钳制链连通） | 接线时暴露 **3 个 bug**：① 压枪量两份平行实现（`SamplePlayerAim` vs 武器实例）⇒ 收敛为唯一定义点；② 累计点位置错 ⇒ 插值模式抵扣恒 0；③ `Accumulating` 分支对插值模式双重冻结 ⇒ 抵扣被清回 0。完整记录见 [11_BurstAccumulationFix.md §13.9](11_BurstAccumulationFix.md) |
 | 56 | **`bCompensationAwareRecoveryYaw` 默认值** | 保持 `false`（水平轴不抵扣） | 现在这个开关**真的可用了**（修掉了"打开也不生效"的硬编码 0）。若要试两轴同规则，勾上即可 —— 但预期水平回正会长期贴近 0（门槛仅 1.7°） |
 | 57 | ~~**`RecoilCompensationMinResidualRatio` 默认值**~~ | ✅ **2026-09-21 字段已删除** | 该开关属于"不被要求的额外设计"。现行口径：无地板、无 clamp |
 | 58 | ~~**回正终值方向错 ⇒ 实机"看地板"**~~ | ✅ **2026-09-21 已修（Bug B）**：`终止值 = 峰值 − 压枪量` → **`终止值 = 本梭累计压枪量`**（形参 `Peak` 一并移除） | 旧式屏幕 = `Ctrl(−P) + (峰值 − P)` = `峰值 − 2×P`。实机 trace（`DA_Recoil_Rifle_S`）：峰值 `17.600` / 压枪 `13.650` ⇒ 旧值 `3.950` ⇒ 屏幕 **−9.700**；新值 `13.650` ⇒ 屏幕 **0.000** |
 | 59 | ~~**插值模式 Drop 段偏移冻结、收官帧瞬跳**~~ | ✅ **2026-09-21 已修（Bug A）**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` | 该标志在 `Settle→Drop` 处已置 `true`，旧写法让**整个 Drop 段**目标恒为 0 ⇒ `acc` 冻结在钳制上限 **15.000** 共 **23 帧**，收官帧瞬跳到 `3.950`（屏幕 `+2.75 → −8.30`）。用 `Lyra.Recoil.Trace 1` 抓到。修后 Drop 段平滑收敛，终点与收官值同源 |
-| 60 | **压过头（`P > K`）时偏移会升到峰值之上**（`回正量 = K − P < 0`，Drop 段相机向上补一段） | **暂按现状锁死**（`OverCompensationFollowsPull` 断言终止值 = 20.0） | 屏幕口径仍自洽（`−P + P = 0`），但要改观感有 3 条路：① `Cover` 上限取 `min(Cover, Peak)` ② 压过头走退化路径 ③ 维持现状（实战 `P ≈ K`）。**需你拍板**，见 [11_RecoveryCompensation.md §10](11_RecoveryCompensation.md) |
+| 60 | ~~**压过头（`P > K`）时偏移会升到峰值之上**~~ | ✅ **2026-09-22 已按需求修复**：目标值取 `min(P,K)` | 压过头时不再反向抬镜头；屏幕保留 `K−P`。例：K=10°、P=11° ⇒ −1°。由 `OverCompensationPreservesOvershoot` 锁定。 |
 
 ### P7 新增待拍板（两把步枪落地带来的）
 
