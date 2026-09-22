@@ -116,11 +116,13 @@ struct FRecoilPatternPoint
 	GENERATED_BODY()
 
 	/** 归一化水平偏移，右为正，[-1, 1] */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ClampMin = "-1.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ClampMin = "-1.0", ClampMax = "1.0",
+		ToolTip = "归一化水平偏移（右为正，-1~1）。实际水平偏移 = 本值 × RecoilPerShot_Horizontal。"))
 	float X = 0.0f;
 
 	/** 归一化垂直偏移，上为正，[0, 1] */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0",
+		ToolTip = "归一化垂直偏移（上为正，0~1）。实际抬枪角度 = 本值 × RecoilPerShot_Vertical；0 = 这一发不抬枪。"))
 	float Y = 0.0f;
 
 	FRecoilPatternPoint() = default;

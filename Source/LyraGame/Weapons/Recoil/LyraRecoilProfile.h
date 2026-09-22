@@ -29,6 +29,15 @@ class UObject;
  *
  * 单位约定：所有角度参数单位为"度"；Pitch 向上为正，Yaw 向右为正。
  *
+ * 参数备注（编辑器里鼠标悬停在参数名上看到的悬浮提示，2026-09-23 补齐）：
+ *  - 每个 UPROPERTY 都带**显式** meta = (ToolTip = "...")，那才是编辑器显示的文案。
+ *  - UHT 规则（UhtParsingScope.AddFormattedCommentsAsTooltipMetaData）：
+ *    **属性一旦有显式 ToolTip，上方注释就不再参与生成 tooltip**。
+ *    所以「改备注」要改 meta，改注释不会有任何效果。
+ *  - 上面那些长篇块注释（星号开头的 JavaDoc 风格）仍然保留，作用是代码文档，
+ *    不显示在编辑器里。
+ *  - ToolTip 里嵌的 \n 会渲染成换行；不要在里面写双引号（用「」代替）。
+ *
  * 创建方式（P1 手动验收项）：
  *  Content Browser 右键 → Miscellaneous → Data Asset → 选择 ULyraRecoilProfile。
  */
@@ -54,11 +63,13 @@ public:
 	// ---------------------------------------------------------------------
 
 	/** 每发基础垂直 Kick（度）。Pattern 的 Y 分量乘以此值得到实际抬枪角度。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "每发基础抬枪角度（度）：本发实际上抬 = Pattern 的 Y 分量 × 本值。\n调大 = 整体后坐力更猛。本值参与 Golden 基线，改完必须重导 Golden。"))
 	float RecoilPerShot_Vertical = 0.35f;
 
 	/** 每发基础水平 Kick（度）。Pattern 的 X 分量乘以此值得到实际水平偏移。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "每发基础水平偏移（度）：本发实际水平偏移 = Pattern 的 X 分量 × 本值。\n调大 = 左右摆得更宽。本值参与 Golden 基线，改完必须重导 Golden。"))
 	float RecoilPerShot_Horizontal = 0.18f;
 
 	// ---------------------------------------------------------------------
@@ -70,14 +81,16 @@ public:
 	 * X = ShotIndex（从 0 开始），Y = 垂直 Kick 倍率。
 	 * 只作用于垂直分量，水平分量不受影响（保证 P3 的 Pattern 水平严格可比对）。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Curves")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Curves",
+		meta = (ToolTip = "射击序号 → 垂直 Kick 倍率曲线（X = 第几发，从 0 起；Y = 倍率）。\n用来做「越打越强」或「前几发猛、后面软」。只作用于垂直分量，水平不受影响。\n曲线无数据时按倍率 1.0 处理（不缩放）。"))
 	FRuntimeFloatCurve VerticalKickCurve;
 
 	/**
 	 * 回正进度曲线。X = 归一化回正时间 [0,1]，Y = 回正进度 [0,1]。
 	 * 线性 (0,0)-(1,1) 为匀速回正；上凸为"快回—慢回"，下凸为"慢回—快回"。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Curves")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Curves",
+		meta = (ToolTip = "回正进度曲线（X = 归一化回正时间 0~1；Y = 已回正比例 0~1）。\n直线 = 匀速回正；上凸 = 先快后慢；下凸 = 先慢后快。曲线无数据时按线性处理。"))
 	FRuntimeFloatCurve RecoveryCurve;
 
 	// ---------------------------------------------------------------------
@@ -104,7 +117,8 @@ public:
 	 * 默认刻意保持 InstantWrite —— 既有资产、3 份 Golden 数据与 24 个自动化测试
 	 * 全部建立在瞬时写入语义上，改默认值会导致基线整体失效。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
+		meta = (ToolTip = "单发后坐力模型。\nInstant Write（默认）：开火当帧直接累加，上抬耗时 0 秒；19 份 Golden 与全部自动化测试基线建立在它上面。\nInterpolated：按阶段时长 + 曲线逐帧补间到相机，单发有「抬起来 → 掉一下 → 稳一下 → 慢慢落回」的顿挫感（当前两把步枪用的是它）。\n注意：改默认值会让既有 Golden 与自动化测试基线整体失效。"))
 	ERecoilSingleShotMode SingleShotMode = ERecoilSingleShotMode::InstantWrite;
 
 	/**
@@ -119,7 +133,8 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
 		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
-			ForceUnits = s, ClampMin = "0.0"))
+			ForceUnits = s, ClampMin = "0.0",
+			ToolTip = "【仅 Interpolated 生效】上抬段时长（秒）：从 0 抬到本发满幅所需的时间。\n调长 = 上抬更肉、更拖沓；调短 = 接近瞬时写入（短于 1/60 秒基本退化为瞬时）。\n连发注意：本值 + 回弹时长应小于射击间隔，否则每发的上抬还没走完就被下一发重置，观感变成「一直被推高」。"))
 	float LiftDuration = 0.045f;
 
 	/**
@@ -128,7 +143,8 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
 		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
-			ForceUnits = s, ClampMin = "0.0"))
+			ForceUnits = s, ClampMin = "0.0",
+			ToolTip = "【仅 Interpolated 生效】瞬时回弹段时长（秒）：上抬到顶后往回掉所用的时间。\n短促的「掉一下」，常用 0.02 ~ 0.04。"))
 	float ReboundDuration = 0.030f;
 
 	/**
@@ -141,7 +157,8 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
 		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
-			ClampMin = "0.0", ClampMax = "1.0"))
+			ClampMin = "0.0", ClampMax = "1.0",
+			ToolTip = "【仅 Interpolated 生效】回弹比例 0~1：抬到峰值后回弹到「峰值 × 本值」。\n1.0 = 不回弹（直接平稳下降）；0.7 左右最有「一顿」的手感；0 = 直接掉回零（会有明显断层，不建议）。"))
 	float ReboundRatio = 0.72f;
 
 	/**
@@ -154,7 +171,8 @@ public:
 	 * 参考文档 §2 伪码里的「按上抬曲线插值(0, 总幅度, 进度)」。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
-		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated"))
+		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
+		ToolTip = "【仅 Interpolated 生效】上抬曲线（X = 上抬段进度 0~1；Y = 上抬完成度 0~1）。\n默认先快后慢，贴近枪机冲量驱动的物理过程，低帧率下也能保住主要位移。曲线无数据时按线性处理。"))
 	FRuntimeFloatCurve LiftCurve;
 
 	/**
@@ -162,7 +180,8 @@ public:
 	 * 回弹是个短促的「掉一下」，形状不敏感，**线性即可**，不建议在这里做花样。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|SingleShot",
-		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated"))
+		meta = (EditCondition = "SingleShotMode == ERecoilSingleShotMode::Interpolated",
+		ToolTip = "【仅 Interpolated 生效】回弹曲线（X = 回弹段进度 0~1；Y = 回弹完成度 0~1）。\n回弹是个短促的「掉一下」，形状不敏感，保持线性即可。曲线无数据时按线性处理。"))
 	FRuntimeFloatCurve ReboundCurve;
 
 	// ---------------------------------------------------------------------
@@ -176,7 +195,8 @@ public:
 	 * 三段的中间段。这不是巧合：停火延迟与稳定段在语义上是同一件事
 	 * （「偏移先冻住不动，然后才开始回落」），所以本项目刻意不引入第二个参数。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ForceUnits = s, ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ForceUnits = s, ClampMin = "0.0",
+		ToolTip = "停火后延迟多久才开始回正（秒）。这段时间里偏移冻住不动，状态仍算 Accumulating。\n调大 = 「顿」得更久、回正启动更晚；它同时也是 Interpolated 模型里的「稳定段」时长（刻意没再单开一个参数）。"))
 	float RecoveryDelay = 0.15f;
 
 	/**
@@ -184,7 +204,8 @@ public:
 	 * Interpolated 模式下它是 t2 下降段（参考文档的「下降 / 回正」）的时长，
 	 * 形状由 RecoveryCurve 整形。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ForceUnits = s, ClampMin = "0.01"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery", meta = (ForceUnits = s, ClampMin = "0.01",
+		ToolTip = "回正总时长（秒），必须 > 0：镜头从当前偏移走回终值所需的时间，形状由 RecoveryCurve 整形。\n调大 = 收得更慢更黏；调小 = 更快贴回准心。"))
 	float RecoveryTime = 0.35f;
 
 	/**
@@ -214,7 +235,8 @@ public:
 	 *
 	 * 实现与验收见 Docs/Recoil/11_BurstAccumulationFix.md §13。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery",
+		meta = (ToolTip = "回正时是否把「玩家压的枪」抵扣掉（默认开）。\n开：终止偏移 = min(本梭累计压枪量, 本轮峰值) —— 压多少认多少，屏幕回到开枪前；压过头则保留超压角度。\n关：一律回满到 0，保留 A/B 对照能力。"))
 	bool bCompensationAwareRecovery = true;
 
 	/**
@@ -244,7 +266,8 @@ public:
 	 *
 	 * 实现与验收见 Docs/Recoil/11_RecoveryCompensation.md §3.3。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Recovery",
+		meta = (ToolTip = "水平（Yaw）轴是否也同样抵扣压枪量（默认关）。\n关：水平偏移一律回满到 0；压枪量照常被记录（调试面板仍能看数），只是不参与回正。\n开：两轴同规则 —— 但水平峰值上限通常只有几度，玩家转身很容易超过它，会导致水平长期不回正。"))
 	bool bCompensationAwareRecoveryYaw = false;
 
 	// ---------------------------------------------------------------------
@@ -252,11 +275,13 @@ public:
 	// ---------------------------------------------------------------------
 
 	/** 垂直累加偏移上限（度）。必须 > 0。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Clamp", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Clamp", meta = (ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "垂直累加偏移上限（度），必须 > 0：连发抬枪抬到这么多就封顶，不再继续往上。\n调大 = 长按能抬得更高。玩家压枪时会实时抵扣这个上限，所以压枪的人能多抬一点。"))
 	float MaxVerticalKick = 8.0f;
 
 	/** 水平累加偏移上限（度）。必须 > 0。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Clamp", meta = (ForceUnits = deg, ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Clamp", meta = (ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "水平累加偏移上限（度），必须 > 0：左右偏移到这么多就封顶。\n调大 = 连发时左右摆得更开。"))
 	float MaxHorizontalKick = 4.0f;
 
 	// ---------------------------------------------------------------------
@@ -264,18 +289,21 @@ public:
 	// ---------------------------------------------------------------------
 
 	/** 归一化 Pattern 点数组。索引即 ShotIndex。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern",
+		meta = (ToolTip = "归一化弹道图案点数组，索引 = 第几发（从 0 起）。\nX = 水平（右为正，-1~1），Y = 垂直（上为正，0~1）；只描述形状，实际幅度由 RecoilPerShot_Vertical / RecoilPerShot_Horizontal 缩放 —— 所以改威力不会破坏图案形状。\n本数组参与 Golden 基线，改完必须重导 Golden。"))
 	TArray<FRecoilPatternPoint> PatternPoints;
 
 	/** 固定 Pattern 覆盖的发数。必须 <= PatternPoints.Num()。超出后进入伪随机区间。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (ClampMin = "0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (ClampMin = "0",
+		ToolTip = "固定图案覆盖的发数，必须 <= PatternPoints 的长度。\n前 N 发严格按图案走，之后的发进入伪随机游走区。本值参与 Golden 基线，改完必须重导 Golden。"))
 	int32 PatternLength = 8;
 
 	/**
 	 * 固定 Pattern 之后的水平随机游走幅度（归一化单位，与 PatternPoints.X 同量纲）。
 	 * 游走累计值被 Clamp 在 [-HorizontalRandomRange, +HorizontalRandomRange]。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0",
+		ToolTip = "固定图案之后的水平随机游走幅度（归一化单位，与 PatternPoints 的 X 同量纲）：游走累计值被夹在 ± 本值内。\n调大 = 后半程更飘；0 = 完全不额外打偏。本值参与 Golden 基线。"))
 	float HorizontalRandomRange = 0.6f;
 
 	// ---------------------------------------------------------------------
@@ -287,22 +315,26 @@ public:
 	// 与上面的 Recoil|Base / Curves / Recovery 完全是两套机制，不要混着调。
 
 	/** Roll 震动总开关。关闭时本武器的 Roll 恒为 0（不影响 Pitch/Yaw）。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
+		meta = (ToolTip = "Roll 震屏总开关（画面左右歪一下的那条独立通道）。\n关闭 = 本武器 Roll 恒为 0，Pitch / Yaw 完全不受影响。"))
 	bool bEnableRollShake = true;
 
 	/** 每发的基础 Roll 振幅（度）。实际振幅 = 本值 × 连射增量 × 分段系数 × 姿态倍率。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "每发基础 Roll 振幅（度）。实际振幅 = 本值 × 连射增量 × 分段系数 × 姿态倍率。\n调大 = 开火瞬间画面歪得更明显。临时试量级可用 Lyra.Recoil.RollShake <值>，不必改资产。"))
 	float RollShake_Amplitude = 0.6f;
 
 	/** 震动总时长（秒）。超过后本发震动结束，Roll 归零。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ForceUnits = s, ClampMin = "0.01"))
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = s, ClampMin = "0.01",
+		ToolTip = "震动总时长（秒）。超过后本发震动结束、Roll 归零。"))
 	float RollShake_Duration = 0.22f;
 
 	/** 震动周期（秒）。越小抖得越快；通常落在 0.04~0.10 之间。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ForceUnits = s, ClampMin = "0.01"))
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = s, ClampMin = "0.01",
+		ToolTip = "震动周期（秒）。越小抖得越快，通常落在 0.04 ~ 0.10。"))
 	float RollShake_Period = 0.055f;
 
 	/**
@@ -311,7 +343,8 @@ public:
 	 * 0 = 完全可复现（自动化测试与 Golden 数据用 0）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ForceUnits = rad, ClampMin = "0.0", ClampMax = "3.14159"))
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = rad, ClampMin = "0.0", ClampMax = "3.14159",
+		ToolTip = "相位随机扰动（弧度）：给每次震动一个随机起始相位，避免连发时每一下都抖得一模一样。\n0 = 完全可复现 —— 自动化测试与 Golden 数据必须用 0。"))
 	float RollShake_PhaseJitter = 0.35f;
 
 	/**
@@ -319,7 +352,8 @@ public:
 	 * 线性 (0,1)-(1,0) 为匀速衰减；下凸为"先猛后缓"（更接近真实枪械的爆发后释放）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake"))
+		meta = (EditCondition = "bEnableRollShake",
+		ToolTip = "衰减曲线（X = 归一化震动时间 0~1；Y = 振幅保留比例 0~1）。\n直线 = 匀速衰减；下凸 = 先猛后缓（更接近真实枪械的爆发后释放）。"))
 	FRuntimeFloatCurve RollShake_AmplitudeCurve;
 
 	/**
@@ -327,7 +361,8 @@ public:
 	 * 绝大多数情况应保持 0。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ClampMin = "0.0", ClampMax = "1.0"))
+		meta = (EditCondition = "bEnableRollShake", ClampMin = "0.0", ClampMax = "1.0",
+		ToolTip = "衰减终值比例 0~1。0 = 震回零；大于 0 时末段保留一个稳定偏角（模拟「被压住的镜头」）。\n绝大多数情况保持 0。"))
 	float RollShake_EndAmplitudeRatio = 0.0f;
 
 	/**
@@ -336,17 +371,20 @@ public:
 	 * 用来表现"压不住枪、越打越抖"。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "连射附加振幅（度/发）：从「起始发数」起，每多打一发振幅加这么多，直到封顶。\n用来表现「压不住枪、越打越抖」。"))
 	float RollShake_AmplitudePerShot = 0.05f;
 
 	/** 连射增量的起始发数（0 起）。此前不发散，避免点射也被加抖。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ClampMin = "0"))
+		meta = (EditCondition = "bEnableRollShake", ClampMin = "0",
+		ToolTip = "连射增量的起始发数（0 起）。在这之前不额外加抖，避免点射也被加上抖动。"))
 	int32 RollShake_RampStartShot = 4;
 
 	/** 连射增量上限（度）。与 RollShake_Amplitude 相加后作为最终振幅。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableRollShake", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "连射增量上限（度）：基础振幅与本增量相加后到此封顶。"))
 	float RollShake_MaxAmplitudeBonus = 0.9f;
 
 	/**
@@ -356,7 +394,8 @@ public:
 	 * 增量是**线性叠加**（只增不减）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake"))
+		meta = (EditCondition = "bEnableRollShake",
+		ToolTip = "分段系数曲线（X = 连射序号；Y = 整体振幅倍率），用来做「前几发轻、后几发重」。\n与「每发附加振幅」的区别：本曲线是倍率（可以先降后升），那个是只增不减的线性叠加。无数据 = 恒 1.0。"))
 	FRuntimeFloatCurve RollShake_SegmentScaleCurve;
 
 	/**
@@ -364,7 +403,8 @@ public:
 	 * 用于"越打越快"（Y < 1 时周期变短、震动变急）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|RollShake",
-		meta = (EditCondition = "bEnableRollShake"))
+		meta = (EditCondition = "bEnableRollShake",
+		ToolTip = "周期分段系数曲线（X = 连射序号；Y = 周期倍率）。\nY 小于 1 = 周期变短、越打越快越急。无数据 = 恒 1.0。"))
 	FRuntimeFloatCurve RollShake_PeriodScaleCurve;
 
 	// ---------------------------------------------------------------------
@@ -372,19 +412,23 @@ public:
 	// ---------------------------------------------------------------------
 
 	/** 瞄准时的后坐力倍率。与姿态倍率相乘。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0",
+		ToolTip = "瞄准时的后坐力倍率（与姿态倍率相乘）。1.0 = 不减免；0.75 = 瞄准时只有 75%。"))
 	float PoseMultiplier_Aiming = 0.75f;
 
 	/** 站立（非蹲、非空中）倍率。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0",
+		ToolTip = "站立（非蹲、非空中）时的后坐力倍率。"))
 	float PoseMultiplier_Standing = 1.0f;
 
 	/** 蹲伏倍率。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0",
+		ToolTip = "蹲伏时的后坐力倍率。小于 1 = 蹲下更稳。"))
 	float PoseMultiplier_Crouching = 0.8f;
 
 	/** 跳跃/下落倍率。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Multipliers", meta = (ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0",
+		ToolTip = "跳跃 / 下落时的后坐力倍率。大于 1 = 空中更难控。"))
 	float PoseMultiplier_JumpingOrFalling = 1.5f;
 
 	// ---------------------------------------------------------------------
@@ -429,73 +473,86 @@ public:
 	 * 所以你可以「关掉后坐力、只调散布」做 A/B 对比。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread",
-		meta = (DisplayName = "Enable Profile Spread"))
+		meta = (DisplayName = "Enable Profile Spread",
+		ToolTip = "散布总开关（默认关）。\n关：走 Lyra 原生的 heat 散布模型，下面 Recoil|Spread 这一整组参数完全不参与计算（零回归）。\n开：改走本资产的「姿态 → 直接配角度」模型，武器实例上的 heat 三曲线被忽略（仅作回退配置保留）。\n它和「关掉后坐力」是两件事 —— 所以可以只调散布做 A/B 对比。"))
 	bool bEnableProfileSpread = false;
 
 	// ---------------- 站定（Standing）----------------
 
 	/** 站定基础散布角（度，全锥角）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "站定时的基础散布角（度，全锥角）：停火够久之后回落到的值。"))
 	float SpreadAngle_Standing = 0.35f;
 
 	/** 站定上限散布角（度，全锥角）。必须 >= SpreadAngle_Standing。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "站定时的散布上限（度，全锥角）：连射累加到这就封顶。必须 >= 基础散布角。"))
 	float MaxSpreadAngle_Standing = 2.2f;
 
 	/** 站定每发增量（度）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "站定每开一枪散布增加多少（度）。调大 = 连发掉精度掉得更快。"))
 	float SpreadAddPerShot_Standing = 0.28f;
 
 	/** 站定回落速率（度/秒）。0 = 永不下落。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Standing",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0",
+		ToolTip = "站定停火后散布回落速率（度/秒）。0 = 永不回落（永久残留）。"))
 	float SpreadRecoverRate_Standing = 2.0f;
 
 	// ---------------- 蹲伏（Crouching）----------------
 
 	/** 蹲伏基础散布角（度，全锥角）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "蹲伏时的基础散布角（度，全锥角）。"))
 	float SpreadAngle_Crouching = 0.25f;
 
 	/** 蹲伏上限散布角（度，全锥角）。必须 >= SpreadAngle_Crouching。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "蹲伏时的散布上限（度，全锥角）。必须 >= 基础散布角。"))
 	float MaxSpreadAngle_Crouching = 1.6f;
 
 	/** 蹲伏每发增量（度）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "蹲伏每开一枪散布增加多少（度）。"))
 	float SpreadAddPerShot_Crouching = 0.22f;
 
 	/** 蹲伏回落速率（度/秒）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Crouching",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0",
+		ToolTip = "蹲伏停火后散布回落速率（度/秒）。"))
 	float SpreadRecoverRate_Crouching = 2.4f;
 
 	// ---------------- 空中（JumpingOrFalling）----------------
 
 	/** 空中基础散布角（度，全锥角）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "空中（跳跃 / 下落）时的基础散布角（度，全锥角）。"))
 	float SpreadAngle_JumpingOrFalling = 2.5f;
 
 	/** 空中上限散布角（度，全锥角）。必须 >= SpreadAngle_JumpingOrFalling。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "空中时的散布上限（度，全锥角）。必须 >= 基础散布角。"))
 	float MaxSpreadAngle_JumpingOrFalling = 4.0f;
 
 	/** 空中每发增量（度）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = deg, ClampMin = "0.0",
+		ToolTip = "空中每开一枪散布增加多少（度）。"))
 	float SpreadAddPerShot_JumpingOrFalling = 0.35f;
 
 	/** 空中回落速率（度/秒）。落地后才有意义；空中通常给 0 让它不回落。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|JumpingOrFalling",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "deg/s", ClampMin = "0.0",
+		ToolTip = "空中停火后散布回落速率（度/秒）。空中一般给 0 让它不回落，落地后才有意义。"))
 	float SpreadRecoverRate_JumpingOrFalling = 0.0f;
 
 	// ---------------- 玩家侧（瞄准 / 移动）----------------
@@ -509,32 +566,38 @@ public:
 
 	/** 瞄准满时的散布倍率。实际值 = Lerp(1, 本值, AimingAlpha)，AimingAlpha 为相机混合权重。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0",
+		ToolTip = "瞄准满时的散布倍率：实际 = Lerp(1, 本值, 瞄准混合权重)。小于 1 = 瞄准更准。"))
 	float SpreadMultiplier_Aiming = 0.6f;
 
 	/** 站定（速度 <= 阈值）时的散布倍率。速度升高后线性插值到 1.0。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = x, ClampMin = "0.01", ClampMax = "5.0",
+		ToolTip = "站定（速度不超过阈值）时的散布倍率。速度升高后线性插值回 1.0。"))
 	float SpreadMultiplier_StandingStill = 0.5f;
 
 	/** 速度阈值（cm/s）。不超过它算「站定」。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "cm/s", ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "cm/s", ClampMin = "0.0",
+		ToolTip = "判定「站定」的速度阈值（cm/s）。不超过它算站定。"))
 	float SpreadStandingStillSpeedThreshold = 80.0f;
 
 	/** 阈值之上的过渡带宽（cm/s）。达到 阈值+带宽 时倍率回到 1.0。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "cm/s", ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = "cm/s", ClampMin = "0.0",
+		ToolTip = "阈值之上的过渡带宽（cm/s）：速度到「阈值 + 带宽」时倍率回到 1.0。"))
 	float SpreadStandingStillToMovingRange = 20.0f;
 
 	/** 站定倍率的过渡速率（1/FInterpTo 的 InterpSpeed）。越大越跟手，0 = 瞬时。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
-		meta = (EditCondition = "bEnableProfileSpread", ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ClampMin = "0.0",
+		ToolTip = "站定倍率的过渡速率：越大越跟手，0 = 瞬时切换。"))
 	float SpreadTransitionRate_StandingStill = 5.0f;
 
 	/** 停火后延迟多久开始回落（秒）。0 = 立即回落。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
-		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = s, ClampMin = "0.0"))
+		meta = (EditCondition = "bEnableProfileSpread", ForceUnits = s, ClampMin = "0.0",
+		ToolTip = "停火后延迟多久开始回落（秒）。0 = 立刻回落。"))
 	float SpreadRecoveryDelay = 0.0f;
 
 	/**
@@ -543,7 +606,8 @@ public:
 	 * 只在 bEnableProfileSpread == true 时生效（关闭时用武器实例上的同名旧字段）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Spread|Player",
-		meta = (EditCondition = "bEnableProfileSpread", ClampMin = "0.1"))
+		meta = (EditCondition = "bEnableProfileSpread", ClampMin = "0.1",
+		ToolTip = "散布收敛指数：1.0 = 锥内均匀分布；大于 1 = 更向中心聚拢，弹着更密集。"))
 	float SpreadExponent = 1.0f;
 
 	// ---------------------------------------------------------------------
@@ -551,11 +615,13 @@ public:
 	// ---------------------------------------------------------------------
 
 	/** 随机种子模式。自动化测试与 Golden 数据必须使用 Fixed。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Random")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Random",
+		meta = (ToolTip = "随机种子模式。\nFixed（默认）：序列完全可复现 —— 自动化测试与 Golden 数据必须用它。\nRandom：每次开火重新播种，手感更「活」但不可复现。"))
 	ERecoilRandomSeedMode RandomSeedMode = ERecoilRandomSeedMode::Fixed;
 
 	/** RandomSeedMode == Fixed 时使用的种子。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Random", meta = (EditCondition = "RandomSeedMode == ERecoilRandomSeedMode::Fixed"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Random", meta = (EditCondition = "RandomSeedMode == ERecoilRandomSeedMode::Fixed",
+		ToolTip = "Fixed 模式下使用的种子值。改它会让固定图案之后的伪随机段弹道整体变化 —— 本值参与 Golden 基线，改完必须重导 Golden。"))
 	int32 FixedRandomSeed = 20260917;
 
 public:
