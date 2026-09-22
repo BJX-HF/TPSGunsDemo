@@ -767,3 +767,14 @@ Docs/Recoil/
     回正归零后才返回 `false`，让被冻结的 CameraShake 突然开始。现已改为叠加偏移后仍返回
     `false`，并新增 `Lyra.Recoil.RollShake.ModifierDoesNotBlockLaterEffects`。整包编译通过，
     `Lyra.Recoil` **49/49 全绿**。
+13. **2026-09-23 补齐参数悬浮备注（ToolTip）。**
+    5 份 `DA_Recoil_*` 上每个参数的鼠标悬浮提示，来源是 `ULyraRecoilProfile` 的
+    `UPROPERTY(meta = (ToolTip = "..."))`，本次补齐 **57 条**（含 `Recoil|Spread` 20 条、
+    `Recoil|RollShake` 12 条、`Recoil|Pattern` 3 条、单发 6 条…）；`PatternPoints` 的数组元素
+    `FRecoilPatternPoint::X / Y` 的备注在 `LyraRecoilTypes.h`（2 条）。
+    - **UHT 规则（务必记住）**：属性一旦有显式 `ToolTip`，上方 `/** */` 注释就**不再**参与生成 tooltip
+      （`UhtParsingScope.AddFormattedCommentsAsTooltipMetaData` 开头直接 return）。
+      ⇒ **改备注要改 meta，改注释不生效**。那些长篇注释保留，只作代码文档。
+    - ToolTip 文案里嵌的 `\n` 会渲染成换行；文案里不要出现双引号（用「」代替）。
+    - 只动了 meta 文本，**没有增删属性、没有改默认值** ⇒ 反射布局、序列化、Golden 与既有测试全部不受影响。
+    - 元数据是编进 DLL 的 ⇒ 要重编；**重启编辑器后**才会重新注册（本次已整包重编）。

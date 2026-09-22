@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TPSGunsDemo 程序化枪体后座开发方案</title>
+<style>
+:root{--bg:#0c1220;--panel:#151f30;--panel2:#1b2940;--line:#30425d;--text:#e9f0f8;--muted:#aabbd0;--accent:#6ac8ff;--green:#7de0ba;--amber:#ffd18a;--red:#ff9d9d}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.75 system-ui,"Microsoft YaHei","Noto Sans CJK SC",sans-serif}a{color:var(--accent)}header{padding:52px max(24px,calc((100vw - 1240px)/2));background:linear-gradient(130deg,#17243a,#102744 62%,#132038);border-bottom:1px solid var(--line)}header .eyebrow{font-size:.82rem;color:var(--green);letter-spacing:.13em;text-transform:uppercase}h1{font-size:clamp(2rem,4vw,3.3rem);line-height:1.2;margin:.45rem 0 1rem}h2{font-size:1.65rem;margin:3.1rem 0 1rem;border-bottom:1px solid var(--line);padding-bottom:.45rem}h3{font-size:1.2rem;margin:1.9rem 0 .55rem}h4{margin:1.2rem 0 .3rem}p{margin:.6rem 0 1rem}.subtitle{max-width:860px;color:var(--muted);font-size:1.05rem}.meta{display:flex;gap:1.5rem;flex-wrap:wrap;color:var(--muted);font-size:.88rem}.layout{max-width:1320px;margin:auto;display:grid;grid-template-columns:260px minmax(0,1fr);gap:34px;padding:28px 26px 85px}nav{position:sticky;top:18px;align-self:start;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;max-height:calc(100vh - 36px);overflow:auto}nav strong{display:block;margin-bottom:8px;color:var(--green)}nav a{display:block;text-decoration:none;color:var(--muted);padding:5px 0;font-size:.9rem}nav a:hover{color:var(--text)}main{min-width:0}.card,.note{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 21px;margin:1.1rem 0}.note{border-left:4px solid var(--accent)}.warn{border-left-color:var(--amber)}.good{border-left-color:var(--green)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:12px}.grid .card{margin:0}.pill{display:inline-block;border:1px solid var(--line);border-radius:50px;padding:1px 9px;color:var(--muted);font-size:.77rem;margin-right:5px}.ok{color:var(--green)}.caution{color:var(--amber)}.bad{color:var(--red)}table{border-collapse:collapse;width:100%;font-size:.92rem;margin:1rem 0 1.5rem}th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}th{background:var(--panel2);color:var(--green)}tr:nth-child(even) td{background:#121d2e}.tablewrap{overflow:auto}code{font-family:Consolas,"Cascadia Code",monospace;background:#18283d;color:#d9e9ff;border-radius:4px;padding:.08em .32em;font-size:.9em}pre{background:#091627;border:1px solid var(--line);border-radius:12px;padding:17px;white-space:pre-wrap;word-break:break-word;line-height:1.55;overflow:auto}pre code{background:none;padding:0}ul,ol{padding-left:1.5rem}li{margin:.35rem 0}details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 16px;margin:10px 0}summary{cursor:pointer;color:var(--accent);font-weight:600}footer{border-top:1px solid var(--line);padding:24px;text-align:center;color:var(--muted);font-size:.85rem}@media(max-width:850px){.layout{display:block;padding:18px}nav{position:relative;top:auto;max-height:none;margin-bottom:22px}header{padding:34px 22px}}@media print{body{background:white;color:#1b2734}header{background:white;color:#1b2734}nav{display:none}.layout{display:block;padding:0 12mm}.card,.note,details{background:white;border-color:#aaa}th{background:#eee;color:#111}tr:nth-child(even) td{background:#f6f6f6}code,pre{background:#f4f4f4;color:#111}h2{break-after:avoid}table{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header>
+  <div class="eyebrow">Technical design · 2026-09-23</div>
+  <h1>TPSGunsDemo 程序化枪体后座开发方案</h1>
+  <p class="subtitle">在现有 Lyra 派生项目的相机与弹道后座基础上，新增枪体六自由度运动，并让双手与枪保持接触。本文是开发基线，不是已实施报告。</p>
+  <div class="meta"><span>目标项目：D:\TPSGunsDemo\TPSGunsDemo</span><span>参考项目：Procedural Weapon Animation System</span><span>交付：架构、接入点、阶段、验收</span></div>
+</header>
+<div class="layout">
+<nav aria-label="目录"><strong>目录</strong>
+<a href="#summary">1. 结论与边界</a><a href="#evidence">2. 两项目实查结果</a><a href="#architecture">3. 目标架构</a><a href="#contract">4. 数据与坐标契约</a><a href="#simulation">5. 六自由度运动算法</a><a href="#camera">6. 与现有镜头匹配</a><a href="#rig">7. 骨骼与双手 IK</a><a href="#integration">8. Lyra 接入细节</a><a href="#migration">9. 可搬运资源清单</a><a href="#debug">10. 调试工具</a><a href="#roadmap">11. 开发阶段与验收</a><a href="#risks">12. 风险与待核实项</a><a href="#references">13. 源码定位索引</a>
+</nav>
+<main>
+<section id="summary"><h2>1. 结论与边界</h2>
+<div class="note"><strong>文档存放约定：</strong>本方案及后续 Gun Kick 相关开发文档统一放在 <code>D:\TPSGunsDemo\TPSGunsDemo\Docs\gunkick开发\</code>。后续阶段文档、调参记录与验收记录可按主题在该目录内继续组织；项目原有的镜头/弹道后座文档仍可作为交叉参考。</div>
+<div class="note good"><strong>推荐路线：</strong>复用 TPSGunsDemo 已有的每发后座事件、武器预设、姿态倍率和镜头输出；新增独立的 <code>WeaponVisualRecoil</code> 状态，负责枪体位置与旋转。动画层让持枪手驱动枪，另一只手用现有 IK 贴枪。先做单机本地角色；本项目现有开发计划已明确不做联机。</div>
+<div class="grid"><div class="card"><span class="pill">继续使用</span><h3>现有系统</h3><p>相机 Pitch/Yaw、Roll 震屏、弹道 Pattern、散布、回正及压枪补偿、武器切换和调试基础设施。</p></div><div class="card"><span class="pill">新增</span><h3>视觉通道</h3><p>枪体 Pitch/Yaw/Roll + 后退/上抬/横移、快速撞击与较慢回弹、动画姿态和双手 IK。</p></div><div class="card"><span class="pill">约束</span><h3>单一开火来源</h3><p>仅在成功提交一发子弹后触发枪体脉冲；镜头、弹道和枪体共享本发索引与倍率，枪体不决定命中。</p></div></div>
+<p>“六自由度”指枪的三个旋转轴和三个平移轴；这里是<strong>相对持枪基姿态的视觉偏移</strong>，不是物理模拟，也不是再增加一次相机后坐。</p>
+</section>
+
+<section id="evidence"><h2>2. 两项目实查结果</h2>
+<h3>2.1 参考项目：可借用的实现思路</h3>
+<p>参考包是蓝图资源项目。<code>AC_ProceduralWeaponAnimationSystem</code> 包含 <code>OnFired</code>、<code>F_ProceduralRecoil</code>、<code>F_ProceduralRecoilSpring</code>、<code>F_ProceduralCameraRecoil</code>、<code>F_CombinedProcedural</code> 等函数名；<code>S_ProceduralRecoilStats_Recoil</code> 中可见后退、上抬、横移、Pitch/Yaw/Roll 的范围和倍率，另有位置、旋转独立的弹簧、回位和钳制结构。<code>ABP_FPChar</code> 使用 <code>Modify Bone</code> 与 <code>FABRIK</code>。它还提供 <code>EUW_ProceduralEditor</code>、<code>WB_PE_XYZ</code>、<code>WB_PE_FireRate</code> 等编辑器调试资源。</p>
+<p>这些信息来自资源文件中的类型、函数、变量及动画节点。由于蓝图是二进制，本次没有逐条导出节点连线；因此下面的算法是针对 TPSGunsDemo 的<strong>设计方案</strong>，不是宣称参考项目采用了完全相同的数学公式。参考项目第一人称相机、手臂骨架和射击角色蓝图不应原样接管 Lyra 流程。</p>
+<h3>2.2 TPSGunsDemo：当前真实接入点</h3>
+<div class="tablewrap"><table><thead><tr><th>现状</th><th>证据</th><th>设计含义</th></tr></thead><tbody>
+<tr><td>成功开火后调用 <code>AddRecoil()</code></td><td><code>LyraGameplayAbility_RangedWeapon.cpp:570–585</code>：<code>CommitAbility</code> 成功后依次 <code>AddSpread()</code>、<code>AddRecoil()</code></td><td>这里已经是每发视觉事件的可靠入口；不能在按键按下时单独触发。</td></tr>
+<tr><td>后座状态属于武器实例</td><td><code>LyraRangedWeaponInstance.cpp:418–458</code>：<code>RecoilState.ApplyShot</code>；<code>:466–501</code>：每帧 <code>Advance</code>，随后更新相机</td><td>视觉状态也应随当前武器装备、卸下、切换而重置。</td></tr>
+<tr><td>镜头与弹道已有各自通道</td><td><code>LyraRecoilState.h</code> 的 <code>CameraOffsetPitch/Yaw</code>、<code>RollShake</code>；<code>LyraCameraModifier_WeaponRecoil.cpp</code> 给显示相机叠偏移</td><td>枪体可读相机实际输出做弱对齐，但不得把枪体状态重新写回镜头或弹道。</td></tr>
+<tr><td>两把步枪已有独立预设</td><td><code>B_WeaponInstance_Rifle</code> 引用 <code>DA_Recoil_Rifle_S</code>；<code>B_WeaponInstance_Rifle_7</code> 使用另一预设</td><td>在同一 <code>ULyraRecoilProfile</code> 上加 Visual 子配置最利于 A/B 调参。</td></tr>
+<tr><td>武器 Actor 挂在角色骨架上</td><td><code>LyraEquipmentInstance.cpp:69–89</code> 按定义资产的 <code>AttachSocket</code> 挂接；<code>WID_Rifle</code> 的插槽是 <code>weapon_r</code></td><td>优先做“持枪手动，枪跟着动”。直接移动枪 Actor 会让手与握把脱离。</td></tr>
+<tr><td>现有动画层具备手部 IK</td><td><code>ABP_Mannequin_Base</code> 使用 <code>SkeletalControlsLayer</code>；<code>ABP_ItemAnimLayersBase</code> 有 <code>HandIKRetargeting</code>、<code>TwoBoneIK</code>、<code>ik_hand_gun</code>、<code>VB IK_Hand_L_weaponSpace</code></td><td>应在现有动画层中插入后座姿态，沿用双手控制，不复制第一人称 ABP。</td></tr>
+</tbody></table></div>
+<div class="note warn"><strong>历史文档提醒：</strong><code>Docs/RecoilDevelopmentPlan.md</code> 开头的 P0 盘点是历史基线，当时写着“缺少后座”。以现在的代码和 <code>Docs/Recoil/PROGRESS.md</code> 为准：P0–P5、镜头 Roll、单发四段插值与散布预设已经实施。新方案应作为“枪体视觉后座”增量阶段，不能重建旧系统。</div>
+</section>
+
+<section id="architecture"><h2>3. 目标架构</h2>
+<pre><code>一次成功开火（GA CommitAbility）
+  └─ ULyraRangedWeaponInstance::AddRecoil()
+      ├─ FRecoilRuntimeState::ApplyShot()       现有：镜头 / 弹道 / Roll / 历史
+      └─ VisualRecoil.ApplyShot(ShotEvent)      新增：枪体六自由度脉冲
+                         │
+每帧 WeaponInstance::Tick() ─ VisualRecoil.Advance(DeltaTime)
+                         └─ FWeaponVisualRecoilPose {LocCm, RotDeg, Alpha, ShotSerial}
+                                      │
+                      角色动画层（右手/ik_hand_gun）
+                                      │
+             weapon_r 挂载的 B_Rifle 随右手运动
+                                      │
+                     左手 IK 追枪的前握把目标</code></pre>
+<p>视觉层拆成两个频段：<strong>脉冲层</strong>表达枪的机械撞击与回弹，<strong>对齐层</strong>轻微参考镜头的实际 Pitch/Yaw/Roll 输出。前者决定手感形状，后者保证枪与镜头观感一致。两者在动画输入处组合，不能复用相机累计值作为整个枪体位移，否则长连发会把枪抬离持枪姿势。</p>
+<h3>职责边界</h3><ul><li><code>ULyraRecoilProfile</code>：存每枪的视觉参数；旧字段语义不变。</li><li><code>FWeaponVisualRecoilState</code>：纯数学状态，输入一次 ShotEvent，输出六自由度偏移；不访问骨架或 Actor。</li><li><code>ULyraRangedWeaponInstance</code>：拥有该状态，开火、每帧推进、切枪归零。</li><li>动画蓝图 / 可选的薄 C++ 桥：读取结构快照、换算到骨骼空间、处理 IK。</li><li>武器 Actor：继续负责模型、枪口与效果；不作为弹道算法的输入。</li></ul>
+</section>
+
+<section id="contract"><h2>4. 数据与坐标契约</h2>
+<p>建议在 <code>ULyraRecoilProfile</code> 新增 <code>Recoil|WeaponVisual</code> 分类，最初只为正在使用的两把步枪配置；手枪和霰弹枪待管线稳定后扩展。不要把视觉参数混入现有弹道或相机字段。</p>
+<div class="tablewrap"><table><thead><tr><th>参数组</th><th>建议字段</th><th>单位与用途</th></tr></thead><tbody>
+<tr><td>开关与强度</td><td><code>bEnableWeaponVisualRecoil</code>、<code>VisualScale</code>、<code>ADSVisualScale</code></td><td>无量纲；支持单枪关闭与瞄准倍率。</td></tr>
+<tr><td>六轴脉冲</td><td><code>KickPitch/Yaw/Roll</code>；<code>KickBack/Up/Side</code></td><td>前三项度，后三项厘米；每发的有符号目标脉冲。</td></tr>
+<tr><td>与实际后座绑定</td><td><code>PitchFromShotKick</code>、<code>YawFromShotKick</code>、<code>RollFromCameraRoll</code>、<code>AlignmentPitch/Yaw</code></td><td>基于本发实际垂直/水平 Kick 与镜头输出的映射系数。</td></tr>
+<tr><td>形状与回位</td><td><code>AttackStiffness/Damping/Mass</code>、<code>ReturnStiffness/Damping/Mass</code> 或 <code>Attack/ReturnDuration</code></td><td>位置、旋转最好各自独立；首版可用两组三维弹簧参数。</td></tr>
+<tr><td>钳制</td><td><code>MaxAbsRotation</code>、<code>MaxAbsTranslation</code>、<code>MaxAlignment</code></td><td>防止连射偏移和 IK 拉伸失控。</td></tr>
+<tr><td>姿态</td><td><code>HipMultiplier</code>、<code>ADSMultiplier</code>、<code>CrouchMultiplier</code>、<code>AirMultiplier</code></td><td>能先借用现有 <code>ComputeRecoilPoseMultiplier()</code>；如美术手感需要再独立。</td></tr>
+<tr><td>调试与运动学</td><td><code>PivotOffset</code>、<code>RightGripOffset</code>、<code>LeftGripSocket</code>、<code>LODThreshold</code></td><td>每枪模型/握把校准数据，不参与射击算法。</td></tr>
+</tbody></table></div>
+<div class="note"><strong>坐标先定再调参：</strong>UE 局部空间通常 X 向前、Y 向右、Z 向上；但 <code>weapon_r</code> 插槽及步枪资源的实际轴向必须在编辑器里画三轴确认。运行时输出统一约定为“角色/持枪基座局部空间的厘米与度”。后退/上抬/横移是设计语义，映射到具体 <code>FVector</code> 分量时由每枪的轴配置或校准矩阵决定，不能凭名称硬编码正负号。</div>
+<p>建议对每个资产保留 <code>NeutralTransform</code>，每帧由“当前基姿态 + 视觉偏移”计算最终姿态。禁止对上一帧 Actor 相对变换继续累加，避免切枪、蒙太奇或帧率变化造成漂移。</p>
+</section>
+
+<section id="simulation"><h2>5. 六自由度运动算法</h2>
+<h3>5.1 本发输入</h3><p>定义轻量 <code>FWeaponVisualShotEvent</code>：<code>ShotSerial</code>、<code>ShotIndex</code>、实际 <code>VerticalKick</code>/<code>HorizontalKick</code>、<code>PoseMultiplier</code>、<code>AimingAlpha</code>、<code>CameraRollSample</code> 和武器预设指针。每发只生成一次，使用现有后座同一个索引与随机种子。<strong>不要再随机抽一个独立的左右方向</strong>；允许小幅可复现扰动，但默认同一发向左的弹道，枪的 Yaw/横移也向相应方向。</p>
+<pre><code>ShotPitch = PitchBase + PitchFromShotKick × VerticalKick
+ShotYaw   = YawBase   + YawFromShotKick   × HorizontalKick
+ShotRoll  = RollBase  + RollFromShotYaw   × ShotYaw
+ShotBack  = BackBase  × ShotStrength
+ShotUp    = UpBase    × ShotStrength
+ShotSide  = SideBase  × sign(HorizontalKick) × ShotStrength
+ShotStrength = VisualScale × lerp(HipMultiplier, ADSMultiplier, AimingAlpha)
+               × PoseMultiplier</code></pre>
+<p>以上是可调的<strong>映射关系</strong>，不是固定数值。开火时把六轴脉冲注入目标或速度，按轴钳制；位置与旋转分别推进弹簧。连续开火允许小幅叠加，但应该保留每发的可感知冲击，不把镜头长连发的 4° 累积直接等比例复制到枪上。</p>
+<h3>5.2 两段动态</h3><ol><li><strong>撞击阶段：</strong>高响应，把枪迅速向后、向上并偏转；可以用速度冲量驱动弹簧，或使用 0→1 的 Attack 曲线。</li><li><strong>回位阶段：</strong>目标回到零偏移，阻尼略低以保留少量惯性。位置和旋转可不同速度；在下一发到来前允许尚未完全归零。</li><li><strong>停火与状态切换：</strong>正常停火继续自然回位；换枪、死亡、装备中断时清空或短时淡出；重装/近战蒙太奇期间按权重压低视觉通道。</li></ol>
+<pre><code>struct FWeaponVisualRecoilPose {
+    FVector LocationCm;      // 已钳制的视觉位移
+    FRotator RotationDeg;    // 已钳制的视觉角度
+    float Alpha;             // 蒙太奇/装备/LOD 混合权重
+    uint32 ShotSerial;       // 防止重复触发
+};
+
+// 伪代码：定步长推进可复现弹簧，最终只向动画层公开快照
+OnCommittedShot(Event) { TargetOrVelocity += MapShotToSixAxes(Event); Clamp(); }
+Tick(dt) { for (substep : FixedSteps(dt)) IntegrateSpring(substep); PublishPose(); }</code></pre>
+<p>数值实现可借鉴参考项目的位置/旋转分离弹簧，但建议用 UE C++ 纯状态实现并加固定子步长，和当前相机 <code>Interpolated</code> 单发模型的帧率稳定策略保持一致。采样 30、60、120 FPS 时，峰值和归零时间应接近。</p>
+</section>
+
+<section id="camera"><h2>6. 与现有镜头匹配</h2>
+<p>当前镜头后座由 <code>FRecoilRuntimeState</code> 的 <code>CameraOffsetPitch/Yaw</code> 与独立 <code>RollShake</code> 输出，<code>UCameraModifier_WeaponRecoil</code> 只修改显示相机。枪体应通过<strong>同发输入 + 弱对齐</strong>与它协调，而不是把枪体动画直接复制到相机。</p>
+<div class="tablewrap"><table><thead><tr><th>信号</th><th>建议用途</th><th>限制</th></tr></thead><tbody>
+<tr><td>本发 Vertical/Horizontal Kick</td><td>决定枪体 Pitch/Yaw 方向与相对强度</td><td>与本发实际射击结果共享索引；勿从总累计值反推“本发”。</td></tr>
+<tr><td><code>CameraOffsetPitch/Yaw</code></td><td>低频、弱幅度的视线对齐项</td><td>单独钳制，避免连发时枪体永久高抬；这不是枪的机械冲量。</td></tr>
+<tr><td><code>RollShake.CurrentRoll</code></td><td>枪体 Roll 的轻微相关运动</td><td>镜头 Roll 有独立包络；枪体 Roll 仍需自己的回位。</td></tr>
+<tr><td>玩家 ControlRotation</td><td>继续让原有瞄准层处理玩家输入</td><td>视觉后座不写 ControlRotation，也不额外修改弹道。</td></tr>
+</tbody></table></div>
+<p>验收时用同一发的曲线叠图看三个时刻：枪体撞击峰值应与镜头 Lift 相近；枪体一般比镜头更快回到握枪基姿；连发时枪体不越过肘部可达范围。最终符号、比例和延迟以靶场录屏校准，不能凭参数名确定。</p>
+</section>
+
+<section id="rig"><h2>7. 骨骼与双手 IK：主方案</h2>
+<div class="note good"><strong>推荐“右手驱枪，左手追枪”。</strong>当前 <code>WID_Rifle</code> 把 <code>B_Rifle</code> 挂到角色 <code>weapon_r</code>。若直接对 <code>B_Rifle</code> 根组件做六轴变换，右手仍停在原地。应先让角色持枪手/其 IK 目标运动，武器跟随插槽，再让左手贴到移动后的前握把。</div>
+<h3>7.1 建议的动画顺序</h3><ol><li>现有 Locomotion、AimOffset、上身姿态、开火/重装蒙太奇完成基本持枪姿。</li><li>在现有 <code>SkeletalControlsLayer</code> 的合适位置，给右手目标或 <code>ik_hand_gun</code> 增加程序化六轴偏移；使用 TwoBoneIK/Control Rig 解右臂，必要时给锁骨/胸椎少量分摊角度。</li><li>武器继续随 <code>weapon_r</code> 插槽移动。对步枪前握把计算左手目标，以现有 <code>LeftHandIK</code>、<code>VB IK_Hand_L_weaponSpace</code> 或相应 <code>TwoBoneIK</code> 解左臂。</li><li>在最终姿态后做手腕/手指微调，保持握把接触；下半身、脚部 IK 不参与此通道。</li></ol>
+<p><strong>不能形成循环依赖：</strong>“枪挂右手 → 右手 IK 目标从本帧枪世界变换读取 → 枪再挂右手”是环。右手目标必须由基姿态和纯视觉偏移算出；左手可以追随已经求出的枪。动画线程里也不要直接查询正在变化的武器 Actor：按现有 <code>ABP_Mannequin_Base</code> 的线程安全注释，先在安全时机复制快照，通过 Property Access/AnimInstance 变量读取。</p>
+<h3>7.2 首个原型与正式接入</h3><p>首个原型可以只给 <code>ik_hand_gun</code> / 持枪手增加 Pitch 与后退，确认枪和右手连动，再加 Yaw/Roll/上抬/横移和左手 IK。正式接入应复用或扩展 <code>ABP_ItemAnimLayersBase</code> 的 <code>SkeletalControlsLayer</code>，由 <code>ABP_RifleAnimLayers</code> 实例配置步枪握把。不要修改公共基础层到让手枪、霰弹枪也无条件运行步枪参数。</p>
+<p>在编辑器里检查 <code>HandIKRetargeting</code> 与 <code>TwoBoneIK</code> 的当前顺序：若后置的 IK 会抵消新加的右手偏移，应把视觉目标注入 IK 目标而不是在 IK 后直接改手骨。<code>RaiseWeaponAfterFiringWhenCrouched</code> 是现有开火相关姿态逻辑，需要检查是否与新增上抬重复。</p>
+<h3>7.3 更大改造的备选</h3><p>若未来需要“枪作为主物体、双手完全跟枪”及复杂装填动作，可建立独立的胸前 <code>WeaponPosePivot</code>，让枪挂 Pivot，双手 IK 分别追握把。它会改变现有 <code>weapon_r</code>、装备蒙太奇、枪口效果与手部动画契约，适合作为后续重构，不作为第一阶段方案。</p>
+</section>
+
+<section id="integration"><h2>8. Lyra 代码与资源接入</h2>
+<div class="tablewrap"><table><thead><tr><th>位置</th><th>拟修改内容</th><th>注意事项</th></tr></thead><tbody>
+<tr><td><code>LyraRecoilProfile.h/.cpp</code></td><td>增加 WeaponVisual 参数结构与校验；现有资产分类不变</td><td>两把步枪先给不同视觉预设；默认关闭保证旧枪零回归。</td></tr>
+<tr><td><code>Weapons/Recoil/LyraWeaponVisualRecoilState.h/.cpp</code>（新增）</td><td>纯状态、脉冲、子步长、位置/旋转弹簧、钳制、Reset</td><td>不接触 UWorld/骨架；便于自动测试。</td></tr>
+<tr><td><code>LyraRangedWeaponInstance.h/.cpp</code></td><td><code>AddRecoil()</code> 成功后注入本发事件；<code>UpdateRecoil()</code> 推进；装备/卸下重置；提供只读 Pose 快照</td><td>若 <code>ApplyShot()</code> 仅返回 bool，应扩展“本发结果”接口或读取同次调用的结果，避免重算随机数。</td></tr>
+<tr><td><code>LyraGameplayAbility_RangedWeapon.cpp</code></td><td>原则上不新增第二个触发点</td><td>现有 <code>AddRecoil()</code> 在成功 <code>CommitAbility</code> 后，正好是每发事件。</td></tr>
+<tr><td><code>LyraAnimInstance</code> 或项目专用子类</td><td>缓存当前武器的 <code>FWeaponVisualRecoilPose</code>，暴露给动画蓝图</td><td>在游戏线程取对象；动画图只读快照。确认武器实例查询路径与卸枪空值处理。</td></tr>
+<tr><td><code>ABP_ItemAnimLayersBase</code> / <code>ABP_RifleAnimLayers</code></td><td>程序化右手目标、上身少量分摊、左手跟枪；按枪型混合</td><td>保留已有 AimOffset、蒙太奇、HandIKRetargeting 与足部 Control Rig。</td></tr>
+<tr><td><code>B_Rifle</code> / 步枪骨架</td><td>校准右握把、左前握把和枪口插槽；必要时加 <code>LeftHandGrip</code> socket</td><td>握把 socket 放在实际枪模型，左手目标以稳定的武器局部空间表示。</td></tr>
+</tbody></table></div>
+<p><strong>事件顺序：</strong>现有能力先完成目标数据/射击，再提交消耗，随后调用 <code>AddRecoil()</code>。枪体后座在该调用里触发；这样空仓、取消或提交失败不会出现“枪动了但没开火”。枪口特效可以继续从武器模型插槽发出，但弹道方向仍由现有 Ability 计算，不能改为使用视觉后座后的枪管朝向。</p>
+<p><strong>生命周期：</strong><code>OnEquipped()</code> 与 <code>OnUnequipped()</code> 已在 <code>LyraRangedWeaponInstance.cpp:147–195</code> 处理相机后座重置/释放。视觉状态也要同步归零或淡出。重装、近战、切换武器和死亡时明确 <code>Alpha</code> 规则，避免后座留在新动画上。</p>
+</section>
+
+<section id="migration"><h2>9. 参考项目资源：哪些能搬运</h2>
+<div class="tablewrap"><table><thead><tr><th>资源</th><th>判断</th><th>处理方式</th></tr></thead><tbody>
+<tr><td><code>S_ProceduralRecoil*</code>、预设 <code>DA_WPP_*</code></td><td class="caution">适合借字段与调参起点，不建议作为正式数据层直接使用</td><td>TPSGunsDemo 已有 <code>ULyraRecoilProfile</code>。手工映射 Pitch/Yaw/Roll、KickBack/Up/Side、弹簧和 Clamp，防止双份配置。</td></tr>
+<tr><td><code>AC_ProceduralWeaponAnimationSystem</code></td><td class="bad">不直接接入主流程</td><td>它同时管第一人称瞄准、相机、移动等，会与现有 Lyra 后座/动画系统冲突；参考函数结构即可。</td></tr>
+<tr><td><code>ABP_FPChar</code>、第一人称姿势</td><td class="bad">不直接搬到 TPS 人物</td><td>骨架、相机、全身动画层不同；改为在现有 Lyra Linked Layers 中实现。</td></tr>
+<tr><td><code>EUW_ProceduralEditor</code>、<code>WB_PE_XYZ</code>、<code>WB_PE_Bar</code>、<code>WB_PE_FireRate</code>、<code>BPI_ProceduralEditor</code></td><td class="ok">可迁移为编辑器 UI 原型</td><td>用 UE 的 <em>Migrate</em> 带依赖复制到隔离目录。布局、XYZ 输入、按钮可复用；原有接口绑定的是参考组件，必须换成 TPS 的 Profile/VisualState 适配器。确认依赖和编译后再决定是否保留。</td></tr>
+<tr><td>参考项目的枪模型与演示 BP</td><td class="caution">仅适合对照</td><td>当前项目已有 <code>B_Rifle</code>、<code>SK_Rifle</code> 及装备资产；不需要替换。</td></tr>
+</tbody></table></div>
+<div class="note warn">参考 <code>PWAS.uproject</code> 当前 <code>EngineAssociation</code> 为 <code>5.8</code>，项目文件夹名却带 5.1/5.7；其中名为 <code>ProceduralWeaponAnimationSystem</code> 的插件条目被禁用。迁移 UI 前，应在一份<strong>项目副本</strong>中用同一引擎版本执行 Migrate、编译并检查缺失引用。所谓“可搬运”指资源布局和控件可搬，不表示复制后会自动连接 Lyra 状态。</div>
+</section>
+
+<section id="debug"><h2>10. 调试工具与 Gun Kick 面板</h2>
+<p>优先扩展项目现有 <code>Lyra.Recoil.Debug</code>、CSV 和调参 HTML，而非再建一套并行调试入口。可以把参考项目 <code>EUW_ProceduralEditor</code> 的 XYZ 控件搬作<strong>编辑器调参外壳</strong>，但数据读写统一走 TPS 的 <code>ULyraRecoilProfile</code>。这样枪体参数、镜头参数与真实弹道曲线能并排看。</p>
+<div class="tablewrap"><table><thead><tr><th>面板页</th><th>应显示/操作</th></tr></thead><tbody>
+<tr><td>Live</td><td>当前武器、ShotSerial、ADS Alpha、枪体 6 轴当前值/目标值、相机 Pitch/Yaw/Roll、IK Alpha、当前动画状态。</td></tr>
+<tr><td>Gun Kick</td><td>6 轴每发脉冲、位置/旋转弹簧、各轴 Clamp、左右手握把校准；单发/3 发/持续开火预览。</td></tr>
+<tr><td>Compare</td><td>同一时间轴叠加 CameraOffsetPitch/Yaw、WeaponVisual Pitch/Yaw/Roll/XYZ、ShotIndex；支持 30/60/120 FPS 数据对比。</td></tr>
+<tr><td>Ablation</td><td>分别关闭“镜头”“枪体”“左手 IK”“对齐项”，便于找出重叠或迟滞来源。</td></tr>
+</tbody></table></div>
+<p>建议追加 <code>Lyra.Recoil.Visual 0/1</code>、<code>Lyra.Recoil.VisualScale</code>、<code>Lyra.Recoil.VisualDebug</code> 等 CVar，并在现有 CSV 每帧导出 6 轴和 IK 权重。预设热重载可沿用 <code>LyraRangedWeaponInstance::ReloadRecoilProfile()</code>，无需创造第二套资产热加载。</p>
+</section>
+
+<section id="roadmap"><h2>11. 长线开发阶段与验收</h2>
+<div class="tablewrap"><table><thead><tr><th>阶段</th><th>交付</th><th>完成判据</th></tr></thead><tbody>
+<tr><td>V0 · 基线录制</td><td>锁定当前两把步枪资产、镜头/弹道曲线、单发和连发录屏；确认 <code>SkeletalControlsLayer</code>、IK 顺序、骨骼轴、握把 socket</td><td>能复现现有镜头表现；有一套未加枪体后座的对照。</td></tr>
+<tr><td>V1 · 纯状态与 2 轴原型</td><td>VisualProfile、VisualState、成功开火事件；只做 Pitch + Back；关闭 IK 时可以明确看到枪随右手动</td><td>1 发只触发一次；空仓不触发；换枪无残留；30/60/120 FPS 峰值接近。</td></tr>
+<tr><td>V2 · 六轴和镜头关联</td><td>Yaw/Roll/Up/Side、方向映射、弱对齐、Clamp、ADS/蹲/跳倍率</td><td>左偏子弹对应可解释的左偏枪势；连发不穿胸、不遮挡准星；镜头输出不变。</td></tr>
+<tr><td>V3 · 双手 IK 与动画融合</td><td>右手目标、左手握把 IK、蒙太奇权重、切枪与重装处理</td><td>单发/连发/ADS/移动/蹲姿时双手不明显脱把；重装和装备动作不被程序层拉扯。</td></tr>
+<tr><td>V4 · 调试与美术调参</td><td>Gun Kick 面板或改造后的 EUW、CSV 叠图、每枪校准资产、调参配方</td><td>设计人员能不改代码调六轴；能把镜头与枪体曲线放在同一时间轴复盘。</td></tr>
+<tr><td>V5 · 扩武器与回归</td><td>手枪、霰弹枪等各自参数与握把配置；LOD/低性能处理</td><td>旧镜头/弹道 Golden 测试不变；所有枪切换、空仓、重装与靶场流程通过。</td></tr>
+</tbody></table></div>
+<h3>建议的可重复测试矩阵</h3><ul><li>每枪：单发、点射、长连发，腰射/ADS，站立/蹲下/移动/空中。</li><li>中断：射击中换枪、射击中重装、空仓扣扳机、死亡、暂停再恢复。</li><li>画面：近墙、肩后相机切侧、不同 FOV、不同角色体型、近距离观察握把和枪口。</li><li>数值：连续开火有上限、停止后归零、同种子同事件产生相同六轴序列、帧率差不造成明显峰值变化。</li><li>回归：现有弹道 Golden、散布、镜头 Roll、压枪补偿与 <code>Docs/Recoil/Tools/run-all-checks.ps1</code> 继续通过。</li></ul>
+<p><strong>建议单发初始调参顺序：</strong>先只开 Back 与 Pitch → 调 Attack/Return → 再加 Up → 用实际水平 Kick 接 Yaw/Side → 最后少量 Roll 与镜头弱对齐。一次只改一个轴，单发满意后再检查连发。参数大小应由实际模型、FOV 与 IK 可达范围决定，此处不硬填通用厘米/角度值。</p>
+</section>
+
+<section id="risks"><h2>12. 风险、决策与待核实项</h2>
+<div class="tablewrap"><table><thead><tr><th>问题</th><th>影响</th><th>处理</th></tr></thead><tbody>
+<tr><td>动画层 IK 顺序未逐节点验证</td><td>后置 IK 可能把右手后座抵消</td><td>V0 在编辑器打开 <code>ABP_ItemAnimLayersBase</code> 与 <code>ABP_RifleAnimLayers</code>，记下节点顺序和使用空间；以实际节点为准落位。</td></tr>
+<tr><td>枪/骨架轴不统一</td><td>Yaw、Roll、后退方向可能反</td><td>对 <code>weapon_r</code>、<code>hand_r</code>、步枪模型画三轴；用每枪校准变换，不在核心算法写死。</td></tr>
+<tr><td>同一事件重复消费</td><td>枪体连跳或空枪有后座</td><td>只由成功 <code>CommitAbility</code> 后的 <code>AddRecoil()</code> 发事件；用 <code>ShotSerial</code> 去重。</td></tr>
+<tr><td>视觉枪口与真实命中分离</td><td>近墙时视觉弹道看似不对齐</td><td>保留现有射击方向；单独核对近距离枪口 VFX/遮挡和准星，必要时调效果而非改后座算法。</td></tr>
+<tr><td>叠加现有开火动画</td><td>蹲姿额外上抬、蒙太奇与枪体后座翻倍</td><td>检查 <code>RaiseWeaponAfterFiringWhenCrouched</code>、武器 Fire 事件和动画槽；调 <code>Alpha</code> 或移除重复表现。</td></tr>
+<tr><td>视觉参数塞入旧相机字段</td><td>长线调参相互牵连</td><td>视觉参数独立分组；共享本发事件和姿态倍率，状态输出分开。</td></tr>
+</tbody></table></div>
+<p>本方案按仓库当前“单机 Demo”约束设计。若未来恢复联机，需另行设计远端开火事件、预测和视觉状态同步；不要把当前本地 Pose 快照直接复制为权威射击状态。</p>
+</section>
+
+<section id="references"><h2>13. 项目内定位索引</h2>
+<p>下面是进一步开发时最先打开的文件和资源。行号来自本次检查时的工作树，后续修改后应以编辑器/源码当前版本为准。</p>
+<ul>
+<li><code>Source/LyraGame/Weapons/LyraGameplayAbility_RangedWeapon.cpp:570–585</code>：成功提交开火；<code>:382–486</code>：弹道和散布。</li>
+<li><code>Source/LyraGame/Weapons/LyraRangedWeaponInstance.cpp:147–195</code>：装备/卸下；<code>:418–501</code>：AddRecoil、每帧推进与相机更新。</li>
+<li><code>Source/LyraGame/Weapons/Recoil/LyraRecoilState.h:110–145</code>：逻辑后座与镜头输出；<code>:707–752</code>：ApplyShot、Advance、相机读取。</li>
+<li><code>Source/LyraGame/Weapons/Recoil/LyraRecoilProfile.h</code>：已有 Kick、单发 Lift/Rebound、恢复、姿态和 Roll 参数。</li>
+<li><code>Source/LyraGame/Camera/LyraCameraModifier_WeaponRecoil.cpp</code>：镜头显示偏移。</li>
+<li><code>Source/LyraGame/Equipment/LyraEquipmentInstance.cpp:69–89</code>：武器 Actor 创建、挂接。</li>
+<li><code>Plugins/GameFeatures/ShooterCore/Content/Weapons/Rifle/WID_Rifle.uasset</code>：<code>weapon_r</code> 装备插槽；<code>B_Rifle.uasset</code>：实际步枪 Actor。</li>
+<li><code>Content/Characters/Heroes/Mannequin/Animations/LinkedLayers/ABP_ItemAnimLayersBase.uasset</code>：现有手 IK 与武器空间虚拟骨；<code>Locomotion/Rifle/ABP_RifleAnimLayers.uasset</code>：步枪层。</li>
+<li><code>Docs/Recoil/PROGRESS.md</code>、<code>Docs/Recoil/10_SingleShotInterpolation.md</code>、<code>Docs/Recoil/12_SpreadInProfile.md</code>：现行后座状态；<code>Docs/Recoil/Tools/run-all-checks.ps1</code>：回归入口。</li>
+<li>参考包：<code>Content/ProceduralWeaponAnimationSystem/Components/AC_ProceduralWeaponAnimationSystem.uasset</code>、<code>Data/Structs/S_ProceduralRecoil.uasset</code>、<code>Widgets/EUW_ProceduralEditor.uasset</code>。</li>
+</ul>
+<div class="note good"><strong>第一项实施工作：</strong>完成 V0 的编辑器节点图与坐标核对，随后以 <code>Pitch + Back</code> 做一个可关闭的窄范围原型。该原型应先证明“右手、枪、左手”链条正确，再扩展到完整六轴。</div>
+</section>
+</main></div>
+<footer>TPSGunsDemo 程序化枪体后座方案 · 本文为规划与接入依据，未对目标项目写入实现代码或蓝图。</footer>
+</body></html>
