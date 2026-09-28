@@ -24,18 +24,18 @@ if ($LASTEXITCODE -ne 0) { Write-Host "BUILD FAILED"; exit 1 }
 if (-not $SkipAssets) {
     Write-Host ""
     Write-Host "############ 2/4  GENERATE ASSETS ############"
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $toolsDir "gen-recoil-assets.ps1")
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $toolsDir "gen-recoil-assets.ps1") -EngineRoot $EngineRoot -Project $Project
     if ($LASTEXITCODE -ne 0) { Write-Host "ASSET GENERATION FAILED"; $overallExit = 1 }
 }
 
 Write-Host ""
 Write-Host "############ 3/4  GOLDEN DATA ############"
-& powershell -ExecutionPolicy Bypass -File (Join-Path $toolsDir "gen-recoil-golden.ps1")
+& powershell -ExecutionPolicy Bypass -File (Join-Path $toolsDir "gen-recoil-golden.ps1") -EngineRoot $EngineRoot -Project $Project
 if ($LASTEXITCODE -ne 0) { Write-Host "GOLDEN DUMP FAILED"; $overallExit = 1 }
 
 Write-Host ""
 Write-Host "############ 4/4  AUTOMATION TESTS ############"
-& powershell -ExecutionPolicy Bypass -File (Join-Path $toolsDir "run-recoil-tests.ps1")
+& powershell -ExecutionPolicy Bypass -File (Join-Path $toolsDir "run-recoil-tests.ps1") -EngineRoot $EngineRoot -Project $Project
 if ($LASTEXITCODE -ne 0) { Write-Host "TESTS FAILED"; $overallExit = 1 }
 
 Write-Host ""

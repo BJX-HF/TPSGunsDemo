@@ -15,6 +15,11 @@ param(
 
 $editorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 
+if (-not (Test-Path -LiteralPath $editorCmd) -or -not (Test-Path -LiteralPath $Project)) {
+    Write-Error "Unreal editor or project not found: $editorCmd / $Project"
+    exit 1
+}
+
 $extraArgs = @()
 if ($Force.IsPresent) {
     $extraArgs += "-force"

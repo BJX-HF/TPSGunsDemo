@@ -26,9 +26,15 @@ $logFile = Join-Path $projectDir ("Saved\Logs\" + $projectName + ".log")
 Write-Host "Regenerating recoil golden data..."
 Write-Host ""
 
+if (-not (Test-Path -LiteralPath $editorCmd) -or -not (Test-Path -LiteralPath $Project)) {
+    Write-Error "Unreal editor or project not found: $editorCmd / $Project"
+    exit 1
+}
+
 & $editorCmd $Project -run=LyraRecoilGoldenDump -unattended -nopause -nullrhi -nosplash -log | Out-Null
 
 $exitCode = $LASTEXITCODE
+if ($exitCode -ne 0) { exit 1 }
 Write-Host "UnrealEditor-Cmd exit code: $exitCode"
 Write-Host ""
 Write-Host "===== Golden dump log ====="

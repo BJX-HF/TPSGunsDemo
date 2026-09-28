@@ -32,6 +32,11 @@ Write-Host "Running automation tests matching: $TestFilter"
 Write-Host "Log file: $logFile"
 Write-Host ""
 
+if (-not (Test-Path -LiteralPath $editorCmd) -or -not (Test-Path -LiteralPath $Project)) {
+    Write-Error "Unreal editor or project not found: $editorCmd / $Project"
+    exit 1
+}
+
 & $editorCmd $Project `
     -ExecCmds="Automation RunTests $TestFilter" `
     -TestExit="Automation Test Queue Empty" `
@@ -69,5 +74,5 @@ $successCount = ($lines | Where-Object { $_.Line -like "*Result={Success}*" }).C
 Write-Host "Succeeded: $successCount"
 Write-Host "Failed:    $failCount"
 
-if ($failCount -gt 0) { exit 1 }
+if ($failCount -gt 0 -or $successCount -eq 0 -or -not ($lines | Where-Object { $_.Line -like "*Automation Test Queue Empty*" })) { exit 1 }
 exit $editorExit
