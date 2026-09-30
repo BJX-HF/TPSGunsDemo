@@ -438,7 +438,16 @@ void ULyraRangedWeaponInstance::AddRecoil()
 	//   `State == Idle` 时从 SampledAimPitch 锁定，无需在此另存一份。
 	SampleRecoilPlayerAim();
 
-	RecoilState.ApplyShot(Profile, ComputeRecoilPoseMultiplier(), ComputeRecoilPoseState());
+	if (RecoilState.ApplyShot(Profile, ComputeRecoilPoseMultiplier(), ComputeRecoilPoseState()))
+	{
+		// Consume exactly the same committed shot result as the camera and trajectory.
+		++VisualShotSerial;
+		const FRecoilShotResult& Shot = RecoilState.ShotHistory.Last();
+		FWeaponVisualRecoilSettings VisualSettings = Profile->WeaponVisual;
+		VisualSettings.bEnabled &= ULyraRecoilDebug::IsVisualEnabled();
+		VisualSettings.VisualScale *= ULyraRecoilDebug::GetVisualScale();
+		VisualRecoilState.ApplyShot(VisualSettings, VisualShotSerial, Shot.VerticalKick, Shot.PoseMultiplier, RecoilState.GlobalScale, Shot.HorizontalKick, ComputeAimingAlpha());
+	}
 }
 
 FRecoilShotKick ULyraRangedWeaponInstance::GetRecoilShotDirectionOffset(int32 ShotIndex)
@@ -477,6 +486,14 @@ void ULyraRangedWeaponInstance::UpdateRecoil(float DeltaSeconds)
 	SampleRecoilPlayerAim();
 
 	RecoilState.Advance(RecoilProfile, DeltaSeconds);
+	if (RecoilProfile != nullptr)
+	{
+		FWeaponVisualRecoilSettings VisualSettings = RecoilProfile->WeaponVisual;
+		VisualSettings.bEnabled &= ULyraRecoilDebug::IsVisualEnabled();
+		VisualSettings.VisualScale *= ULyraRecoilDebug::GetVisualScale();
+		const float Alignment = ULyraRecoilDebug::IsVisualAlignmentEnabled() ? 1.0f : 0.0f;
+		VisualRecoilState.Advance(VisualSettings, DeltaSeconds, RecoilState.CameraOffsetPitch * Alignment, RecoilState.CameraOffsetYaw * Alignment);
+	}
 
 	// ---------------------------------------------------------------------
 	// 散布推进（资产模型专用）
@@ -562,6 +579,8 @@ void ULyraRangedWeaponInstance::SampleRecoilPlayerAim()
 void ULyraRangedWeaponInstance::ResetRecoilState()
 {
 	RecoilState.Reset(RecoilProfile);
+	VisualRecoilState.Reset();
+	VisualShotSerial = 0;
 	RecoilState.SetGlobalScale(ULyraRecoilDebug::GetGlobalScale());
 }
 

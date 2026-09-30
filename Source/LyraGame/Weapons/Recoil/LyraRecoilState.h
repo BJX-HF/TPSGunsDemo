@@ -575,11 +575,11 @@ public:
 	}
 
 	/**
-	 * 垂直钳制**实际生效**的绝对上限（度）=
-	 * `本轮起始偏移 + MaxVerticalKick + 本轮压枪量`。
+	 * 垂直钳制的绝对上限（度）=
+	 * `本轮起始偏移 + MaxVerticalKick + min(本轮压枪量, MaxVerticalKick)`。
 	 *
-	 * 等价于只钳制本轮净抬升：
-	 * `偏移 − 本轮起始偏移 − 本轮压枪量 ≤ MaxVerticalKick`。
+	 * 有限抵扣避免正常压枪时过早封顶，同时将额外预算锁死在一个 MaxVerticalKick 内，
+	 * 防止「越往下压，后坐力预算越高」的无界追逐反馈。
 	 *
 	 * 定义在 .cpp：`ULyraRecoilProfile` 在本头文件里只有前向声明。
 	 */
@@ -610,36 +610,11 @@ public:
 	void SamplePlayerAim(float InAimPitchDegrees, float InAimYawDegrees);
 
 	/**
-	 * 回正终止值的唯一实现（含累计压枪量抵扣）。
+	 * Recovery target for the display-space camera modifier.
 	 *
-	 * ★ 2026-09-22 定型：口径为「**终止值 = min(本梭累计压枪量, 本轮后坐力峰值)**」。
-	 *
-	 *       终止值 = sign(峰值) × min(累计压枪量, abs(峰值))
-	 *
-	 *   语义：回正把「后坐力偏移」收敛到 `min(玩家压枪量, 本轮后坐力峰值)`。
-	 *   因为 屏幕视角 = ControlRotation（含压枪）+ 后坐力偏移，
-	 *   玩家没压住时屏幕正好回到开枪前；玩家压过头时不反向补偿，保留超压后的角度。
-	 *
-	 *   实机 trace 佐证（DA_Recoil_Rifle_S 连发，见 Docs/Recoil 与 memory）：
-	 *     峰值 17.600、累计压枪 13.650、玩家 Ctrl 低了 13.650
-	 *       · 旧式 `峰值 − 压枪量` = 3.950 ⇒ 屏幕 −9.700（**看地板**，错误）
-	 *       · 现行 `压枪量`       = 13.650 ⇒ 屏幕  0.000（回到开枪前，正确）
-	 *
-	 *   例如峰值 10°、玩家压 11°：终止偏移夹在 10°，屏幕最终为 −11° + 10° = −1°。
-	 *
-	 *   历史沿革（仅供追溯，现行一律走上式）：
-	 *     · 更早：`峰值 × RecoilReturnRatio`（残留比例缩放，该字段已删除）
-	 *     · P11 ：`峰值 × Ratio + 压枪量`（加法，压枪的人停得**更高**）
-	 *     · P14 ：`峰值 × Ratio − 累计抵扣`（减法，压枪的人停得**更低**）
-	 *     · 上一版：`峰值 − 累计抵扣`（去掉了 Ratio，但方向仍错 ⇒ 压在真实弹道上"看地板"）
-	 *     · 现行：`sign(Peak) × min(Cover, abs(Peak))`（未压住归位，压过头保留超压）
-	 *
-	 * bCompensationAwareRecovery 关闭时（或本轴不参与时）返回 0 —— 偏移完全回满。
-	 *
-	 * @param bApplyCover 本轴是否参与抵扣。两把闸门（总开关 + 本轴开关）同时打开才扣。
-	 *        Pitch 恒传 true；Yaw 传 Profile.bCompensationAwareRecoveryYaw（**默认 false**）。
-	 *        理由见 LyraRecoilProfile.h 里 bCompensationAwareRecoveryYaw 的注释 ——
-	 *        水平位移是"转身"不是"压枪"，且 MaxHorizontalKick 小，扣了会长期归零。
+	 * The target is always zero: once recovery finishes, Idle must not retain
+	 * pitch or yaw from an old burst. Compensation values remain available to
+	 * the live clamp and diagnostics, but must never permanently bias the POV.
 	 */
 	static float ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float BurstStart, float Peak, float Cover,
 		bool bApplyCover = true);

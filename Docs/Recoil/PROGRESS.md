@@ -1,9 +1,14 @@
 # 后坐力系统 · 当前进度指南
 
+> **2026-09-28 现行 GunKick 规则**：停火后显示层偏移回到 `0°`；压枪抵扣最多增加
+> 一个 `MaxVerticalKick` 的上限额度；插值连发到顶后仍保留逐发 Lift/Rebound。
+> 详情与复验步骤见 [13_TracePitchAndSaturationFix.md](13_TracePitchAndSaturationFix.md)。
+> 下方早期章节中的 `min(压枪量, 峰值)` 回正终点与测试数量是历史快照。
+
 > 这份文档是给大祥老师用的**操作手册 + 状态看板**。
 > 每次推进都会更新，看这一份就知道"现在到哪了、怎么复跑、要拍板什么"。
 >
-> 最后更新：2026-09-20（P0–P5 完成；P7 两把步枪落地；P8 Roll 震屏；P9 单发插值；
+> 以下是从 2026-09-20 开始累积的历史进度快照（P0–P5 完成；P7 两把步枪落地；P8 Roll 震屏；P9 单发插值；
 > **P10 连发累积失效修复**；**P11 回正扣减压枪量（本次，回正计算的权威实现）**；
 > **P12 垂直钳制实时抵扣压枪量**；
 > **P13 散布并入后坐力配置表** —— 见 [12_SpreadInProfile.md](12_SpreadInProfile.md)）；
@@ -11,14 +16,20 @@
 > [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §14）
 >
 > ⚠️ **编号说明**：本次与云端各自都用过「P10」。合并后按「回正相关以本次实现为主」的拍板，
-> **P11 = 本次的回正扣减压枪量**（见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md)），
-> 云端的 P10 / P12 / P14 仍保留在表里作为根因与历史记录。**现行回正目标的代码只有一套实现** ——
-> `FRecoilRuntimeState::ComputeRecoveryTarget()`，口径为 **`终止值 = min(累计压枪量, 本轮峰值)`**（2026-09-22 第三次拍板）。
+> **P11 = 当时的回正扣减压枪量**（见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md)），
+> 云端的 P10 / P12 / P14 仍保留在表里作为根因与历史记录。**当前回正目标的代码只有一套实现** ——
+> `FRecoilRuntimeState::ComputeRecoveryTarget()`，2026-09-28 起目标恒为 **`0°`**。
 > 另：两把枪的 `SingleShotMode` 已统一为四段式 `Interpolated`。
 
 ---
 
 ## 0. 一句话现状
+
+**2026-09-28 trace 修复**：先修 Idle 残留显示偏移，再修无界压枪抵扣导致视角触底；
+首次把抵扣完全移除后，实机 trace 出现 `acc/push=7.5000°` 平台、连发逐发抬升消失。
+现以有界抵扣和受限峰值后的回弹保留到顶脉冲，最终 POV Pitch 在相机视角上下限内。
+`LyraEditor` 构建成功，`Lyra.Recoil` **55/55 通过**；修改后的 PIE 手感与视角边界观感待复验。
+见 [13_TracePitchAndSaturationFix.md](13_TracePitchAndSaturationFix.md)。
 
 **P0–P5 已完成，自动验证全绿**。调参闭环（DebugDraw / CSV 导出 / 曲线叠加 / 热重载）已经打通。
 
@@ -35,8 +46,8 @@
 依据参考文档 §2 与 09 号差距分析。含固定子步长 1/60 的**帧率不变性**保证。
 详见 → **[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)**；操作向说明 → **[后坐力系统调试.html §10](后坐力系统调试.html#model)**。
 
-**P10 已落地（2026-09-20 追加）**：修掉「回正把玩家压的枪还回去」这个 bug ——
-回正量现在会**扣掉玩家在连发期间压的那部分角度**；压过头则停在最后一发的位置。
+**P10 历史方案（2026-09-20）**：当时为处理「回正把玩家压的枪还回去」，
+回正量扣掉玩家在连发期间压的角度；压过头则停在最后一发的位置。
 Pitch / Yaw 两轴同规则，含 `bCompensationAwareRecovery` 总开关。
 详见 → **[11_RecoveryCompensation.md](11_RecoveryCompensation.md)**。
 
@@ -320,10 +331,10 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P8** | **相机镜头 Roll 震屏** | **待验收** | ✅ 编译 + 测试 | ⏳ | [08_CameraRollShake.md](08_CameraRollShake.md) §7 |
 | **P9** | **单发插值模型（两套并存）** | **待验收** | ✅ 30/30（含 6 个 Interp） | ⏳ | [10_SingleShotInterpolation.md](10_SingleShotInterpolation.md) |
 | **P10** | **连发累积失效修复（Interpolated）** | **待 PIE 手测** | ✅ **编译通过 + 30/30 全绿** | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §7；**回正目标计算已由 P11 接管** |
-| **P11** | **回正扣减压枪量** —— **现行回正计算的权威实现**（口径 2026-09-21 第二次修正） | **待验收** | ✅ **构建 `Result: Succeeded` + `Lyra.Recoil` 45/45 全绿 + 5 份 Golden md5 逐位未变** | ⏳ | [11_RecoveryCompensation.md](11_RecoveryCompensation.md) §7 / §8 / §9 |
+| **P11** | **回正扣减压枪量**（2026-09-21 历史方案；当前显示偏移回到 `0°`） | **历史验收记录** | ✅ 当时构建成功、`Lyra.Recoil` 45/45 全绿 | — | [11_RecoveryCompensation.md](11_RecoveryCompensation.md)；现行见 [13 号记录](13_TracePitchAndSaturationFix.md) |
 | **P12** | **垂直钳制实时抵扣压枪量**（编号对齐文档 §12，未占 P11） | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿 + Golden md5 未变** | ⏳ | [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §12 |
 | **P13** | **散布并入后坐力配置表（姿态-角度直接模型）** | **待 PIE 手测** | ✅ **编译通过 + 37/37 全绿**（其中 7 个是新加的） | ⏳ | [12_SpreadInProfile.md](12_SpreadInProfile.md) §9 |
-| **P14** | **回正目标减去本梭累计压枪量**（编号对齐文档 §13，未占 P11）—— ⚠️ **口径已被本次修正取代** | **待 PIE 手测** | ⚠️ 该版公式方向有误：屏幕 = `Ctrl(−P) + (峰值 − P)` = **峰值 − 2×压枪量** ⇒ 实机表现为**看地板** | ⏳ | 历史见 [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §13；**现行口径**见 [11_RecoveryCompensation.md](11_RecoveryCompensation.md) |
+| **P14** | **回正目标减去本梭累计压枪量**（编号对齐文档 §13，未占 P11）—— 历史方案 | **历史验收记录** | ⚠️ 该版公式方向有误：屏幕 = `Ctrl(−P) + (峰值 − P)` = **峰值 − 2×压枪量** ⇒ 实机表现为**看地板** | — | 历史见 [11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) §13；现行见 [13 号记录](13_TracePitchAndSaturationFix.md) |
 | ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 决定：本项目不做联机 |
 
 **测试用例清单（44 个 = P0–P5 的 19 个 + P8 的 5 个 + P9 的 6 个 + P11 回正扣压枪的 7 个 + P13 散布的 7 个）**
@@ -418,11 +429,11 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P13 资产是否已重生成** | **❌ 尚未**（`Content/Weapons/Recoil/*.uasset` 仍是 09-18 时间戳）⇒ PIE 里跑的还是旧 heat 模型 |
 | **P14 新增字段** | `FRecoilRuntimeState::RecoveryCoverPitch`（本梭累计压枪量，度；**默认 `0.0f` ⇒ 零回归**） |
 | **P14 累积规则** | `Advance()` 末尾 `RecoveryCoverPitch = max(RecoveryCoverPitch, AimCompensationPitch)` —— 单调不减、停火后冻结；新一梭 / `Reset()` 清零 |
-| **★ 回正目标式（现行权威口径，2026-09-22 第三次拍板）** | `终止值 = min(累计压枪量 P, 本轮峰值 K)`。`P≤K` 时屏幕回到开枪前；`P>K` 时终止偏移为 K、屏幕保留 `K−P` 的超压角度（10° / 11° ⇒ −1°）。无 Ratio、无地板；水平 Yaw 默认不抵扣。 |
+| **★ 回正目标式（2026-09-22 历史口径）** | 当时为 `终止值 = min(累计压枪量 P, 本轮峰值 K)`；2026-09-28 已改为显示层偏移回到 `0°`，见 [13 号记录](13_TracePitchAndSaturationFix.md)。 |
 | **★ 已删除字段** | `RecoilReturnRatio`（残留比例缩放）、`RecoilCompensationMinResidualRatio`（残留地板）—— 大祥老师 2026-09-21：「以后如果我没要求别做这种自以为是的设计」 |
-| **★ 场景验收（大祥老师口径）** | K = 峰值，P = 玩家压枪位移。**P≤K ⇒ 屏幕回零**；**P>K ⇒ 屏幕停在 K−P**。自动化用例 `Lyra.Recoil.Compensation.UserContractScenarios`（5 组参数化）及 `OverCompensationPreservesOvershoot` 已覆盖 10° / 11° ⇒ −1°。 |
-| **⚠️ 已作废的旧场景表** | 旧文档里的 `A=+5 / B=−5 / C=−10 / D=+10` 四场景是历史误记。现行口径统一为：`P≤K` 时屏幕回 0；`P>K` 时屏幕保留 `K−P`。 |
-| **★ 峰值当前作用** | 峰值不参与未压住区间的回正计算，只作为压枪抵扣上限：`P≤K` 时仍是 `−P+P=0`；仅在 `P>K` 时把目标夹为 K，避免回正反向抬镜头。 |
+| **★ 场景验收（2026-09-22 历史口径）** | 当时 K = 峰值、P = 玩家压枪位移，预期 `P≤K` 回零、`P>K` 停在 `K−P`。2026-09-28 的现行显示偏移终点一律为 `0°`。 |
+| **⚠️ 已作废的旧场景表** | 旧文档里的 `A=+5 / B=−5 / C=−10 / D=+10` 四场景与后续 `K−P` 规则都不再代表现行回正终点；现行规则见 [13 号记录](13_TracePitchAndSaturationFix.md)。 |
+| **★ 峰值在旧回正方案中的作用** | 当时用峰值 K 限制回正抵扣；现行 `ComputeRecoveryTarget()` 恒返回 `0°`。 |
 | **★ 本次两处修复（2026-09-21）** | **Bug B**：目标式 `峰值 − 压枪量` → `本梭累计压枪量`（移除形参 `Peak`）。**Bug A**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` —— 该标志在 `Settle→Drop` 已置 `true`，旧写法让**整个 Drop 段**目标恒为 0（acc 冻结在钳制上限 15.000 共 23 帧，收官帧瞬跳 3.950） |
 | **★ 本次验证** | 构建 `Result: Succeeded`；`Lyra.Recoil` **45/45 全绿**；5 份 Golden md5 逐位未变 |
 | **★ 2026-09-22 连发误判新一轮（历史 §14；现行见 §15）** | 当时通过“Drop 仍属 Accumulating”规避重复重锚；2026-09-23 已改为更直接的统一模型：Drop=`Recovering`，Drop 中开火从当前点重建新轮，回正只走 `ApplyRecoveryStep`。完整账本重置和连续起点防止旧问题复发。 |
@@ -434,8 +445,8 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P11 与 P10/P12/P14 的关系** | 同源、同一处代码；**合并后只走 P11 一套**，其余三条在表里保留为根因与历史记录 |
 | **两把枪的 `SingleShotMode`（2026-09-20 起）** | `DA_Recoil_Rifle_S` 与 `DA_Recoil_Rifle_7` **都是四段式 `Interpolated`** |
 > **⚠️ 以下 5 行是 P14 时代（`终止值 = 峰值 × Ratio − 抵扣量`）的**修复前**数值记录，仅供追溯。**
-> 现行口径是 `终止值 = min(本梭累计压枪量, 本轮峰值)`，`cover = 0` ⇒ 残留恒为 `0`，因此这些数字**不再描述当前行为**。
-> 当前行为以 `Lyra.Recoil.*` 自动化用例（45/45 全绿）与 [11_RecoveryCompensation.md §7](11_RecoveryCompensation.md) 为准。
+> 2026-09-22 曾采用 `终止值 = min(本梭累计压枪量, 本轮峰值)`；2026-09-28 起显示偏移回正终点恒为 `0°`，这些数字**不再描述当前行为**。
+> 当前行为以 [13 号记录](13_TracePitchAndSaturationFix.md) 和对应的 `Lyra.Recoil.*` 用例为准。
 
 | ~~P14 `cover = 0` 等价性（历史）~~ | `Interpolated`：峰值 `4.0446` / 残留 `4.045`，与 P12 口径**逐位相同**；`InstantWrite`：峰值 `4.0000` / 残留 `0.6000`，同样逐位相同 |
 | ~~P14 `cover = 4.0°` 残留（历史）~~（`Rifle_S` 30 发 @0.12s，60fps） | P12 裸残留 `5.327` / 净 `1.327` → P14 裸残留 **`0.260`** / 净 **`−3.740`**（允许负残留） |
@@ -446,8 +457,8 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 **P14 首版交付踩的坑（已修）：** 三处多行减法写成 `... * Ratio;\n − cover;` ——
 **分号提前结束语句，`− cover;` 变成一条丢弃结果的表达式语句**。
 `- x;` 是合法 C++ ⇒ **编译 `Result: Succeeded`、0 warning，减法静默失效**。
-自查：现行公式是单行 `return Peak - EffectiveCover;`（2026-09-21 起不再有跨行乘法），
-`ComputeRecoveryTarget` 里不该再出现任何 `* Ratio` 形式的跨行表达式。
+历史自查：当时公式曾是单行 `return Peak - EffectiveCover;`；
+当前 `ComputeRecoveryTarget()` 直接返回 `0.0f`，不再使用 Peak/Cover 计算终点。
 
 ---
 
@@ -506,6 +517,7 @@ Docs/Recoil/
 ├── 11_BurstAccumulationFix.md     【P10/P12】★连发累积失效修复 + 压枪抵扣（根因 / 三处改动 / 回归分析 / 仿真验证 / §12 压枪抵扣 / UHT 踩坑）**回正目标计算已由 P11 接管**
 ├── 11_RecoveryCompensation.md     【P11】★回正扣减压枪量（本次）—— 规则 / 压枪量采样口径 / 冻结时机 / 双端钳制 / 7 个用例 / 验收步骤
 ├── 12_SpreadInProfile.md          【P13】★散布并入后坐力配置表（姿态-角度直接模型）：动机 / 计算链 / 8 条设计决策 / 改动清单 / 缺口 / 待拍板
+├── 13_TracePitchAndSaturationFix.md 【2026-09-28】★GunKick trace 三次修复的现行规则、证据与复验
 ├── 后坐力系统调试.html             【P7】给人看的操作手册：测试步骤 / 改后坐力 / 新增枪 / Debug 开关效果 / **§9 散布（P13）** / **§10 回正扣减压枪量（P11）**
 ├── PROGRESS.md                    ← 你正在看的这份
 ├── Acceptance/P{0..5}_验收请求.md

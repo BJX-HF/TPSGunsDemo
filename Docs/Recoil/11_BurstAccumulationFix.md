@@ -1,5 +1,8 @@
 # 连发后坐力累积失效修复记录（Burst Accumulation Fix）
 
+> 历史方案记录：2026-09-28 的现行上限、到顶后的逐发脉冲与停火回正规则，
+> 请看 [13_TracePitchAndSaturationFix.md](13_TracePitchAndSaturationFix.md)。
+
 | 项 | 值 |
 | --- | --- |
 | 项目 | `E:\TPSGunsDemo` |
@@ -1333,5 +1336,5 @@ const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecov
 _本文档由祥子整理，2026-09-20；§13.9 追加于 2026-09-21；§13.10 删 Ratio；§13.11 于 2026-09-21 修正方向和 Drop；2026-09-22 压过头规则定型、§14 连发误判新一轮修复。_
 _修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣（P14 → §13.10 字面减法 → §13.11 累计压枪量）+ §14 连发误判「新一轮」（重开火重锚 BurstStart）。_
 _根因一句话：回弹/回正锚在绝对峰值 → 连发几何衰减；修复：锚在「基底 + 本发幅度」，两模式在 `InstantWrite` 下逐位等价。_
-_**现行一句话：回正目标 = min(本梭累计压枪量, 本轮峰值)** ⇒ 未压住时回到开枪前，压过头时保留超压角度。_
-_相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、[11_RecoveryCompensation.md](11_RecoveryCompensation.md)（**现行权威口径**）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_
+_**2026-09-22 历史口径：回正目标 = min(本梭累计压枪量, 本轮峰值)**；2026-09-28 起显示偏移回正目标为 `0°`，见 [13 号记录](13_TracePitchAndSaturationFix.md)。_
+_相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、[11_RecoveryCompensation.md](11_RecoveryCompensation.md)（历史回正方案）、[13_TracePitchAndSaturationFix.md](13_TracePitchAndSaturationFix.md)（现行规则）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_

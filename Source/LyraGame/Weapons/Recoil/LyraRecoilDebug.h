@@ -12,6 +12,7 @@ class ULyraRangedWeaponInstance;
 class ULyraRecoilProfile;
 class UWorld;
 struct FRecoilRuntimeState;
+struct FWeaponVisualRecoilPose;
 
 /**
  * ULyraRecoilDebug
@@ -98,6 +99,19 @@ public:
 	/** Lyra.Recoil.SpreadDebug：是否显示散布（锥角）实时面板。 */
 	UFUNCTION(BlueprintPure, Category = "Recoil|Debug")
 	static bool IsSpreadDebugPanelEnabled();
+
+	/** V4 ablation controls; the weapon profile still decides whether visual recoil is eligible. */
+	static bool IsVisualEnabled();
+	static float GetVisualScale();
+	static bool IsVisualLeftIKEnabled();
+	static bool IsVisualAlignmentEnabled();
+	static bool IsVisualDebugEnabled();
+
+	/** One row per animation update on the same camera/weapon timeline. */
+	static void RecordVisualFrame(const UWorld* World, const ULyraRecoilProfile* Profile,
+		const FRecoilRuntimeState& State, const FWeaponVisualRecoilPose& Pose,
+		float AimingAlpha, float GunKickAlpha, float TargetAlpha, float DirectHandAlpha, float LeftHandAlpha);
+	static bool DumpVisualTraceToCsv(FString& OutFilePath);
 
 	// ---------------------------------------------------------------------
 	// 可视化

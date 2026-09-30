@@ -3,6 +3,7 @@
 #include "Camera/LyraCameraModifier_WeaponRecoil.h"
 
 #include "Camera/CameraTypes.h"
+#include "Camera/PlayerCameraManager.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(LyraCameraModifier_WeaponRecoil)
 
@@ -123,14 +124,18 @@ bool UCameraModifier_WeaponRecoil::ModifyCamera(float DeltaTime, FMinimalViewInf
 	}
 
 	// 只动显示层 POV。ControlRotation 保持不变 —— 这是本方案与 AddPitchInput 的根本区别。
-	InOutPOV.Rotation.Pitch += AppliedPitchDegrees;
+	// Pitch 必须在相加时就钳制到 PlayerCameraManager 的可视范围。如果先跨过
+	// +/-90 度再 NormalizeAxis，FRotator 会跨越欧拉角极点，表现为俯仰角翻转并卡在底部。
+	const float BasePitch = FRotator::NormalizeAxis(InOutPOV.Rotation.Pitch);
+	const float ViewPitchMin = CameraOwner ? CameraOwner->ViewPitchMin : -89.0f;
+	const float ViewPitchMax = CameraOwner ? CameraOwner->ViewPitchMax : 89.0f;
+	InOutPOV.Rotation.Pitch = FMath::Clamp(BasePitch + AppliedPitchDegrees, ViewPitchMin, ViewPitchMax);
 	InOutPOV.Rotation.Yaw += AppliedYawDegrees;
 
 	// Roll 与 Pitch/Yaw 同源同理：只改显示层，玩家瞄准方向不受影响。
 	InOutPOV.Rotation.Roll += AppliedRollDegrees;
 
-	// 保持 Rotator 合法区间，避免长时间累加后出现 Pitch 越界
-	InOutPOV.Rotation.Pitch = FRotator::NormalizeAxis(InOutPOV.Rotation.Pitch);
+	// Yaw 保持 Rotator 合法区间。Pitch 已在上面按可视范围钳制，不再做跨极点归一化。
 	InOutPOV.Rotation.Yaw = FRotator::NormalizeAxis(InOutPOV.Rotation.Yaw);
 
 	// This modifier is additive and must not consume the camera-modifier chain.

@@ -376,6 +376,22 @@ bool FLyraRecoilSpreadProfileParamsTest::RunTest(const FString& Parameters)
 	}
 
 	// --- Max < Base：必须被校验报出来 ---
+	// V5: disabled legacy visual data is ignored; enabled visual data must be usable.
+	Profile->WeaponVisual.MaxVisualLOD = -1;
+	Profile->WeaponVisual.BackAxisBoneSpace = FVector::ZeroVector;
+	{
+		TArray<FString> Errors;
+		TestTrue(TEXT("Disabled visual data preserves legacy validation"), Profile->ValidateProfile(Errors));
+	}
+	Profile->WeaponVisual.bEnabled = true;
+	{
+		TArray<FString> Errors;
+		TestFalse(TEXT("Enabled visual rejects invalid LOD and axis"), Profile->ValidateProfile(Errors));
+		TestTrue(TEXT("LOD error names its field"), Errors.ContainsByPredicate([](const FString& Error) { return Error.Contains(TEXT("MaxVisualLOD")); }));
+		TestTrue(TEXT("Axis error names its field"), Errors.ContainsByPredicate([](const FString& Error) { return Error.Contains(TEXT("BackAxisBoneSpace")); }));
+	}
+	Profile->WeaponVisual = FWeaponVisualRecoilSettings();
+
 	Profile->MaxSpreadAngle_Standing = 0.2f;	// 低于 base 1.0
 	{
 		TArray<FString> Errors;

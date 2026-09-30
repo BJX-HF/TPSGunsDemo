@@ -4,6 +4,7 @@
 
 #include "Animation/AnimInstance.h"
 #include "GameplayEffectTypes.h"
+#include "Weapons/Recoil/LyraWeaponVisualRecoilState.h"
 #include "LyraAnimInstance.generated.h"
 
 class UAbilitySystemComponent;
@@ -43,4 +44,8 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Character State Data")
 	float GroundDistance = -1.0f;
+
+	/** Game-thread snapshot for animation graph/property access; never query weapon actors in the graph. */
+	UPROPERTY(BlueprintReadOnly, Category = "Weapon Visual")
+	FWeaponVisualRecoilPose WeaponVisualRecoilPose;
 };

@@ -32,7 +32,7 @@
 <tr><td><code>PoseMultiplier_Crouching</code></td><td>蹲伏时的后坐力倍率。</td></tr>
 <tr><td><code>PoseMultiplier_JumpingOrFalling</code></td><td>跳跃或下落时的后坐力倍率。</td></tr>
 <tr><td><code>PoseMultiplier_Aiming</code></td><td>完全瞄准时的倍率；瞄准混合期间从 1 平滑过渡到本值，并与姿态倍率相乘。</td></tr>
-<tr><td><code>MaxVerticalKick</code></td><td>垂直累加偏移的限制值。压枪时上限会随压枪量作补偿，不能把它简单理解成屏幕净抬升的固定上限。</td></tr>
+<tr><td><code>MaxVerticalKick</code></td><td>垂直累加偏移的本轮基础额度。压枪最多再增加一个同等额度：上限为“本轮起始偏移 + MaxVerticalKick + clamp(压枪量, 0, MaxVerticalKick)”。插值连发到顶后仍会逐发回弹、再上抬。</td></tr>
 <tr><td><code>MaxHorizontalKick</code></td><td>水平累加偏移上限。</td></tr>
 </table></div>
 
@@ -46,10 +46,10 @@
 <tr><td><code>RecoveryDelay</code></td><td>进入正式回正前的停留时间，秒；插值模式下也是 Settle 段时长。</td></tr>
 <tr><td><code>RecoveryTime</code></td><td>正式回正时长，秒；插值模式下对应 Drop 段。</td></tr>
 <tr><td><code>RecoveryCurve</code></td><td>回正进度曲线；横轴为归一化时间，纵轴为回正完成比例。</td></tr>
-<tr><td><code>bCompensationAwareRecovery</code></td><td>压枪抵扣总开关，默认开。开启时垂直回正目标按本轮累计压枪量计算；关闭时偏移回到 0。</td></tr>
-<tr><td><code>bCompensationAwareRecoveryYaw</code></td><td>水平轴压枪抵扣开关，默认关。开启时 Yaw 也采用抵扣规则；关闭时水平偏移回到 0，玩家水平转向仍保留。</td></tr>
+<tr><td><code>bCompensationAwareRecovery</code></td><td>历史回正抵扣配置；当前显示层回正目标固定为 0，此开关不改变最终 Pitch 偏移。</td></tr>
+<tr><td><code>bCompensationAwareRecoveryYaw</code></td><td>历史水平回正抵扣配置；当前显示层回正目标固定为 0，此开关不改变最终 Yaw 偏移。</td></tr>
 </table></div>
-<div class="note"><strong>现行回正读法：</strong>抵扣开启时，回正终点最多保留到本轮峰值，即 <code>min(累计压枪量 P, 本轮峰值 K)</code>。P≤K 时画面回到开枪前的角度；P&gt;K 时不反向抬镜头，画面保留超压角度 <code>K−P</code>。压枪量在进入回正时冻结；插值模式的 Drop 已是正式回正，Drop 中再次开火会从当前可见偏移开始新一轮。</div>
+<div class="note"><strong>现行回正读法：</strong>停火后相机显示偏移逐渐回到 <code>0°</code>；进入 Idle 后不再保留上一轮的 Pitch/Yaw 偏移。玩家自己下压鼠标所改变的 <code>ControlRotation</code> 仍然保留。插值模式的 Drop 是正式回正；Drop 中再次开火会从当前可见偏移开始新一轮。变更记录见 <a href="13_TracePitchAndSaturationFix.md">2026-09-28 GunKick trace 修复</a>。</div>
 
 <h2 id="roll">3 · Roll 震屏参数</h2>
 <p>Roll 是独立的镜头横滚震动，不计入 Pitch/Yaw 累加与回正。参数位于 <code>Recoil | RollShake</code>。</p>
@@ -109,7 +109,7 @@
 <tr><td><code>Lyra.Recoil.SpreadDebug 0/1</code></td><td>开关散布实时面板，独立于其他面板。</td></tr>
 <tr><td><code>Lyra.Recoil.Dump</code></td><td>导出当前连发记录到 <code>Saved/RecoilDump_*.csv</code>；新一轮的历史会替换前一轮。</td></tr>
 <tr><td><code>Lyra.Recoil.ReloadProfile</code></td><td>强制从磁盘重载当前武器的后坐力资产；编辑器内直接修改资产通常会热生效。</td></tr>
-<tr><td><code>Lyra.Recoil.Trace 0/1</code></td><td>回正与连发问题的详细追踪日志；仅在需要定位时开启。</td></tr>
+<tr><td><code>Lyra.Recoil.Trace 0/1</code></td><td>默认 0（关）；1 开启逐帧追踪，输出到 <code>Saved/Logs/TPSGunsDemo.log</code>。复现后输入 0 关闭，避免日志持续增长。</td></tr>
 <tr><td><code>lyra.Weapon.DrawBulletTraceDuration &lt;秒&gt;</code></td><td>绘制弹丸实际轨迹，用于观察散布。</td></tr>
 <tr><td><code>lyra.Weapon.DrawBulletHitDuration &lt;秒&gt;</code></td><td>绘制弹着点；<code>lyra.Weapon.DrawBulletHitRadius &lt;cm&gt;</code> 调整点半径。</td></tr>
 </table></div>
@@ -128,7 +128,7 @@
 <h3>世界可视化与独立面板</h3>
 <div class="legend"><div><strong style="color:#17803d">绿线</strong>：未施加后坐力的逻辑瞄准轴。</div><div><strong style="color:#bc3030">红线</strong>：施加后坐力后的相机方向。</div><div><strong style="color:#a88b00">黄点</strong>：固定 Pattern 轨迹。</div><div><strong style="color:#008d97">青条</strong>：回正进度。</div><div><strong style="color:#b52aa8">品红弧</strong>：Roll 倾角。</div></div>
 <p><code>RollDebug</code> 中的 <code>Roll</code> 是实时横滚角，<code>Envelope</code> 是当前衰减比例，<code>t/left</code> 是已过/剩余时间，<code>StartAmp</code> 是本发起始振幅。<code>SpreadDebug</code> 中的 <code>Model/AssetSpread</code> 表示当前散布链路；<code>Cone: raw → effective</code> 是姿态原始全锥角到瞄准、移动倍率作用后锥角；<code>Fed to cone</code> 是弹丸采样使用的半角。</p>
-<div class="note warn"><strong>常见判读：</strong>改散布资产无效时先看 <code>AssetSpread</code> 是否为 on；连发散布不涨时看当前姿态的 <code>AddPerShot</code> 与 <code>Max</code>；空中不回落时看空中 <code>RecoverRate</code> 是否为 0。后坐力回正后仍保留偏移时，对照 <code>CoverUsed</code> 与本轮峰值；压过头后画面低于起枪角是当前规则。Drop 中再次开火会开始新一轮，<code>ShotIndex</code> 重置属于预期。</div>
+<div class="note warn"><strong>常见判读：</strong>改散布资产无效时先看 <code>AssetSpread</code> 是否为 on；连发散布不涨时看当前姿态的 <code>AddPerShot</code> 与 <code>Max</code>；空中不回落时看空中 <code>RecoverRate</code> 是否为 0。后坐力到顶后逐发消失时，看 <code>state/stage</code> 是否仍运行、<code>push/acc</code> 是否长期固定；进入 Idle 后 <code>push</code> 应归零。Drop 中再次开火会开始新一轮，<code>ShotIndex</code> 重置属于预期。</div>
 <p class="muted">同时打开后坐力可视化与 Lyra 弹道绘制会出现两套红/黄图元：后坐力黄点展示 Pattern，Lyra 红线展示每颗弹丸的实际轨迹。</p>
-<footer>依据当前资产字段及 2026-09-23 的开发记录整理。资产中的实际配置值优先于字段默认值。</footer>
+<footer>依据当前资产字段及截至 2026-09-28 的 GunKick 修复记录整理。资产中的实际配置值优先于字段默认值。</footer>
 </main></body></html>

@@ -158,6 +158,40 @@ namespace LyraRecoilStatePrivate
 	}
 
 	/**
+	 * 计算一发在硬上限内的 Peak / ReboundEnd。
+	 *
+	 * 不能分别对原始绝对目标做 Clamp：基线到顶后，原始 Peak 和 ReboundEnd 都在上限外，
+	 * 两者会一起被压成同一个数，后续每发的 Lift/Rebound 就完全消失。
+	 * 这里先限制 Peak，再从受限 Peak 回落本发应有的回弹量，为下一发保留可见行程。
+	 */
+	static void ComputeBoundedShotAnchors(
+		const FRecoilRuntimeState& State,
+		const ULyraRecoilProfile& Profile,
+		float& OutPeakPitch,
+		float& OutPeakYaw,
+		float& OutReboundEndPitch,
+		float& OutReboundEndYaw)
+	{
+		const float PitchMin = State.BurstStartPitchOffset - Profile.MaxVerticalKick;
+		const float PitchMax = State.GetEffectiveVerticalKickLimit(Profile);
+		const float YawMin = State.BurstStartYawOffset - Profile.MaxHorizontalKick;
+		const float YawMax = State.BurstStartYawOffset + Profile.MaxHorizontalKick;
+
+		OutPeakPitch = FMath::Clamp(State.InterpBasePitch + State.InterpShotAmplitudePitch, PitchMin, PitchMax);
+		OutPeakYaw = FMath::Clamp(State.InterpBaseYaw + State.InterpShotAmplitudeYaw, YawMin, YawMax);
+
+		const float ReboundFraction = 1.0f - Profile.ReboundRatio;
+		OutReboundEndPitch = FMath::Clamp(
+			OutPeakPitch - State.InterpShotAmplitudePitch * ReboundFraction,
+			PitchMin,
+			PitchMax);
+		OutReboundEndYaw = FMath::Clamp(
+			OutPeakYaw - State.InterpShotAmplitudeYaw * ReboundFraction,
+			YawMin,
+			YawMax);
+	}
+
+	/**
 	 * 算出当前阶段「此刻应该达到的目标偏移」（度）。
 	 *
 	 * 这是参考文档 §2 伪码 `目标Pitch = 按上抬曲线插值(0, Pitch总幅度, 进度)` 的落地。
@@ -189,11 +223,12 @@ namespace LyraRecoilStatePrivate
 		//   10_SingleShotInterpolation.md §7「逻辑偏移照常累加」想要的行为。
 		const float BasePitch = State.InterpBasePitch;
 		const float BaseYaw = State.InterpBaseYaw;
-		const float PeakPitch = BasePitch + State.InterpShotAmplitudePitch;
-		const float PeakYaw = BaseYaw + State.InterpShotAmplitudeYaw;
-
-		const float ReboundEndPitch = BasePitch + State.InterpShotAmplitudePitch * Profile.ReboundRatio;
-		const float ReboundEndYaw = BaseYaw + State.InterpShotAmplitudeYaw * Profile.ReboundRatio;
+		float PeakPitch = 0.0f;
+		float PeakYaw = 0.0f;
+		float ReboundEndPitch = 0.0f;
+		float ReboundEndYaw = 0.0f;
+		ComputeBoundedShotAnchors(
+			State, Profile, PeakPitch, PeakYaw, ReboundEndPitch, ReboundEndYaw);
 
 		const float Duration = GetStageDuration(Profile, State.InterpStage);
 		const float Progress = (Duration > KINDA_SMALL_NUMBER)
@@ -332,10 +367,8 @@ namespace LyraRecoilStatePrivate
 		//   「上限 clamp 要作用在**总和**上，而不是逐条叠加时就夹」——
 		//   逐条夹会让后续脉冲的贡献被已饱和的值吞掉，同样表现为「到顶之后新发的后坐力消失」。
 		//
-		// ★ 2026-09-20 追加：垂直上限不再等于 MaxVerticalKick，而是
-		//   `MaxVerticalKick + 玩家压枪抵扣`。钳制的本意是「玩家压不住枪时不让镜头飞太高」，
-		//   所以该被钳的是**镜头实际抬升量（偏移 − 压枪量）**；钳裸偏移会让压枪的人
-		//   不到上限就封顶 → 体感"压着枪打着打着后坐力就没了"。见 11_BurstAccumulationFix.md §12。
+		// 垂直上限以本轮起始偏移为基线，只允许有限的压枪抵扣额度；
+		// 既避免正常压枪过早封顶，也不会随鼠标下拉无限抬高。
 		const float VerticalUpperLimit = State.GetEffectiveVerticalKickLimit(Profile);
 		const float VerticalLowerLimit = State.BurstStartPitchOffset - Profile.MaxVerticalKick;
 		const float ClampedPitch = FMath::Clamp(TargetPitch, VerticalLowerLimit, VerticalUpperLimit);
@@ -384,12 +417,12 @@ namespace LyraRecoilStatePrivate
 				// 它的结束正好是"停火超过 RecoveryDelay"的同一时刻，语义对齐。
 				if (NextStage == ERecoilInterpStage::Drop)
 				{
-					const float PeakPitch = State.InterpBasePitch + State.InterpShotAmplitudePitch;
-					const float PeakYaw = State.InterpBaseYaw + State.InterpShotAmplitudeYaw;
-					const float ReboundEndPitch = State.InterpBasePitch
-						+ State.InterpShotAmplitudePitch * Profile.ReboundRatio;
-					const float ReboundEndYaw = State.InterpBaseYaw
-						+ State.InterpShotAmplitudeYaw * Profile.ReboundRatio;
+					float PeakPitch = 0.0f;
+					float PeakYaw = 0.0f;
+					float ReboundEndPitch = 0.0f;
+					float ReboundEndYaw = 0.0f;
+					ComputeBoundedShotAnchors(
+						State, Profile, PeakPitch, PeakYaw, ReboundEndPitch, ReboundEndYaw);
 
 					State.RecoveryPeakPitch = PeakPitch;
 					State.RecoveryPeakYaw = PeakYaw;
@@ -437,50 +470,17 @@ int32 FRecoilRuntimeState::ResolveSeed(const ULyraRecoilProfile* Profile)
 float FRecoilRuntimeState::ComputeRecoveryTarget(
 	const ULyraRecoilProfile& Profile, float BurstStart, float Peak, float Cover, bool bApplyCover)
 {
-	// =====================================================================
-	// 回正终止值的唯一实现（2026-09-22 第三次定型口径）
-	// =====================================================================
-	//
-	//     终止值 = 本轮起始偏移
-	//              + sign(峰值 − 起始偏移) × min(本梭累计压枪量, abs(峰值 − 起始偏移))
-	//
-	// 语义：玩家没有压住时，偏移补足到压枪量，让屏幕回到开枪前；
-	//       玩家压过头时，偏移最多保留到本轮峰值，不反向抬镜头，超压角度由玩家保留。
-	//
-	//   屏幕视角 = ControlRotation（含玩家压枪）+ 后坐力偏移，
-	//   所以把偏移收敛到压枪量时，屏幕正好回到开枪前的位置 —— 这就是设计目标。
-	//
-	//     不压枪   ⇒ 终止值 = 0   ⇒ 偏移回满 ⇒ 屏幕回开枪前
-	//     压 N≤K 度 ⇒ 终止值 = N   ⇒ 玩家的 Ctrl 已低了 N 度，屏幕回开枪前
-	//     压 N>K 度 ⇒ 终止值 = K   ⇒ 屏幕停在 K−N（例如 K=10、N=11 ⇒ −1°）
-	//
-	// ★ 与上一版的差别（实测坐实的错误）：
-	//
-	//   上一版写的是 `峰值 − 压枪量`，于是
-	//       屏幕 = −压枪量 + (峰值 − 压枪量) = 峰值 − 2×压枪量
-	//   压在真实弹道上就是**看地板**。实机 trace（DA_Recoil_Rifle_S 连发）：
-	//       峰值 17.600、累计压枪 13.650、玩家 Ctrl 低了 13.650
-	//       终值 = 17.600 − 13.650 = 3.950 ⇒ 屏幕 = −13.650 + 3.950 = −9.700（低于开枪前 9.7°）
-	//   改成「偏移 = 压枪量」后：屏幕 = −13.650 + 13.650 = 0 ⇒ 精确回到开枪前 ✓
-	//
-	// 峰值只作为上限使用，确保回正不会在玩家已经压过头时反向增加后坐力偏移。
-	//
-	// 两把闸门串联才允许抵扣 ——
-	//   bCompensationAwareRecovery     总开关（默认 true）
-	//   bApplyCover                    本轴开关（Yaw 默认 false，见 Profile 头文件）
-	//   垂直轴恒传 true（默认实参）；
-	//   水平轴默认不扣 —— 因为 MaxHorizontalKick 只有 2.0°，门槛 1.7°，
-	//   而"转身追目标"随时超过 1.7°，否则 Yaw 回正会长期恒为 0。
-	//
-	// 不抵扣（总开关关 / 本轴不参与）时终止值 = 0 ⇒ 偏移完全回满、屏幕停在玩家压枪后的位置。
-	if (!Profile.bCompensationAwareRecovery || !bApplyCover)
-	{
-		return BurstStart;
-	}
+	// Camera recoil is display-only, so carrying a non-zero target into Idle
+	// permanently biases every later view angle (POV = ControlRotation + offset).
+	// Always consume the full display offset when a burst recovers. Refiring is
+	// still continuous because recovery interpolates from RecoveryBase to zero.
+	(void)Profile;
+	(void)BurstStart;
+	(void)Peak;
+	(void)Cover;
+	(void)bApplyCover;
+	return 0.0f;
 
-	const float BurstPeakDelta = Peak - BurstStart;
-	const float ClampedCover = FMath::Min(FMath::Max(Cover, 0.0f), FMath::Abs(BurstPeakDelta));
-	return BurstStart + FMath::Sign(BurstPeakDelta) * ClampedCover;
 }
 
 void FRecoilRuntimeState::SamplePlayerAim(float InAimPitchDegrees, float InAimYawDegrees)
@@ -556,10 +556,10 @@ float FRecoilRuntimeState::ComputePoseMultiplier(const ULyraRecoilProfile& Profi
 
 float FRecoilRuntimeState::GetEffectiveVerticalKickLimit(const ULyraRecoilProfile& Profile) const
 {
-	// 只限制「本轮净抬升」，不能把上一轮为抵消压枪而保留的偏移再次算进上限。
-	// 压枪量也不能再截断为一个 MaxVerticalKick；否则持续压枪时裸偏移会在 2×MaxV 封死，
-	// 后续子弹失去可见后坐力，回正却仍读到更高的理论峰值并产生反向上跳。
-	return BurstStartPitchOffset + Profile.MaxVerticalKick + AimCompensationPitch;
+	// 压枪可以抵扣一部分裸偏移上限，避免正常压枪时过早封顶；但抵扣额度最多为一个
+	// MaxVerticalKick，不能像旧实现那样随鼠标下拉无限增长并形成追逐反馈。
+	const float BoundedCompensation = FMath::Clamp(AimCompensationPitch, 0.0f, Profile.MaxVerticalKick);
+	return BurstStartPitchOffset + Profile.MaxVerticalKick + BoundedCompensation;
 }
 
 void FRecoilRuntimeState::Reset(const ULyraRecoilProfile* Profile)
@@ -877,9 +877,7 @@ bool FRecoilRuntimeState::ApplyShot(const ULyraRecoilProfile* Profile, float Pos
 		// 这是既有行为，一字未改 —— 既有 24 个测试、3 份 Golden 数据、CSV 契约
 		// 全部建立在这个语义上。
 		// ---------------------------------------------------------------------
-		// 垂直上限含玩家压枪抵扣（钳的是"镜头实际抬升量"，见 §12）。
-		// InstantWrite 下压枪抵扣同样生效 —— 该模式下连发累加是 100%，
-		// 不抵扣的话压枪的人会一样"到 Max 就封顶"。
+		// 与插值模式使用同一个有界上限；压枪最多额外抵扣一个 MaxVerticalKick。
 		const float VerticalUpperLimit = GetEffectiveVerticalKickLimit(*Profile);
 		const float VerticalLowerLimit = BurstStartPitchOffset - Profile->MaxVerticalKick;
 		AccumulatedPitch = FMath::Clamp(AccumulatedPitch + Kick.Vertical, VerticalLowerLimit, VerticalUpperLimit);

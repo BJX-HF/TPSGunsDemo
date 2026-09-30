@@ -4,6 +4,8 @@
 #include "AbilitySystemGlobals.h"
 #include "Character/LyraCharacter.h"
 #include "Character/LyraCharacterMovementComponent.h"
+#include "Equipment/LyraEquipmentManagerComponent.h"
+#include "Weapons/LyraRangedWeaponInstance.h"
 
 #if WITH_EDITOR
 #include "Misc/DataValidation.h"
@@ -52,6 +54,7 @@ void ULyraAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
+	WeaponVisualRecoilPose = FWeaponVisualRecoilPose();
 	const ALyraCharacter* Character = Cast<ALyraCharacter>(GetOwningActor());
 	if (!Character)
 	{
@@ -61,5 +64,13 @@ void ULyraAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	ULyraCharacterMovementComponent* CharMoveComp = CastChecked<ULyraCharacterMovementComponent>(Character->GetCharacterMovement());
 	const FLyraCharacterGroundInfo& GroundInfo = CharMoveComp->GetGroundInfo();
 	GroundDistance = GroundInfo.GroundDistance;
+
+	if (ULyraEquipmentManagerComponent* Equipment = Character->FindComponentByClass<ULyraEquipmentManagerComponent>())
+	{
+		if (ULyraRangedWeaponInstance* Weapon = Equipment->GetFirstInstanceOfType<ULyraRangedWeaponInstance>())
+		{
+			WeaponVisualRecoilPose = Weapon->GetWeaponVisualRecoilPose();
+		}
+	}
 }
 

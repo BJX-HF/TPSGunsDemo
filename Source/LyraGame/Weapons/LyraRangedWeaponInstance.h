@@ -8,6 +8,7 @@
 #include "AbilitySystem/LyraAbilitySourceInterface.h"
 #include "Weapons/Recoil/LyraRecoilState.h"
 #include "Weapons/Recoil/LyraRecoilTypes.h"
+#include "Weapons/Recoil/LyraWeaponVisualRecoilState.h"
 
 #include "LyraRangedWeaponInstance.generated.h"
 
@@ -94,6 +95,11 @@ public:
 	 * 与现有 AddSpread() 并列（两者独立，互不影响）。
 	 */
 	void AddRecoil();
+
+	/** Current V1 semantic pitch/back pose. Animation maps it into verified bone axes. */
+	UFUNCTION(BlueprintPure, Category = "Recoil|WeaponVisual")
+	FWeaponVisualRecoilPose GetWeaponVisualRecoilPose() const { return VisualRecoilState.GetPose(); }
+	float GetGunKickAimingAlpha() const { return ComputeAimingAlpha(); }
 
 	/**
 	 * P3 弹道链：取第 ShotIndex 发的弹道方向偏移（度）。
@@ -343,6 +349,9 @@ private:
 	// 注意：本项目不做联机（2026-09-17 决定），本结构体没有 Replicated 标记。
 	UPROPERTY(Transient)
 	FRecoilRuntimeState RecoilState;
+
+	FWeaponVisualRecoilState VisualRecoilState;
+	int32 VisualShotSerial = 0;
 
 	// 当前挂在 PlayerCameraManager 上的后坐力相机修改器（仅本地玩家有效）
 	UPROPERTY(Transient)

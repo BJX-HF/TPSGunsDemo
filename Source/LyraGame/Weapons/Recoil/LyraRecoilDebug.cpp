@@ -14,6 +14,7 @@
 #include "Weapons/LyraRangedWeaponInstance.h"
 #include "Weapons/Recoil/LyraRecoilProfile.h"
 #include "Weapons/Recoil/LyraRecoilState.h"
+#include "Weapons/Recoil/LyraWeaponVisualRecoilState.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(LyraRecoilDebug)
 
@@ -38,6 +39,10 @@ namespace LyraRecoilDebugPrivate
 
 	/** 最近一次成功导出的 CSV 路径 */
 	static FString LastDumpPath;
+	static TArray<FString> VisualTraceRows;
+	static uint64 LastVisualTraceFrame = MAX_uint64;
+	static constexpr int32 MaxVisualTraceRows = 36000;
+	static constexpr uint64 VisualPanelMessageKey = 0x525452434F494C34ull;
 
 	static const TCHAR* GetStateName(ERecoilState State)
 	{
@@ -161,6 +166,25 @@ namespace LyraRecoilCVars
 		TEXT("and the legacy Lyra heat model (the panel then reports heat-based numbers).\n")
 		TEXT("Default: 0"),
 		ECVF_Default);
+
+	static bool bVisualEnabled = true;
+	static FAutoConsoleVariableRef CVarVisual(TEXT("Lyra.Recoil.Visual"), bVisualEnabled,
+		TEXT("Enable the profile's weapon-only visual recoil. Default: 1"), ECVF_Default);
+	static float VisualScale = 1.0f;
+	static FAutoConsoleVariableRef CVarVisualScale(TEXT("Lyra.Recoil.VisualScale"), VisualScale,
+		TEXT("Temporary visual-only multiplier; does not change camera or bullet trajectory. Default: 1"), ECVF_Default);
+	static bool bVisualLeftIK = true;
+	static FAutoConsoleVariableRef CVarVisualLeftIK(TEXT("Lyra.Recoil.VisualLeftIK"), bVisualLeftIK,
+		TEXT("Ablate the left-hand IK follow channel. Default: 1"), ECVF_Default);
+	static bool bVisualAlignment = true;
+	static FAutoConsoleVariableRef CVarVisualAlignment(TEXT("Lyra.Recoil.VisualAlignment"), bVisualAlignment,
+		TEXT("Ablate weak camera-to-weapon alignment without changing camera recoil. Default: 1"), ECVF_Default);
+	static bool bVisualDebug = false;
+	static FAutoConsoleVariableRef CVarVisualDebug(TEXT("Lyra.Recoil.VisualDebug"), bVisualDebug,
+		TEXT("Show six-axis Gun Kick, camera offsets, and IK weights. Default: 0"), ECVF_Default);
+	static bool bVisualTrace = false;
+	static FAutoConsoleVariableRef CVarVisualTrace(TEXT("Lyra.Recoil.VisualTrace"), bVisualTrace,
+		TEXT("Record one Gun Kick CSV sample per local animation frame. Default: 0"), ECVF_Default);
 }
 
 bool ULyraRecoilDebug::IsRecoilEnabled()
@@ -196,6 +220,77 @@ bool ULyraRecoilDebug::IsRollDebugPanelEnabled()
 bool ULyraRecoilDebug::IsSpreadDebugPanelEnabled()
 {
 	return LyraRecoilCVars::bSpreadDebugPanel;
+}
+
+bool ULyraRecoilDebug::IsVisualEnabled() { return LyraRecoilCVars::bVisualEnabled; }
+float ULyraRecoilDebug::GetVisualScale() { return FMath::Max(0.0f, LyraRecoilCVars::VisualScale); }
+bool ULyraRecoilDebug::IsVisualLeftIKEnabled() { return LyraRecoilCVars::bVisualLeftIK; }
+bool ULyraRecoilDebug::IsVisualAlignmentEnabled() { return LyraRecoilCVars::bVisualAlignment; }
+bool ULyraRecoilDebug::IsVisualDebugEnabled() { return LyraRecoilCVars::bVisualDebug; }
+
+void ULyraRecoilDebug::RecordVisualFrame(const UWorld* World, const ULyraRecoilProfile* Profile,
+	const FRecoilRuntimeState& State, const FWeaponVisualRecoilPose& Pose,
+	float AimingAlpha, float GunKickAlpha, float TargetAlpha, float DirectHandAlpha, float LeftHandAlpha)
+{
+	if (World == nullptr || Profile == nullptr || (!LyraRecoilCVars::bVisualDebug && !LyraRecoilCVars::bVisualTrace))
+	{
+		return;
+	}
+	if (LyraRecoilCVars::bVisualDebug && GEngine != nullptr)
+	{
+		const FString Panel = FString::Printf(
+			TEXT("Gun Kick [%s] shot %d ADS %.2f | camera P %.2f Y %.2f R %.2f\n")
+			TEXT("weapon P %.2f Y %.2f R %.2f | back %.2f up %.2f side %.2f\n")
+			TEXT("alpha %.2f target %.2f hand %.2f left IK %.2f"),
+			*Profile->GetName(), Pose.ShotSerial, AimingAlpha,
+			State.CameraOffsetPitch, State.CameraOffsetYaw, State.GetCameraRollOffset(),
+			Pose.PitchDegrees, Pose.YawDegrees, Pose.RollDegrees, Pose.BackCm, Pose.UpCm, Pose.SideCm,
+			GunKickAlpha, TargetAlpha, DirectHandAlpha, LeftHandAlpha);
+		GEngine->AddOnScreenDebugMessage(LyraRecoilDebugPrivate::VisualPanelMessageKey, 0.0f, FColor::Cyan, Panel);
+	}
+	if (!LyraRecoilCVars::bVisualTrace || LyraRecoilDebugPrivate::LastVisualTraceFrame == GFrameCounter)
+	{
+		return;
+	}
+	LyraRecoilDebugPrivate::LastVisualTraceFrame = GFrameCounter;
+	if (LyraRecoilDebugPrivate::VisualTraceRows.Num() >= LyraRecoilDebugPrivate::MaxVisualTraceRows)
+	{
+		return;
+	}
+	LyraRecoilDebugPrivate::VisualTraceRows.Add(FString::Printf(
+		TEXT("%.6f,%s,%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f"),
+		World->GetTimeSeconds(), *Profile->GetName(), Pose.ShotSerial, State.ShotIndex, AimingAlpha,
+		State.CameraOffsetPitch, State.CameraOffsetYaw, State.GetCameraRollOffset(),
+		Pose.PitchDegrees, Pose.YawDegrees, Pose.RollDegrees, Pose.BackCm, Pose.UpCm, Pose.SideCm,
+		GunKickAlpha, TargetAlpha, DirectHandAlpha, LeftHandAlpha));
+}
+
+bool ULyraRecoilDebug::DumpVisualTraceToCsv(FString& OutFilePath)
+{
+	if (LyraRecoilDebugPrivate::VisualTraceRows.IsEmpty())
+	{
+		return false;
+	}
+	FString Csv = TEXT("TimeSeconds,Profile,ShotSerial,ShotIndex,AimingAlpha,CameraPitch,CameraYaw,CameraRoll,VisualPitch,VisualYaw,VisualRoll,VisualBackCm,VisualUpCm,VisualSideCm,GunKickAlpha,TargetAlpha,DirectHandAlpha,LeftHandAlpha\n");
+	for (const FString& Row : LyraRecoilDebugPrivate::VisualTraceRows)
+	{
+		Csv += Row + TEXT("\n");
+	}
+	const FDateTime Now = FDateTime::Now();
+	const FString Timestamp = FString::Printf(TEXT("%s_%03d"), *Now.ToString(TEXT("%Y%m%d_%H%M%S")), Now.GetMillisecond());
+	FString FilePath = FPaths::ProjectSavedDir() / FString::Printf(TEXT("GunKickTrace_%s.csv"), *Timestamp);
+	for (int32 Suffix = 2; FPaths::FileExists(FilePath); ++Suffix)
+	{
+		FilePath = FPaths::ProjectSavedDir() / FString::Printf(TEXT("GunKickTrace_%s_%d.csv"), *Timestamp, Suffix);
+	}
+	if (!FFileHelper::SaveStringToFile(Csv, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	{
+		return false;
+	}
+	OutFilePath = FilePath;
+	UE_LOG(LogLyraRecoilDebug, Display, TEXT("Gun Kick trace written: %s (%d frames)"), *FilePath, LyraRecoilDebugPrivate::VisualTraceRows.Num());
+	LyraRecoilDebugPrivate::VisualTraceRows.Reset();
+	return true;
 }
 
 FString ULyraRecoilDebug::GetLastDumpPath()
@@ -892,6 +987,19 @@ namespace LyraRecoilConsole
 		Weapon->ReloadRecoilProfile();
 	}
 
+	static void HandleVisualDump(const TArray<FString>& Args, UWorld* World)
+	{
+		FString FilePath;
+		if (ULyraRecoilDebug::DumpVisualTraceToCsv(FilePath))
+		{
+			UE_LOG(LogLyraRecoilDebug, Display, TEXT("Lyra.Recoil.VisualDump: %s"), *FilePath);
+		}
+		else
+		{
+			UE_LOG(LogLyraRecoilDebug, Warning, TEXT("Lyra.Recoil.VisualDump: no recorded frames, or write failed"));
+		}
+	}
+
 	static FAutoConsoleCommandWithWorldAndArgs DumpCommand(
 		TEXT("Lyra.Recoil.Dump"),
 		TEXT("Export the current burst's shot history of the local player's ranged weapon to Saved/RecoilDump_<timestamp>.csv"),
@@ -901,4 +1009,9 @@ namespace LyraRecoilConsole
 		TEXT("Lyra.Recoil.ReloadProfile"),
 		TEXT("Force-reload the local player's recoil profile asset from disk. For tuning when the asset was changed outside the editor (editor / PIE only)."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&HandleReloadProfile));
+
+	static FAutoConsoleCommandWithWorldAndArgs VisualDumpCommand(
+		TEXT("Lyra.Recoil.VisualDump"),
+		TEXT("Export recorded camera, six-axis Gun Kick, and IK weights to Saved/GunKickTrace_<timestamp>.csv"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&HandleVisualDump));
 }

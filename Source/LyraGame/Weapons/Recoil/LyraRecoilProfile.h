@@ -6,6 +6,7 @@
 #include "Engine/DataAsset.h"
 #include "Camera/LyraCameraShakeTypes.h"
 #include "Weapons/Recoil/LyraRecoilTypes.h"
+#include "Weapons/Recoil/LyraWeaponVisualRecoilState.h"
 
 #include "LyraRecoilProfile.generated.h"
 
@@ -57,6 +58,10 @@ public:
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
+
+	/** Separate V1 pitch/back visual channel. Defaults off for existing assets. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|WeaponVisual")
+	FWeaponVisualRecoilSettings WeaponVisual;
 
 	// ---------------------------------------------------------------------
 	// 基础（Base）

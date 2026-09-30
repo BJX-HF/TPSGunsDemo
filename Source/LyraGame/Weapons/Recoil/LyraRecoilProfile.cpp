@@ -450,6 +450,41 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 	CheckMultiplier(TEXT("PoseMultiplier_Crouching"), PoseMultiplier_Crouching);
 	CheckMultiplier(TEXT("PoseMultiplier_JumpingOrFalling"), PoseMultiplier_JumpingOrFalling);
 
+	// An enabled visual profile must have usable hand axes and a bounded LOD policy.
+	// Disabled legacy profiles retain their previous validation behavior.
+	if (WeaponVisual.bEnabled)
+	{
+		if (WeaponVisual.MaxVisualLOD < 0)
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s WeaponVisual.MaxVisualLOD must be >= 0"), *Prefix));
+		}
+		if (!FMath::IsFinite(WeaponVisual.VisualScale) || WeaponVisual.VisualScale < 0.0f)
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s WeaponVisual.VisualScale must be finite and >= 0"), *Prefix));
+		}
+		if (!FMath::IsFinite(WeaponVisual.AttackDuration) || WeaponVisual.AttackDuration <= 0.0f ||
+			!FMath::IsFinite(WeaponVisual.ReturnTime) || WeaponVisual.ReturnTime <= 0.0f)
+		{
+			OutErrors.Add(FString::Printf(TEXT("%s WeaponVisual.AttackDuration/ReturnTime must be finite and > 0"), *Prefix));
+		}
+		auto CheckVisualAxis = [&](const TCHAR* Name, const FVector& Axis)
+		{
+			if (Axis.ContainsNaN() || Axis.IsNearlyZero())
+			{
+				OutErrors.Add(FString::Printf(TEXT("%s WeaponVisual.%s must be a finite nonzero vector"), *Prefix, Name));
+			}
+		};
+		CheckVisualAxis(TEXT("BackAxisBoneSpace"), WeaponVisual.BackAxisBoneSpace);
+		CheckVisualAxis(TEXT("UpAxisBoneSpace"), WeaponVisual.UpAxisBoneSpace);
+		CheckVisualAxis(TEXT("SideAxisBoneSpace"), WeaponVisual.SideAxisBoneSpace);
+		if (WeaponVisual.bDriveRightHandIKTarget)
+		{
+			CheckVisualAxis(TEXT("TargetBackAxisBoneSpace"), WeaponVisual.TargetBackAxisBoneSpace);
+			CheckVisualAxis(TEXT("TargetUpAxisBoneSpace"), WeaponVisual.TargetUpAxisBoneSpace);
+			CheckVisualAxis(TEXT("TargetSideAxisBoneSpace"), WeaponVisual.TargetSideAxisBoneSpace);
+		}
+	}
+
 	// --- 散布（只在总开关打开时校验）---
 	//
 	// 与 SingleShot 的处理口径一致：开关关闭时这组参数不参与任何计算，

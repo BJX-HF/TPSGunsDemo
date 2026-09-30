@@ -522,4 +522,34 @@ bool FLyraRecoilModifierChainTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+//////////////////////////////////////////////////////////////////////////
+// 7) Pitch boundary: recoil must not cross the rotator pole
+//////////////////////////////////////////////////////////////////////////
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilModifierPitchBoundaryTest,
+	"Lyra.Recoil.CameraModifier.ClampsPitchBeforeRotatorPole",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLyraRecoilModifierPitchBoundaryTest::RunTest(const FString& Parameters)
+{
+	UCameraModifier_WeaponRecoil* Modifier = NewObject<UCameraModifier_WeaponRecoil>();
+	if (!TestNotNull(TEXT("Weapon recoil camera modifier can be created"), Modifier))
+	{
+		return false;
+	}
+
+	Modifier->SetRecoilOffset(/*Pitch=*/8.0f, /*Yaw=*/0.0f);
+
+	FMinimalViewInfo POV;
+	POV.Rotation = FRotator(/*Pitch=*/88.0f, /*Yaw=*/37.0f, /*Roll=*/0.0f);
+	Modifier->ModifyCamera(1.0f / 60.0f, POV);
+
+	TestTrue(TEXT("Pitch is clamped before crossing +90 degrees"),
+		FMath::IsNearlyEqual(POV.Rotation.Pitch, 89.0f));
+	TestTrue(TEXT("Clamping pitch does not flip yaw at the rotator pole"),
+		FMath::IsNearlyEqual(POV.Rotation.Yaw, 37.0f));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

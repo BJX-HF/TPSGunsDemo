@@ -1,5 +1,9 @@
 # 11 · 回正扣减压枪量（Recovery Compensation）
 
+> 历史方案记录：当前显示层回正目标已于 2026-09-28 改为 `0°`，Idle 不保留后坐力偏移。
+> 本文中的 `min(压枪量, 峰值)` 公式与基于它的验收期望仅用于追溯旧方案；
+> 现行行为见 [13_TracePitchAndSaturationFix.md](13_TracePitchAndSaturationFix.md)。
+
 | 项 | 值 |
 | --- | --- |
 | 项目 | `E:\TPSGunsDemo` |
@@ -13,7 +17,7 @@
 
 ---
 
-> ## ★ 现行口径（2026-09-22 第三次拍板，以此为唯一权威）
+> ## ★ 2026-09-22 历史口径（2026-09-28 已停用）
 >
 > ```
 > 回正终止值 = min(本梭累计压枪量, 本轮后坐力峰值)
@@ -116,7 +120,7 @@
 
 ## 3. 规则
 
-### 3.1 公式（现行，2026-09-22 第三次拍板）
+### 3.1 公式（2026-09-22 历史方案）
 
 ```cpp
 // FRecoilRuntimeState::ComputeRecoveryTarget(const ULyraRecoilProfile& Profile,
