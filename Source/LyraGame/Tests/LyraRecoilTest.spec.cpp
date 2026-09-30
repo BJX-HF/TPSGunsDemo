@@ -498,9 +498,9 @@ bool FLyraRecoilStateRefireTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("State returns to Idle after the second recovery"), State.State == ERecoilState::Idle);
 	TestTrue(
-		FString::Printf(TEXT("Second recovery clears the camera offset (actual %.4f)"),
+		FString::Printf(TEXT("Second recovery returns to the refire baseline (actual %.4f)"),
 			State.AccumulatedPitch),
-		FMath::IsNearlyZero(State.AccumulatedPitch, Tolerance));
+		FMath::IsNearlyEqual(State.AccumulatedPitch, PitchBeforeRefire, Tolerance));
 
 	return true;
 }
@@ -1115,9 +1115,9 @@ bool FLyraRecoilInterpDropRefireTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("New burst converges to Idle"), State.State == ERecoilState::Idle);
 	TestTrue(TEXT("New interpolation timeline finishes"), State.InterpStage == ERecoilInterpStage::None);
 	// 第二轮没有新的压枪输入，所以应回到它自己的起枪点。
-	TestTrue(FString::Printf(TEXT("Recovery clears the camera offset (actual %.4f)"),
+	TestTrue(FString::Printf(TEXT("Recovery returns to the refire baseline (actual %.4f)"),
 		State.AccumulatedPitch),
-		FMath::IsNearlyZero(State.AccumulatedPitch, 0.03f));
+		FMath::IsNearlyEqual(State.AccumulatedPitch, PitchBeforeRefire, Tolerance));
 
 	return true;
 }
@@ -1151,8 +1151,8 @@ bool FLyraRecoilInterpIdleRefireTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("First burst fully recovered to Idle"), State.State == ERecoilState::Idle);
 	const float Residual = State.AccumulatedPitch;
-	TestTrue(FString::Printf(TEXT("Idle has no residual camera offset (actual %.4f)"), Residual),
-		FMath::IsNearlyZero(Residual, Tolerance));
+	TestTrue(FString::Printf(TEXT("Idle retains the compensated offset (expected 0.3, actual %.4f)"), Residual),
+		FMath::IsNearlyEqual(Residual, 0.3f, Tolerance));
 
 	// 新一轮：以残留为新零点，压枪基准重锚、账本清零
 	State.ApplyShot(Profile, 1.0f);
@@ -1302,7 +1302,7 @@ bool FLyraRecoilCompensationRetainsPullDownTest::RunTest(const FString& Paramete
 	AdvanceToSteady(State, *Profile);
 
 	// 终止值 = 累计压枪量 = 1.0
-	const float Expected = 0.0f;
+	const float Expected = 1.0f;
 	TestTrue(
 		FString::Printf(TEXT("终止值 = 累计压枪量（期望 %.4f，实际 %.4f）"), Expected, State.AccumulatedPitch),
 		FMath::IsNearlyEqual(State.AccumulatedPitch, Expected, Tolerance));
@@ -1310,7 +1310,7 @@ bool FLyraRecoilCompensationRetainsPullDownTest::RunTest(const FString& Paramete
 	// 换个说法断言同一件事：实际回正量 = 峰值 − 终止值 = 5.0 − 1.0 = 4.0
 	TestTrue(
 		FString::Printf(TEXT("实际回正量 = 峰值 − 压枪量 = 4.0（实际 %.4f）"), 5.0f - State.AccumulatedPitch),
-		FMath::IsNearlyEqual(5.0f - State.AccumulatedPitch, 5.0f, Tolerance));
+		FMath::IsNearlyEqual(5.0f - State.AccumulatedPitch, 4.0f, Tolerance));
 
 	return true;
 }
@@ -1342,17 +1342,17 @@ bool FLyraRecoilCompensationOverPullTest::RunTest(const FString& Parameters)
 	// 终止值不能超过本轮累计后坐力 = 10.0
 	TestTrue(
 		FString::Printf(TEXT("压过头时终止值夹在峰值（期望 %.4f，实际 %.4f）"), Peak, State.AccumulatedPitch),
-		FMath::IsNearlyZero(State.AccumulatedPitch, Tolerance));
+		FMath::IsNearlyEqual(State.AccumulatedPitch, Peak, Tolerance));
 
 	// 屏幕 = Ctrl(−11) + 偏移(10) = −1 —— 保留玩家压过头的 1°
 	TestTrue(
 		FString::Printf(TEXT("屏幕保留超压角度（期望 −1.0000，实际 %.4f）"), -Pull + State.AccumulatedPitch),
-		FMath::IsNearlyEqual(-Pull + State.AccumulatedPitch, -Pull, Tolerance));
+		FMath::IsNearlyEqual(-Pull + State.AccumulatedPitch, -1.0f, Tolerance));
 
 	// 已经压过头，无需再回正，也不能反向抬镜头。
 	TestTrue(
 		FString::Printf(TEXT("压过头时回正量为 0（实际 %.4f）"), Peak - State.AccumulatedPitch),
-		FMath::IsNearlyEqual(Peak - State.AccumulatedPitch, Peak, Tolerance));
+		FMath::IsNearlyZero(Peak - State.AccumulatedPitch, Tolerance));
 
 	return true;
 }
@@ -1397,10 +1397,11 @@ bool FLyraRecoilRecoveryContractScenariosTest::RunTest(const FString& Parameters
 	const FScenario Scenarios[] =
 	{
 		{ TEXT("上抬 5、完全不压枪"),        10,  0.0f,   5.0f },
-		{ TEXT("上抬 5、压 3"),              10,  3.0f,   5.0f },
-		{ TEXT("上抬 10、压 5（老师原例）"), 20,  5.0f,  10.0f },
-		{ TEXT("上抬 5、压过头 10"),         10, 10.0f,   5.0f },
-		{ TEXT("上抬 10、压过头 11"),        20, 11.0f,  10.0f },
+		{ TEXT("上抬 5、压 3"),              10,  3.0f,   2.0f },
+		{ TEXT("上抬 10、压 4"),              20,  4.0f,   6.0f },
+		{ TEXT("上抬 10、压满 10"),           20, 10.0f,   0.0f },
+		{ TEXT("上抬 5、压过头 10"),         10, 10.0f,   0.0f },
+		{ TEXT("上抬 10、压过头 11"),        20, 11.0f,   0.0f },
 	};
 
 	for (const FScenario& S : Scenarios)
@@ -1421,8 +1422,8 @@ bool FLyraRecoilRecoveryContractScenariosTest::RunTest(const FString& Parameters
 
 		TestTrue(TEXT("回正结束后回到 Idle"), State.State == ERecoilState::Idle);
 
-		const float ExpectedTarget = 0.0f;
-		const float ExpectedScreen = -P;
+		const float ExpectedTarget = K - S.ExpectedRecovery;
+		const float ExpectedScreen = ExpectedTarget - P;
 
 		// ① 回正后偏移 = min(P, K)
 		TestTrue(
@@ -1522,7 +1523,7 @@ bool FLyraRecoilCompensationYawTest::RunTest(const FString& Parameters)
 	RunBurstWithCompensation(StateYawApplied, *Profile, 8, 0.0f, /*InYawDragDegrees=*/ 0.5f);
 	AdvanceToSteady(StateYawApplied, *Profile);
 
-	const float AppliedYaw = 0.0f;
+	const float AppliedYaw = 0.5f;
 	TestTrue(
 		FString::Printf(TEXT("打开后：水平终止值 = 位移量（期望 %.4f，实际 %.4f）"),
 			AppliedYaw, StateYawApplied.AccumulatedYaw),
@@ -1590,7 +1591,7 @@ bool FLyraRecoilCompensationFrozenTest::RunTest(const FString& Parameters)
 	// 冻结的抵扣 = 1.0 ⇒ 终止值 = 1.0（途中再压 30° 不改变落点）
 	TestTrue(
 		FString::Printf(TEXT("途中继续压枪不影响落点（期望 1.0000，实际 %.4f）"), State.AccumulatedPitch),
-		FMath::IsNearlyZero(State.AccumulatedPitch, Tolerance));
+		FMath::IsNearlyEqual(State.AccumulatedPitch, 1.0f, Tolerance));
 
 	return true;
 }
@@ -1627,7 +1628,7 @@ bool FLyraRecoilCompensationInterpTest::RunTest(const FString& Parameters)
 		FMath::IsNearlyEqual(State.RecoveryCompensationPitch, 0.3f, Tolerance));
 
 	// 终止值 = 压枪量 = 0.3
-	const float Expected = 0.0f;
+	const float Expected = 0.3f;
 	TestTrue(
 		FString::Printf(TEXT("逻辑偏移落到 %.4f（实际 %.4f）"), Expected, State.AccumulatedPitch),
 		FMath::IsNearlyEqual(State.AccumulatedPitch, Expected, Tolerance));
@@ -1638,7 +1639,112 @@ bool FLyraRecoilCompensationInterpTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+// Exercise ten real, timed shots and assert visible angles, including a second
+// burst with an existing compensated offset and a nonzero initial aim angle.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilTenShotRecoveryTest, "Lyra.Recoil.Compensation.TenShotVisibleAngles",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+bool FLyraRecoilTenShotRecoveryTest::RunTest(const FString& Parameters)
+{
+	using namespace LyraRecoilTestHelpers;
+	const float Pulls[] = { 0.0f, 4.0f, 10.0f, 11.0f };
+	const float ExpectedDeltas[] = { 0.0f, 0.0f, 0.0f, -1.0f };
+	for (const ERecoilSingleShotMode Mode : { ERecoilSingleShotMode::InstantWrite, ERecoilSingleShotMode::Interpolated })
+	{
+		for (const float InitialAim : { 0.0f, 30.0f })
+		{
+			for (int32 Scenario = 0; Scenario < UE_ARRAY_COUNT(Pulls); ++Scenario)
+			{
+				ULyraRecoilProfile* Profile = MakeInterpolatedTestProfile();
+				Profile->SingleShotMode = Mode;
+				Profile->RecoilPerShot_Vertical = 1.0f;
+				Profile->LiftDuration = StepSeconds * 2.0f;
+				Profile->ReboundDuration = StepSeconds * 2.0f;
+				Profile->ReboundRatio = 1.0f; // Exactly ten degrees across ten shots.
+				FRecoilRuntimeState State;
+				State.Reset(Profile);
+				State.SamplePlayerAim(InitialAim, 0.0f);
+				for (int32 Burst = 0; Burst < 2; ++Burst)
+				{
+					const float StartAim = State.SampledAimPitch;
+					const float StartOffset = State.CameraOffsetPitch;
+					const float StartView = StartAim + StartOffset;
+					const FString Context = FString::Printf(TEXT("Mode=%d Aim=%.1f Pull=%.1f Burst=%d"),
+						static_cast<int32>(Mode), InitialAim, Pulls[Scenario], Burst);
+					for (int32 Shot = 0; Shot < 10; ++Shot)
+					{
+						State.ApplyShot(Profile, 1.0f);
+						State.SamplePlayerAim(StartAim - Pulls[Scenario] * (Shot + 1) / 10.0f, 0.0f);
+						for (int32 Step = 0; Step < 6; ++Step)
+						{
+							State.Advance(Profile, StepSeconds);
+						}
+					}
+					TestEqual(Context + TEXT(" remains one burst"), State.ShotIndex, 10);
+					TestTrue(Context + TEXT(" adds ten degrees"),
+						FMath::IsNearlyEqual(State.CameraOffsetPitch - StartOffset, 10.0f, Tolerance));
+					for (int32 Step = 0; Step < 120; ++Step)
+					{
+						State.Advance(Profile, StepSeconds);
+					}
+					TestTrue(Context + TEXT(" returns to Idle"), State.State == ERecoilState::Idle);
+					TestTrue(Context + TEXT(" visible recovery endpoint"), FMath::IsNearlyEqual(
+						State.SampledAimPitch + State.CameraOffsetPitch, StartView + ExpectedDeltas[Scenario], Tolerance));
+				}
+			}
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilCompensatedLongFrameTest, "Lyra.Recoil.Compensation.LongFrameUsesBoundedPeak",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLyraRecoilCompensatedLongFrameTest::RunTest(const FString& Parameters)
+{
+	using namespace LyraRecoilTestHelpers;
+	for (const float Pull : { 1.0f, 5.0f })
+	{
+		ULyraRecoilProfile* Profile = MakeInterpolatedTestProfile();
+		Profile->RecoilPerShot_Vertical = 10.0f;
+		Profile->MaxVerticalKick = 2.0f;
+		Profile->LiftDuration = 1.0f;
+		Profile->ReboundDuration = 1.0f;
+		Profile->RecoveryDelay = 1.0f;
+		FRecoilRuntimeState State;
+		State.Reset(Profile);
+		State.SamplePlayerAim(0.0f, 0.0f);
+		State.ApplyShot(Profile, 1.0f);
+		State.SamplePlayerAim(-Pull, 0.0f);
+		State.Advance(Profile, 0.5f); // Exceeds eight substeps, while still in Lift.
+		const float ExpectedOffset = Pull == 1.0f ? 1.0f : 4.0f;
+		TestTrue(TEXT("Long frame completes recovery"), State.State == ERecoilState::Idle);
+		TestTrue(TEXT("Compensation is capped by the actual bounded peak"),
+			FMath::IsNearlyEqual(State.CameraOffsetPitch, ExpectedOffset, Tolerance));
+		TestTrue(TEXT("Long frame keeps the requested visible endpoint"),
+			FMath::IsNearlyEqual(State.SampledAimPitch + State.CameraOffsetPitch, Pull == 1.0f ? 0.0f : -1.0f, Tolerance));
+	}
+
+	// A stall during Drop must not replace the snapshot with new mouse input.
+	ULyraRecoilProfile* Profile = MakeInterpolatedTestProfile();
+	Profile->RecoveryTime = 1.0f;
+	FRecoilRuntimeState State;
+	State.Reset(Profile);
+	State.SamplePlayerAim(0.0f, 0.0f);
+	State.ApplyShot(Profile, 1.0f);
+	State.SamplePlayerAim(-0.2f, 0.0f);
+	for (int32 Step = 0; Step < 28; ++Step)
+	{
+		State.Advance(Profile, StepSeconds);
+	}
+	TestTrue(TEXT("Recovery started before the stall"), State.State == ERecoilState::Recovering);
+	State.SamplePlayerAim(-10.0f, 0.0f);
+	State.Advance(Profile, 0.5f);
+	TestTrue(TEXT("Stalled Drop completes"), State.State == ERecoilState::Idle);
+	TestTrue(TEXT("Stalled Drop preserves frozen compensation"),
+		FMath::IsNearlyEqual(State.CameraOffsetPitch, 0.2f, Tolerance));
+	return true;
+}
 
 #endif // WITH_DEV_AUTOMATION_TESTS
 

@@ -70,7 +70,8 @@
 ### 3.2 单位口径（必须记住的三条）
 
 1. **全锥角（直径角），度** —— 与 Lyra 原有的 `CurrentSpreadAngle` 语义一致，
-   唯一的半角换算点在 `LyraGameplayAbility_RangedWeapon.cpp` 的 `ActualSpreadAngle * 0.5f`（L419）。
+   唯一的半角换算点在 `LyraGameplayAbility_RangedWeapon.cpp` 的 `ActualSpreadAngle * 0.5f`（**L435**；
+   注意源码注释里引用的 L419 也已过时，实际换算见该文件 `L434-435`）。
 2. **`Base` 是地板不是起点** —— `CurrentSpreadAngle` 在稳态下恒等于当前姿态的 `Base`。
 3. **姿态是瞬时的** —— 蹲/跳立刻换一组 `Base/Max/AddPerShot/RecoverRate`，不插值。
 

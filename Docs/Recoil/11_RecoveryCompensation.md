@@ -1,29 +1,31 @@
 # 11 · 回正扣减压枪量（Recovery Compensation）
 
-> 历史方案记录：当前显示层回正目标已于 2026-09-28 改为 `0°`，Idle 不保留后坐力偏移。
-> 本文中的 `min(压枪量, 峰值)` 公式与基于它的验收期望仅用于追溯旧方案；
-> 现行行为见 [13_TracePitchAndSaturationFix.md](13_TracePitchAndSaturationFix.md)。
+> 本文保留历次方案。2026-10-01 根据最新需求恢复压枪抵扣：未压住回起枪角，压过头保留超压角度。
+> 9 月 28 日的偏移恒归零规则已停用；本次实现、边界与验证见
+> [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)。
 
 | 项 | 值 |
 | --- | --- |
-| 项目 | `E:\TPSGunsDemo` |
+| 项目 | `d:\TPSGunsDemo\TPSGunsDemo` |
 | 实现主体 | `FRecoilRuntimeState`（`Source/LyraGame/Weapons/Recoil/LyraRecoilState.h/.cpp`） |
 | 配置主体 | `ULyraRecoilProfile::bCompensationAwareRecovery` |
 | 采样接入点 | `ULyraRangedWeaponInstance::SampleRecoilPlayerAim()` |
 | 建立日期 | 2026-09-20 |
 | **最近修订** | **2026-09-22—— 修复第三人称相机轨道仍按裸 `ControlRotation` 计算、压枪后相机端点永久升高** |
 | 前置文档 | `04_PoseMatrix.md`（回正与姿态）、`10_SingleShotInterpolation.md`（单发模型）、`11_BurstAccumulationFix.md §13`（回正抵扣终稿） |
-| 验证状态 | **构建 `Result: Succeeded`；`Lyra.Recoil` 48/48 全绿；相机位置修复待 PIE 观感复验** |
+| 验证状态 | **构建 `Result: Succeeded`；`Lyra.Recoil` 48/48 全绿（历史快照；当前共 57 个用例）；相机位置修复待 PIE 观感复验** |
 
 ---
 
-> ## ★ 2026-09-22 历史口径（2026-09-28 已停用）
+> ## ★ 2026-09-22 口径（9 月 28 日停用；10 月 1 日按最新需求恢复）
 >
 > ```
-> 回正终止值 = min(本梭累计压枪量, 本轮后坐力峰值)
+> 回正终止值 = BurstStart + clamp(本梭累计压枪量, 0, max(0, 本轮后坐力峰值 - BurstStart))
 > ```
 >
-> 峰值（Peak）只作为压枪抵扣的上限。不压枪 ⇒ 终止值 = 0；未压住 ⇒ 终止值 = P；压过头 ⇒ 终止值 = K。
+> `BurstStart` 是本轮起枪角对应的偏移；峰值（Peak）只作为压枪抵扣的上限。
+> 不压枪 ⇒ 终止值 = BurstStart；未压住 ⇒ 终止值 = BurstStart + P；压过头 ⇒ 终止值 = BurstStart + K
+> （K = 峰值 − BurstStart）。
 >
 > ### 为什么是这个式子：屏幕视角的账
 >
@@ -120,27 +122,33 @@
 
 ## 3. 规则
 
-### 3.1 公式（2026-09-22 历史方案）
+### 3.1 公式（2026-09-22 历史方案；现行实现见 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)）
 
 ```cpp
 // FRecoilRuntimeState::ComputeRecoveryTarget(const ULyraRecoilProfile& Profile,
-//                                            float Peak, float Cover,
+//                                            float BurstStart, float Peak, float Cover,
 //                                            bool bApplyCover = true)
-return (Profile.bCompensationAwareRecovery && bApplyCover)
-    ? FMath::Sign(Peak) * FMath::Min(FMath::Max(Cover, 0.0f), FMath::Abs(Peak))
-    : 0.0f;
+if (!Profile.bCompensationAwareRecovery || !bApplyCover)
+{
+    return 0.0f;
+}
+const float BurstKick = FMath::Max(0.0f, Peak - BurstStart);
+return BurstStart + FMath::Clamp(Cover, 0.0f, BurstKick);
 ```
 
-本式**无 Ratio、无地板**；峰值仅用于限制抵扣量，避免压过头时反向补偿
-（代码：`Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp` 的 `ComputeRecoveryTarget`）。
+本式**无 Ratio、无地板**；`BurstStart`（本轮起枪角对应的偏移）与 `Peak` 共同决定抵扣上限
+`max(0, Peak − BurstStart)`，避免压过头时反向补偿
+（代码：`Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp:470-484`）。
 
 - 垂直轴恒传 `bApplyCover = true`（默认实参）。
 - 水平轴传 `Profile.bCompensationAwareRecoveryYaw`（**默认 `false`**）⇒ 返回 0 ⇒ 偏移回满。
 - 两把闸门**串联**：`bCompensationAwareRecovery && bApplyCover` 都为真才扣。
 
-**稳态值也必须共用同一份实现。** 三处消费点（`ApplyRecoveryStep`、`ComputeStageTarget` 的
-Drop 段、长帧保护）全部调用 `ComputeRecoveryTarget`，且**读同一个字段** `RecoveryCompensationPitch`
-（`RecoveryCompensationYaw`）—— 这是 Bug A 的修复要点，见 §8.3。
+**稳态值也必须共用同一份实现。** 消费点是 `ApplyRecoveryStep`（`LyraRecoilState.cpp:70-76`）
+与长帧保护（`LyraRecoilState.cpp:1068`）两处，全部调用 `ComputeRecoveryTarget`，且**读同一个字段**
+`RecoveryCompensationPitch`（`RecoveryCompensationYaw`）。
+（`ComputeStageTarget` 的 Drop 段**不再**调用它 —— 只做防御性回退 `OutPitch = State.CameraOffsetPitch`，
+见 `LyraRecoilState.cpp:266-273`；§8.3 描述的是该分支合并前的历史实现。）
 
 ---
 
@@ -289,38 +297,42 @@ RecoilState.bRecoveryCoverApplied     = true;
 | 文件 | 改动 |
 | --- | --- |
 | `LyraRecoilState.h` | 新增运行时字段（`RecoveryCompensationPitch/Yaw`、`RecoveryCoverPitch/Yaw`、`AimPitch/YawAtBurstStart`、`SampledAimPitch/Yaw`、`bRecoveryCoverApplied`）+ `SamplePlayerAim()` + `ComputeRecoveryTarget()` |
-| `LyraRecoilState.h` | `ComputeRecoveryTarget()` 保留 `bool bApplyCover = true` 本轴开关（当前为第 4 个参数） |
-| `LyraRecoilState.h/.cpp` | **2026-09-22**：恢复形参 `Peak` 作为压枪量上限 —— `ComputeRecoveryTarget(Profile, Peak, Cover, bApplyCover)` |
-| `LyraRecoilState.cpp` | `FreezeCompensationForRecovery()`；`ApplyRecoveryStep` / `ComputeStageTarget(Drop)` / 长帧保护三处改用 `ComputeRecoveryTarget`；`ApplyShot` 换基准；`Reset` 清字段 |
-| `LyraRecoilState.cpp` | 三处调用点的 **Yaw 分支**传 `Profile.bCompensationAwareRecoveryYaw`；函数内改成"总开关 && 本轴开关"串联判定 |
-| `LyraRecoilState.cpp` | **2026-09-21 本次（Bug A）**：`ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch` |
+| `LyraRecoilState.h` | `ComputeRecoveryTarget()` 保留 `bool bApplyCover = true` 本轴开关（**当前为第 5 个参数**） |
+| `LyraRecoilState.h/.cpp` | **现行签名**：`ComputeRecoveryTarget(Profile, BurstStart, Peak, Cover, bApplyCover)` —— `BurstStart` 参与抵扣上限的计算 |
+| `LyraRecoilState.cpp` | `FreezeCompensationForRecovery()`；`ApplyRecoveryStep` / 长帧保护**两处**改用 `ComputeRecoveryTarget`；`ApplyShot` 换基准；`Reset` 清字段 |
+| `LyraRecoilState.cpp` | 两处调用点的 **Yaw 分支**传 `Profile.bCompensationAwareRecoveryYaw`；函数内改成"总开关 && 本轴开关"串联判定 |
+| `LyraRecoilState.cpp` | **【历史】** `ComputeStageTarget` 的 Drop 段读数源由 `bRecoveryCoverApplied ? 0 : RecoveryCoverPitch` 改为 `State.RecoveryCompensationPitch`（2026-09-21 Bug A）；后续 Drop 段已并入 `ApplyRecoveryStep`，该分支不再调用 `ComputeRecoveryTarget`（仅防御性回退） |
 | `LyraRecoilProfile.h` | 新增 `bCompensationAwareRecovery`、`bCompensationAwareRecoveryYaw = false` |
 | `LyraRangedWeaponInstance.h/.cpp` | 新增 `SampleRecoilPlayerAim()`，在 `UpdateRecoil` / `AddRecoil` 里调用 |
 | `LyraRecoilDebug.cpp` | 屏幕面板新增一行：实时压枪量 / 冻结快照 / 当前瞄准 |
-| `Tests/LyraRecoilTest.spec.cpp` | `Lyra.Recoil.Compensation.*` 共 8 个用例；新增压过头 10° / 11° ⇒ −1° 验收 |
+| `Tests/LyraRecoilTest.spec.cpp` | `Lyra.Recoil.Compensation.*` 共 **11 个**用例；新增压过头 10° / 11° ⇒ −1° 验收 |
 | `Tests/LyraRecoilPoseTest.spec.cpp` | `Lyra.Recoil.Pose.RecoveryCurveShape` 稳态期望由 `5.0`（峰值）改为 `0.0`（回满） |
 
 **刻意不动**：`FRecoilShotResult` 字段（CSV 7 列契约）、`ShotHistory`、5 份 Golden 数据。
 
 ---
 
-## 7. 自动化测试（`Lyra.Recoil.Compensation.*`，8 个）
+## 7. 自动化测试（`Lyra.Recoil.Compensation.*`，11 个）
 
 | 用例 | 断言 |
 | --- | --- |
 | `ZeroInputMatchesBaseline` | 零输入时 `AccumulatedPitch` 严格为 0，且回正量 = 峰值 |
 | `RetainsPullDown` | 压 1° → 偏移终止值 = 1.0 |
 | `OverCompensationPreservesOvershoot` | 峰值 10°、压 11° → 终止值 = 10°，屏幕停在 −1°，回正量为 0 |
+| `EffectiveLimitUsesBurstBaseline` | 压枪额度最多增加一个 `MaxVerticalKick`（垂直上限以 `BurstStart` 为基线） |
 | `YawRetainsDrag` | 默认不抵扣（水平终止值 = 0）；显式打开 `bCompensationAwareRecoveryYaw` 后终止值 = 位移量 |
 | `DisabledKeepsLegacy` | 关掉总开关 → 终止值 = 0（偏移回满） |
 | `FrozenAfterRecoveryStarts` | 进入回正后冻结；途中再压 30° 不影响落点 |
 | `InterpolatedDropConsistency` | 插值模式：Drop 段终点与收官值**一致**（无跳变） |
 | `UserContractScenarios` | 五场景参数化：① 终止值 == `min(P,K)` ② 屏幕 == `min(P,K)−P` ③ 回正量 == `max(K−P,0)` |
+| `TenShotVisibleAngles` | 每发 1° 逐发推进 + 压枪输入，覆盖两种单发模式、0°/30° 起枪角、0°/4°/10°/11° 压枪、连续两轮共 32 组 |
+| `LongFrameUsesBoundedPeak` | 卡顿收尾用本发受限峰值，含部分压枪、超压终点与 Drop 中快照冻结 |
 
 一键复跑：`Docs/Recoil/Tools/run-recoil-tests.ps1`（或编辑器内
 `AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")`）。
 
-**2026-09-22 验证结果**：专项 `8/8`；完整 `Lyra.Recoil` 为 `45/45`，`Result={Fail}` = 0；`LyraEditor` 构建成功。
+**2026-09-22 验证结果（历史快照）**：专项 `8/8`；完整 `Lyra.Recoil` 为 `45/45`，`Result={Fail}` = 0；`LyraEditor` 构建成功。
+（当前 `Lyra.Recoil` 共 57 个用例；本文新增的 3 个用例见上表。）
 
 ---
 

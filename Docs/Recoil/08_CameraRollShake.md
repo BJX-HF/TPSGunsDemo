@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | 数学模型 | **积分模型**：每发累加增量 | **解析模型**：按当前时刻直接求解 |
 | 是否累加 | 累加（`AccumulatedPitch += Kick`） | **不累加** |
-| 停火后 | 走回正曲线，**停在稳态偏移**（`RecoilReturnRatio` 决定残留） | **衰减到零**，围绕零点往复震颤后归零 |
+| 停火后 | 走回正曲线，**停在由玩家压枪量决定的稳态偏移**（`ComputeRecoveryTarget()`：起枪角 + `clamp(累计压枪量, 0, 峰值−起枪角)`；2026-09-21 前的 `RecoilReturnRatio` 残留比例已删除） | **衰减到零**，围绕零点往复震颤后归零 |
 | 长连发表现 | 弹道持续上抬，越打越偏 | 每发重新起震，幅度可能随连射频率叠加但**始终围绕零点** |
 | 时钟 | 全局 `RecoveryElapsed` | **每发重置**的独立时钟 |
 | 状态归属 | `AccumulatedPitch` / `AccumulatedYaw` | `RollShake.CurrentRoll` |
@@ -125,7 +125,7 @@
 
 | 文件 | 状态 | 内容 |
 | --- | --- | --- |
-| `Source/LyraGame/Camera/LyraCameraShakeTypes.h` | **新建** | `FCameraRollShakeParams` / `FCameraRollShakeState` / `ECameraShakeModeType` / `FCameraShakeOutput` |
+| `Source/LyraGame/Camera/LyraCameraShakeTypes.h` | **新建** | 实际只有 `FCameraRollShakeParams` / `FCameraRollShakeState`；`ECameraShakeModeType` / `FCameraShakeOutput` 属**计划但未实现**（代码中不存在） |
 | `Source/LyraGame/Camera/LyraCameraRollShake.h/.cpp` | **新建** | Roll 震动的纯算法层 |
 | `Source/LyraGame/Camera/LyraCameraModifier_WeaponRecoil.h/.cpp` | 改 | 加 Roll 通道（`SetRollOffset` / `RollOffsetDegrees` / `InOutPOV.Rotation.Roll +=`） |
 | `Source/LyraGame/Weapons/Recoil/LyraRecoilProfile.h/.cpp` | 改 | 加 `Recoil\|RollShake` 参数组 + `BuildRollShakeParams()` |
@@ -238,11 +238,14 @@ Recoil Accumulating  Shot=5  Pitch=0.83 Yaw=0.65  Roll=+0.412  Prog=0.00  Pose=S
 
 ### 4.4 CSV 导出
 
-`Lyra.Recoil.Dump` 的表头**新增第 7 列** `RollShake`：
+`Lyra.Recoil.Dump` 的 CSV 在 Roll 之前已有 6 列；Roll 加入时 `RollShake` 是**当时的第 7 列**，
+其后 P13（散布并入）再追加了 `SpreadAngle`。**当前 CSV 共 8 列**（`LyraRecoilDebug.cpp:849`）：
 
 ```
-ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake
+ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceFire,RollShake,SpreadAngle
 ```
+
+（`SpreadAngle` 是 P13 之后追加的列，见 [12_SpreadInProfile.md](12_SpreadInProfile.md)。）
 
 **列语义说明（重要）**：`RollShake` = **开火瞬间** Roll 震动值（解析解在 `t=0` 的采样），
 不是"本发累计"。它与 `AccumulatedPitch/Yaw` 的语义不同 —— 后者是累加量，前者是解析解的瞬时值。
@@ -253,6 +256,10 @@ ShotIndex,VerticalKick,HorizontalKick,AccumulatedPitch,AccumulatedYaw,TimeSinceF
 ## 5. 镜头模式系统（文档 §1）
 
 文档 §1 要求镜头效果按「模式」组织，且**允许多个模式同时激活**。本次按此抽象出契约：
+
+> ⚠️ **以下 `ECameraShakeModeType` / `FCameraShakeOutput` 属「计划但未实现」——当前代码中不存在这两个类型**
+> （`LyraCameraShakeTypes.h` 只有 `FCameraRollShakeParams`、`FCameraRollShakeState` 两个结构体）。
+> 各模式实际是"每帧把三轴直接推给相机修改器"天然并行，未经过任何"模式枚举 / 输出聚合"结构。
 
 ```cpp
 UENUM(BlueprintType)
@@ -276,21 +283,25 @@ struct FCameraShakeOutput
 };
 ```
 
-**关键说明：`ECameraShakeModeType` 目前只用于调试分类，不驱动任何互斥逻辑。**
-各模式天然并行：`ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()` 每帧把三轴一起推给
-相机修改器，修改器统一施加到 `FMinimalViewInfo`。没有"切换模式"这一步 —— 因为并行是要求，不是选项。
+> ⚠️ 以上为**计划设计**：原设想 `ECameraShakeModeType` 只用于调试分类、不驱动任何互斥逻辑；实际代码未实现该枚举。
+> 真正的并行实现是：`ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()` 每帧把三轴一起推给
+> 相机修改器，修改器统一施加到 `FMinimalViewInfo`。没有"切换模式"这一步 —— 因为并行是要求，不是选项。
 
-FOV / Breathing 两个枚举值是**为后续接入预留的分类位**，本次不实现具体算法（文档 §3 / §4 属于另一项需求）。
+FOV / Breathing **尚未纳入本系统（连枚举也未定义）**，本次不实现具体算法（文档 §3 / §4 属于另一项需求）。
 
 ### 5.1 固定步长更新
 
 文档 §2 / §7 要求射击相关逻辑走**固定步长**（如稳定 60Hz）以减少帧率对手感的影响。
 
-当前实现：`ULyraRangedWeaponInstance::Tick()` 由 `ULyraWeaponStateComponent::TickComponent()` 每帧驱动，
-传入的是**帧 DeltaSeconds**。这在 60fps 附近没问题，但高刷屏（144Hz）下 Roll 的采样率会变，
-"抖几个来回"的观感会有细微差异。
+当前实现分两路：
 
-**这是当前已知的一处未落地项**，见 §6 待办。
+- **Pitch / Yaw 插值链已落地固定子步长**：`Advance()` 内用 `SubStepAccumulator` 以
+  `FixedSubStepSeconds = 1/60` 秒为单位循环推进（`LyraRecoilState.h:539`、`LyraRecoilState.cpp:997-1013`），
+  采样密度与显示器帧率解耦。
+- **Roll 通道仍按帧 `DeltaSeconds` 推进**（`LyraRecoilState.cpp:982`）。这是刻意的：Roll 是
+  「衰减包络 × 周期项」的解析解，帧率只影响采样密度、不累积误差，因此不套固定子步循环。
+
+因此 §6 待办第 1 条"固定步长未落地"**仅对 Roll 成立**，Pitch/Yaw 已落地。
 
 ---
 
@@ -298,15 +309,16 @@ FOV / Breathing 两个枚举值是**为后续接入预留的分类位**，本次
 
 | # | 事项 | 影响 | 建议 |
 | --- | --- | --- | --- |
-| 1 | **固定步长更新未落地**（文档 §2/§7 要求） | 高刷屏下 Roll 观感略有差异 | 在武器实例里加一个固定步长累加器（如 1/60s），把 `Advance()` 拆成 N 次调用 |
-| 2 | FOV / Breathing 模式**只有枚举，无实现** | 文档 §3 / §4 的验收项无法覆盖 | 属独立需求，需另行排期 |
+| 1 | **Roll 通道未走固定步长**（Pitch/Yaw 已落地 1/60 固定子步长） | 高刷屏下 Roll 观感略有差异 | 若要统一，可把 Roll 也纳入固定子步循环；当前按解析解处理 |
+| 2 | FOV / Breathing 模式**尚未纳入本系统（连枚举也未定义）** | 文档 §3 / §4 的验收项无法覆盖 | 属独立需求，需另行排期 |
 | 3 | Roll 目前**只作用在相机 POV**，不含骨骼跟随 | 文档 §5 的"骨骼旋转跟随"未做 | 若要做，需在角色动画层加局部坐标增量（文档 §5 的方案） |
 | 4 | `RollShake_SegmentScaleCurve` / `PeriodScaleCurve` 默认空 | 空 = 系数恒 1，行为与不配一致 | 需要"分段不同节奏"时再配曲线 |
 | 5 | CSV 的 `RollShake` 列取 `t=0` 采样 | 曲线只反映"起点强度"，不反映整段波形 | 要完整波形请用 `RollDebug` 面板或另做逐帧录制 |
 
 ### 6.1 已知的契约变更（P8 引入）
 
-`Lyra.Recoil.Dump` 的 CSV 从 **6 列变 7 列**（末尾追加 `RollShake`）。
+`Lyra.Recoil.Dump` 的 CSV 当时从 **6 列变 7 列**（P8 末尾追加 `RollShake`）；
+其后 P13 又追加 `SpreadAngle`，**当前共 8 列**。
 两个既有测试已同步更新：
 
 - `Lyra.Recoil.Dump.HeaderSchema` —— 表头列数与逐列名
@@ -315,7 +327,7 @@ FOV / Breathing 两个枚举值是**为后续接入预留的分类位**，本次
 契约常量收敛在 `LyraRecoilDumpTest::ExpectedHeader` 与 `ExpectedColumnCount` **一处**，
 以后改 CSV 只需要改那里，测试会立刻拦住不一致。
 
-**任何解析既有 CSV 的外部脚本（例如 `Tools/plot-recoil-csv.py`）需要确认能否容忍多出的第 7 列。**
+**任何解析既有 CSV 的外部脚本（例如 `Tools/plot-recoil-csv.py`）需要确认能否容忍多出的列（当前为第 7、8 列）。**
 
 ---
 
@@ -379,7 +391,7 @@ UE 的该返回值表示“停止遍历后续 CameraModifier”，导致开火�
 
 修复后该修改器仍正常叠加 Pitch/Yaw/Roll，但始终返回 `false`，不再截断相机效果链。
 新增自动化用例 `Lyra.Recoil.RollShake.ModifierDoesNotBlockLaterEffects`，验证偏移照常施加且
-后续修改器不会被阻断。完整 `Lyra.Recoil` 回归为 **49/49 通过**。
+后续修改器不会被阻断。完整 `Lyra.Recoil` 回归**当时为 49/49 通过**（**历史快照**；当前共 57 个用例）。
 
 ---
 

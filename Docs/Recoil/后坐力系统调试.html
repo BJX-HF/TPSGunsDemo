@@ -46,10 +46,10 @@
 <tr><td><code>RecoveryDelay</code></td><td>进入正式回正前的停留时间，秒；插值模式下也是 Settle 段时长。</td></tr>
 <tr><td><code>RecoveryTime</code></td><td>正式回正时长，秒；插值模式下对应 Drop 段。</td></tr>
 <tr><td><code>RecoveryCurve</code></td><td>回正进度曲线；横轴为归一化时间，纵轴为回正完成比例。</td></tr>
-<tr><td><code>bCompensationAwareRecovery</code></td><td>历史回正抵扣配置；当前显示层回正目标固定为 0，此开关不改变最终 Pitch 偏移。</td></tr>
-<tr><td><code>bCompensationAwareRecoveryYaw</code></td><td>历史水平回正抵扣配置；当前显示层回正目标固定为 0，此开关不改变最终 Yaw 偏移。</td></tr>
+<tr><td><code>bCompensationAwareRecovery</code></td><td>历史回正抵扣配置（默认开）。开：回正目标 = 本梭起枪角 + <code>clamp(本梭累计压枪量, 0, 峰值−起枪角)</code>，压多少认多少、压过头保留超出的下压角；关：一律回满到 <code>0</code>。见 <code>ComputeRecoveryTarget()</code> 与 <a href="14_RecoveryToBurstStart.md">14_RecoveryToBurstStart.md</a>。</td></tr>
+<tr><td><code>bCompensationAwareRecoveryYaw</code></td><td>水平（Yaw）轴是否同样抵扣压枪量（默认关）。开：与 Pitch 同规则；关：Yaw 偏移回满到 <code>0</code>。见 <code>ComputeRecoveryTarget()</code> 与 <a href="14_RecoveryToBurstStart.md">14_RecoveryToBurstStart.md</a>。</td></tr>
 </table></div>
-<div class="note"><strong>现行回正读法：</strong>停火后相机显示偏移逐渐回到 <code>0°</code>；进入 Idle 后不再保留上一轮的 Pitch/Yaw 偏移。玩家自己下压鼠标所改变的 <code>ControlRotation</code> 仍然保留。插值模式的 Drop 是正式回正；Drop 中再次开火会从当前可见偏移开始新一轮。变更记录见 <a href="13_TracePitchAndSaturationFix.md">2026-09-28 GunKick trace 修复</a>。</div>
+<div class="note"><strong>现行回正读法：</strong>停火后相机显示偏移收敛到「本梭起枪角 + <code>clamp(本梭累计压枪量, 0, 峰值−起枪角)</code>」，<strong>并非恒为 0</strong>——未压枪回到起枪角，压多少认多少，压过头保留下压超出的角度（默认 <code>bCompensationAwareRecovery</code> 开；关掉则回满到 <code>0</code>）。玩家自己下压鼠标所改变的 <code>ControlRotation</code> 仍然保留。插值模式的 Drop 是正式回正；Drop 中再次开火会从当前可见偏移开始新一轮。变更记录见 <a href="14_RecoveryToBurstStart.md">14_RecoveryToBurstStart.md</a>。</div>
 
 <h2 id="roll">3 · Roll 震屏参数</h2>
 <p>Roll 是独立的镜头横滚震动，不计入 Pitch/Yaw 累加与回正。参数位于 <code>Recoil | RollShake</code>。</p>

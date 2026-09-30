@@ -1316,7 +1316,7 @@ const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecov
 - 实机复验：`Lyra.Recoil.Trace 1`，连发 30 发（可故意放慢几发制造间隔抖动），
   停火后看 `push` 回落到 `min(cover, peak)`、`BurstStart` 全程不动、`cover` ≈ 实际压枪量。
 
-## §15 Drop 与正式回正合并（2026-09-23，现行）
+## §15 Drop 与正式回正合并（2026-09-23 阶段，回正规则后续见 13/14 号文档）
 
 现行四段语义：`Lift（上抬）→ Rebound（小回弹）→ Settle（短暂停留）→ Drop（正式回正）`。
 
@@ -1329,12 +1329,12 @@ const bool bStartsNewBurst = (State == ERecoilState::Idle) || bRefireDuringRecov
   并从新一轮 `Lift` 开始；`ApplyShot` 本身不改变相机偏移，因此没有跳帧。
 
 验证：`Lyra.Recoil.Interp.RefireDuringDropStartsNewBurst`、插值专项 8/8、完整
-`Lyra.Recoil` **49/49** 通过，`LyraEditor` Development 构建成功。
+`Lyra.Recoil` **49/49 通过**（**历史快照**；当前共 57 个用例），`LyraEditor` Development 构建成功。
 
 ---
 
 _本文档由祥子整理，2026-09-20；§13.9 追加于 2026-09-21；§13.10 删 Ratio；§13.11 于 2026-09-21 修正方向和 Drop；2026-09-22 压过头规则定型、§14 连发误判新一轮修复。_
 _修复范围：`LyraRecoilState.h/.cpp`（`Interpolated` 连发累积）+ §12 压枪抵扣（钳制）+ §13 回正抵扣（P14 → §13.10 字面减法 → §13.11 累计压枪量）+ §14 连发误判「新一轮」（重开火重锚 BurstStart）。_
 _根因一句话：回弹/回正锚在绝对峰值 → 连发几何衰减；修复：锚在「基底 + 本发幅度」，两模式在 `InstantWrite` 下逐位等价。_
-_**2026-09-22 历史口径：回正目标 = min(本梭累计压枪量, 本轮峰值)**；2026-09-28 起显示偏移回正目标为 `0°`，见 [13 号记录](13_TracePitchAndSaturationFix.md)。_
+_**2026-09-22 历史口径：回正目标 = min(本梭累计压枪量, 本轮峰值)**；2026-09-28 起显示偏移回正目标为 `0°`（见 [13 号记录](13_TracePitchAndSaturationFix.md)）；**2026-10-01 起恢复压枪抵扣，见 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)**。_
 _相关：[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型）、[07_TuningRecipe.md](07_TuningRecipe.md)（数值）、[11_RecoveryCompensation.md](11_RecoveryCompensation.md)（历史回正方案）、[13_TracePitchAndSaturationFix.md](13_TracePitchAndSaturationFix.md)（现行规则）、云端 `TPS_Recoil_Impl_v2.1` §6.4/§7.1/§7.5。_

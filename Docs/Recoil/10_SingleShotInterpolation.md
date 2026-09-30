@@ -282,7 +282,7 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 | --- | --- | --- |
 | `RecoveryDelay` | 0.15 | t2 稳定段时长 |
 | `RecoveryTime` | 0.35 | t3 下降段时长 |
-| `RecoilReturnRatio` | 0.2 | 下降段终点 = 峰值 × 本值 |
+| ~~`RecoilReturnRatio`~~ | ~~0.2~~ | **该字段已于 2026-09-21 删除**。下降段终点现行口径见 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)：`BurstStart + clamp(累计压枪量, 0, max(0, 峰值-BurstStart))` |
 | `RecoveryCurve` | 线性 | t3 下降形状 |
 
 > **注意**：`InstantWrite` 模式下 `LiftDuration` / `ReboundDuration` / `ReboundRatio` / `LiftCurve` / `ReboundCurve` 五项**完全不参与计算**。编辑器里用 `EditCondition` 灰掉，避免策划误以为改了有反应。
@@ -367,10 +367,10 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 | --- | --- |
 | `LyraRecoilTypes.h` | 新增 `ERecoilSingleShotMode { InstantWrite, Interpolated }` |
 | `LyraRecoilProfile.h/.cpp` | 新增 5 个配置项 + `GetLiftAlpha()` / `GetReboundAlpha()` 查询；`ValidateProfile` 补校验 |
-| `LyraRecoilState.h/.cpp` | 新增阶段枚举 `ERecoilInterpStage`、阶段时间轴状态、`CameraOffsetPitch/Yaw`、累加器与 `AccumulatingTimeSteps`；`ApplyShot` / `Advance` 分模式 |
+| `LyraRecoilState.h/.cpp` | 新增阶段枚举 `ERecoilInterpStage`、阶段时间轴状态、`CameraOffsetPitch/Yaw`、累加器 `SubStepAccumulator`（本帧执行次数记录在 `LastSubStepCount`）；`ApplyShot` / `Advance` 分模式 |
 | `LyraRangedWeaponInstance.cpp` | `UpdateRecoilCameraModifier()` 改读 `GetCameraPitchOffset()/GetCameraYawOffset()` |
 | `LyraRecoilDebug.cpp` | 屏幕面板补一行 `Mode / Stage / SubSteps` |
-| `LyraRecoilAssetGenCommandlet.cpp` | `FProfileSpec` 补 5 个字段；`Rifle_S` 走插值、`Rifle_7` 走瞬时 |
+| `LyraRecoilAssetGenCommandlet.cpp` | `FProfileSpec` 补 5 个字段；`Rifle_S` / `Rifle_7` **均走插值**（`Interpolated`） |
 | `LyraRecoilTest.spec.cpp` | 新增插值模式用例（含帧率不变性） |
 | `LyraRecoilGoldenDumpCommandlet.cpp` | 把 `singleShotMode` 写进 Golden JSON，便于判断基线是否过期 |
 
@@ -387,11 +387,11 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 
 | 项 | 判据 |
 | --- | --- |
-| 既有测试不回归 | `Lyra.Recoil` 全量 24 个用例全绿，Golden 比对通过 |
+| 既有测试不回归 | `Lyra.Recoil` 全量 24 个用例全绿，Golden 比对通过（**历史快照**；当前共 57 个用例） |
 | 帧率不变性 | 新增用例 `Lyra.Recoil.Interp.FrameRateInvariance`：20/60/144fps 轨迹逐点相等 |
 | 上抬耗时正确 | 新增用例断言：开火后经过 = `LiftDuration` 时，补间输出达到目标幅度的 100%（容差 1e-4） |
 | 回弹比例正确 | 新增用例断言：t1 结束瞬间补间输出 = 峰值 × `ReboundRatio` |
-| 终点为稳态残留 | 新增用例断言：全阶段走完后补间输出 = 峰值 × `RecoilReturnRatio` |
+| 终点为稳态（历史口径） | ⚠️ 原断言为「全阶段走完后补间输出 = 峰值 × `RecoilReturnRatio`」；该字段已删除，现行终点见 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)（`BurstStart + clamp(累计压枪量, 0, max(0, 峰值-BurstStart))`） |
 | 模式隔离 | 新增用例断言：`InstantWrite` 下 `CameraOffsetPitch` 恒等于 `AccumulatedPitch` |
 | 死亡螺旋防护 | 新增用例断言：传入 1.0 秒的巨大 DeltaSeconds，子步次数不超过上限且状态机收敛到稳态 |
 

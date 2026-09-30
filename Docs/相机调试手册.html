@@ -159,7 +159,7 @@
 
 <rect x="40" y="372" width="600" height="52" rx="10" fill="#2C2C2A" stroke="#B4B2A9" stroke-width="0.5"/>
 <text x="340" y="392" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="13" font-weight="500" fill="#F1EFE8">DesiredView · Location / Rotation / FOV</text>
-<text x="340" y="410" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B4B2A9">再经 PlayerCameraManager → CameraModifier（WeaponRecoil / RollShake）</text>
+<text x="340" y="410" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-size="12" fill="#B4B2A9">再经 PlayerCameraManager → CameraModifier_WeaponRecoil（Pitch/Yaw + 算法层求解的 Roll 在此合流后施加 POV）</text>
 
 <path d="M340 424 L340 446" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
 <text x="340" y="460" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#5F5E5A">屏幕</text>
@@ -177,7 +177,7 @@
   <tr><td>产出最终 View</td><td>同上</td><td>L32-83</td></tr>
   <tr><td>栈内混合</td><td><code>Source/LyraGame/Camera/LyraCameraMode.cpp</code></td><td>L330-341 / L407-428</td></tr>
   <tr><td>模式实例缓存（决定"改了要不要重启"）</td><td>同上</td><td>L343-363</td></tr>
-  <tr><td>第三人称 offset 应用</td><td><code>Source/LyraGame/Camera/LyraCameraMode_ThirdPerson.cpp</code></td><td>L35-72</td></tr>
+  <tr><td>第三人称 offset 应用</td><td><code>Source/LyraGame/Camera/LyraCameraMode_ThirdPerson.cpp</code></td><td>L93-111（<code>UpdateView()</code>）</td></tr>
   <tr><td>调试打印</td><td><code>Source/LyraGame/Camera/LyraPlayerCameraManager.cpp</code></td><td>L47-65</td></tr>
 </table>
 
@@ -213,7 +213,7 @@
 
 <ul>
   <li>横轴是 <strong>Pitch（角色俯仰，约 -89 ~ 89）</strong>，<strong>不是时间</strong>。</li>
-  <li>X / Y / Z = 角色局部空间的前后 / 左右 / 上下偏移（cm），代码里用 <code>PivotRotation.RotateVector(TargetOffset)</code> 应用。</li>
+  <li>X / Y / Z = 角色局部空间的前后 / 左右 / 上下偏移（cm），代码里用 <code>CameraOrbitRotation.RotateVector(TargetOffset)</code> 应用；该朝向已叠加后座轨道偏移（<code>CameraOrbitRotation = PivotRotation + GetAppliedRecoilOrbitOffset(...)</code>）。</li>
   <li>曲线为零或缺失时，相机就落在 Pivot（眼睛高度）上，越肩感消失。</li>
   <li>它是"腰射手感"和"ADS 收拢程度"的<strong>唯一</strong>决定因素。</li>
 </ul>
@@ -231,7 +231,7 @@
 
 <table>
   <tr><th>改什么</th><th>生效条件</th><th>依据</th></tr>
-  <tr><td>偏移曲线资产</td><td><strong>PIE 中实时生效</strong>，边跑边拖点</td><td>每帧从资产求值（<code>LyraCameraMode_ThirdPerson.cpp</code> L55）</td></tr>
+  <tr><td>偏移曲线资产</td><td><strong>PIE 中实时生效</strong>，边跑边拖点</td><td>每帧从资产求值（<code>LyraCameraMode_ThirdPerson.cpp</code> L98）</td></tr>
   <tr><td>相机模式标量属性</td><td>改蓝图 defaults 后<strong>必须重启 PIE</strong></td><td>模式实例由 <code>CameraModeInstances</code> 缓存，创建时从 CDO 拷贝一次（<code>LyraCameraMode.cpp</code> L343-363）</td></tr>
   <tr><td><code>bUseRuntimeFloatCurves</code> 内联曲线</td><td>PIE 中<strong>无法实时编辑</strong></td><td>源码注释 UE-103986（<code>LyraCameraMode_ThirdPerson.h</code> L43）</td></tr>
   <tr><td>C++ 构造函数默认值</td><td>重编译 + 重启编辑器</td><td><code>LyraCameraMode.cpp</code> L52-63</td></tr>
@@ -274,8 +274,10 @@
 
 <div class="step">
   <div class="h"><em>4</em>先排除干扰层（必做）</div>
-  <code>UCameraModifier_WeaponRecoil</code> 和 <code>LyraCameraRollShake</code> 是在相机模式<strong>之后</strong>叠加到 POV 上的，
-  由 <code>ULyraRangedWeaponInstance</code> 驱动（<code>LyraRangedWeaponInstance.cpp</code> L10），与相机模式无关。
+  <code>UCameraModifier_WeaponRecoil</code> 是<strong>唯一</strong>在相机模式<strong>之后</strong>改 POV 的相机修改器；Roll 由
+  <code>ULyraCameraRollShake</code>（<code>UBlueprintFunctionLibrary</code>，纯算法层，不直接改 POV）求解后，与 Pitch/Yaw 一起
+  经 <code>UCameraModifier_WeaponRecoil::SetRecoilOffset()</code> 施加到 POV。整套由
+  <code>ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()</code> 驱动（<code>LyraRangedWeaponInstance.cpp</code> L518 附近），与相机模式无关。
   开着它们调曲线，你分不清画面变化是自己拖出来的还是后坐力推的。<br>
   调相机前先执行：
   <pre><code>Lyra.Recoil.Enable 0

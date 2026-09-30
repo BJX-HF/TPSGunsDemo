@@ -1,13 +1,14 @@
 # GunKick 近期 trace 修复记录（2026-09-28）
 
-本文记录 2026-09-28 的三次连续修复。当前行为以代码和本文为准；
-[11_BurstAccumulationFix.md](11_BurstAccumulationFix.md) 与
-[11_RecoveryCompensation.md](11_RecoveryCompensation.md) 中关于“压枪量无限抬高上限”或
-“Idle 保留显示偏移”的段落是当时方案的历史记录。
+> **2026-10-01 更新**：本文的“回正目标恒为 0 / Idle 偏移归零”是历史行为，
+> 已被 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md) 的压枪抵扣规则取代。
+> 有界垂直上限、到顶逐发 Lift/Rebound 和最终相机俯仰边界继续有效。
 
-## 1. 现行规则
+本文记录 2026-09-28 的三次连续修复。以下规则与测试结果描述当时版本。
 
-| 环节 | 现行行为 |
+## 1. 当时规则
+
+| 环节 | 当时（2026-09-28）行为 |
 | --- | --- |
 | 输入瞄准 | 鼠标只修改 `ControlRotation`；后坐力修改器只修改最终相机 POV。 |
 | 停火回正 | `ComputeRecoveryTarget()` 返回 `0°`；到达 Idle 后 `CameraOffsetPitch/Yaw` 归零，玩家压枪造成的 `ControlRotation` 变化仍由玩家控制。 |

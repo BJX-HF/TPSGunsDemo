@@ -60,7 +60,7 @@ Lyra 原有那把自动步枪被复制成 **两把**，共用同一套模型 / �
 | `PatternLength` | 12 | 12 发固定 Pattern，之后进随机游走 |
 | `MaxVerticalKick` / `MaxHorizontalKick` | 4.0 / 2.0 | 上限压低 |
 | `RecoveryDelay` / `RecoveryTime` | 0.12 / 0.30 | 回正快 |
-| `RecoilReturnRatio` | 0.15 | 相机基本回正（压枪向） |
+| ~~`RecoilReturnRatio`~~ | — | **2026-09-21 已删除**：无独立残留比例；回正终值由 `ComputeRecoveryTarget()` 决定（本轮起枪角 + clamp(本梭累计压枪量, 0, K)，见 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)） |
 | `HorizontalRandomRange` | 0.45 | 尾部摆动收敛 |
 | `PoseMultiplier_*` | 瞄准 0.75 / 站 1.0 / 蹲 0.8 / 空中 1.5 | 与项目基线一致 |
 | `VerticalKickCurve` | (0, 0.70) (4, 1.00) (12, 1.35) | 沿用构造默认曲线 |
@@ -109,7 +109,7 @@ Pattern（X = 每发水平增量，右为正；Y = 每发垂直倍率）：
 | `PatternLength` | 12 | |
 | `MaxVerticalKick` / `MaxHorizontalKick` | 9.0 / 4.0 | 上限抬高（够画完那根横杠） |
 | `RecoveryDelay` / `RecoveryTime` | 0.18 / 0.42 | 回正更慢 |
-| `RecoilReturnRatio` | 0.30 | 残留偏移更多（更"抓不住"） |
+| ~~`RecoilReturnRatio`~~ | — | **2026-09-21 已删除**：无独立残留比例；回正终值由 `ComputeRecoveryTarget()` 决定（见 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)） |
 | `HorizontalRandomRange` | 0.70 | 尾部摆动更大 |
 | `PoseMultiplier_*` | 瞄准 0.80 / 站 1.0 / 蹲 0.75 / 空中 1.65 | 姿态差异比 S 型更敏感 |
 | `VerticalKickCurve` | (0, 0.80) (3, 1.00) (12, 1.25) | 前段起得更猛 |
@@ -211,7 +211,7 @@ AutomationTestToolset.DiscoverTests()
 AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")
 ```
 
-当前结果：**19/19 通过**。命令行老路子（`Docs/Recoil/Tools/run-recoil-tests.ps1`）仍然可用。
+当时结果：**19/19 通过（该阶段快照，P0–P5 当时的 19 个用例）**；当前 `Lyra.Recoil.*` 已扩充到 **57 个**。命令行老路子（`Docs/Recoil/Tools/run-recoil-tests.ps1`）仍然可用。
 
 ### 5.4 射速 / 弹容 / 备弹（2026-09-17 补充）
 
@@ -281,7 +281,7 @@ AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")
 | "打起来越来越跳" | `VerticalKickCurve`（横轴 = **发序号**）+ `RecoilPerShot_Vertical` | 这是**发序号轴**曲线，不是单发内的时间轴 |
 | "松手后多久开始回" | `RecoveryDelay` | 这段期间偏移**冻结不动**，相当于文档的 t2 稳定段 |
 | "回得是快是慢 / 曲线形状" | `RecoveryTime` + `RecoveryCurve` | `RecoveryCurve` 横轴 = 归一化回正时间 |
-| "回不到零，留一点" | `RecoilReturnRatio` | 刻意设计，不是 bug |
+| ~~"回不到零，留一点"~~ | ~~`RecoilReturnRatio`~~ | **该字段 2026-09-21 已删除**，不再有独立残留比例；回正终值 = 本轮起枪角 + clamp(本梭累计压枪量, 0, K)（见 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)） |
 | "抬起来要有一顿 / 先回弹一下" | **`InstantWrite` 做不到** → 把该枪改成 `SingleShotMode = Interpolated` | 改完**必须重导 Golden** |
 
 **切到 `Interpolated` 后多出来的 6 个参数**（`Recoil | SingleShot` 分组，仅该模式下激活）：
@@ -317,7 +317,7 @@ AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")
 - **修法**：`ULyraRecoilDebug::DumpShotHistoryToCsv` 在落盘前检查目标文件是否已存在，
   存在就顺延编号（`_2` / `_3` / …）。这样"每次 Dump 产出独立文件"变成结构性契约，
   重复路径不可达 —— 不再是"概率修好了"，而是"撞不上"。
-- 改动文件：`Source/LyraGame/Weapons/Recoil/LyraRecoilDebug.cpp`。已编译，复跑 `Lyra.Recoil` 19/19 通过。
+- 改动文件：`Source/LyraGame/Weapons/Recoil/LyraRecoilDebug.cpp`。已编译，复跑 `Lyra.Recoil` 19/19 通过（该阶段快照；当前 `Lyra.Recoil.*` 共 57 个）。
 - **直接证据**：连跑 4 轮，第 3 轮两次 Dump 落在同一毫秒 285，产出
   `RecoilDump_20260917_214709_285.csv` 与 `RecoilDump_20260917_214709_285_2.csv`
   —— 修复前第二份会直接覆盖第一份，正是老 bug 的成因。四轮全部 0 fail。

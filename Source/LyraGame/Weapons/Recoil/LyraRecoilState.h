@@ -612,9 +612,10 @@ public:
 	/**
 	 * Recovery target for the display-space camera modifier.
 	 *
-	 * The target is always zero: once recovery finishes, Idle must not retain
-	 * pitch or yaw from an old burst. Compensation values remain available to
-	 * the live clamp and diagnostics, but must never permanently bias the POV.
+	 * With compensation enabled, retain BurstStart + min(Cover, burst kick).
+	 * This returns the visible view to its pre-shot angle for partial control,
+	 * and preserves only the player's excess pull for overcompensation.
+	 * Disabled compensation (including Yaw by default) returns zero.
 	 */
 	static float ComputeRecoveryTarget(const ULyraRecoilProfile& Profile, float BurstStart, float Peak, float Cover,
 		bool bApplyCover = true);

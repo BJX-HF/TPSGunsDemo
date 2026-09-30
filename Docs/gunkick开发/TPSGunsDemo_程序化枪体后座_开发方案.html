@@ -35,7 +35,7 @@
 <h3>2.2 TPSGunsDemo：当前真实接入点</h3>
 <div class="tablewrap"><table><thead><tr><th>现状</th><th>证据</th><th>设计含义</th></tr></thead><tbody>
 <tr><td>成功开火后调用 <code>AddRecoil()</code></td><td><code>LyraGameplayAbility_RangedWeapon.cpp:570–585</code>：<code>CommitAbility</code> 成功后依次 <code>AddSpread()</code>、<code>AddRecoil()</code></td><td>这里已经是每发视觉事件的可靠入口；不能在按键按下时单独触发。</td></tr>
-<tr><td>后座状态属于武器实例</td><td><code>LyraRangedWeaponInstance.cpp:418–458</code>：<code>RecoilState.ApplyShot</code>；<code>:466–501</code>：每帧 <code>Advance</code>，随后更新相机</td><td>视觉状态也应随当前武器装备、卸下、切换而重置。</td></tr>
+<tr><td>后座状态属于武器实例</td><td><code>LyraRangedWeaponInstance.cpp:418-451</code>：<code>AddRecoil</code>（<code>RecoilState.ApplyShot</code> 在 L441）；<code>:475-528</code>：<code>UpdateRecoil</code> 每帧 <code>Advance</code>（L488），随后更新相机（L518）</td><td>视觉状态也应随当前武器装备、卸下、切换而重置。</td></tr>
 <tr><td>镜头与弹道已有各自通道</td><td><code>LyraRecoilState.h</code> 的 <code>CameraOffsetPitch/Yaw</code>、<code>RollShake</code>；<code>LyraCameraModifier_WeaponRecoil.cpp</code> 给显示相机叠偏移</td><td>枪体可读相机实际输出做弱对齐，但不得把枪体状态重新写回镜头或弹道。</td></tr>
 <tr><td>两把步枪已有独立预设</td><td><code>B_WeaponInstance_Rifle</code> 引用 <code>DA_Recoil_Rifle_S</code>；<code>B_WeaponInstance_Rifle_7</code> 使用另一预设</td><td>在同一 <code>ULyraRecoilProfile</code> 上加 Visual 子配置最利于 A/B 调参。</td></tr>
 <tr><td>武器 Actor 挂在角色骨架上</td><td><code>LyraEquipmentInstance.cpp:69–89</code> 按定义资产的 <code>AttachSocket</code> 挂接；<code>WID_Rifle</code> 的插槽是 <code>weapon_r</code></td><td>优先做“持枪手动，枪跟着动”。直接移动枪 Actor 会让手与握把脱离。</td></tr>
@@ -187,8 +187,8 @@ Tick(dt) { for (substep : FixedSteps(dt)) IntegrateSpring(substep); PublishPose(
 <p>下面是进一步开发时最先打开的文件和资源。行号来自本次检查时的工作树，后续修改后应以编辑器/源码当前版本为准。</p>
 <ul>
 <li><code>Source/LyraGame/Weapons/LyraGameplayAbility_RangedWeapon.cpp:570–585</code>：成功提交开火；<code>:382–486</code>：弹道和散布。</li>
-<li><code>Source/LyraGame/Weapons/LyraRangedWeaponInstance.cpp:147–195</code>：装备/卸下；<code>:418–501</code>：AddRecoil、每帧推进与相机更新。</li>
-<li><code>Source/LyraGame/Weapons/Recoil/LyraRecoilState.h:110–145</code>：逻辑后座与镜头输出；<code>:707–752</code>：ApplyShot、Advance、相机读取。</li>
+<li><code>Source/LyraGame/Weapons/LyraRangedWeaponInstance.cpp:147–195</code>：装备/卸下；<code>:418-451</code>：AddRecoil（ApplyShot L441）；<code>:475-528</code>：每帧推进 Advance（L488）与相机更新（L518）。</li>
+<li><code>Source/LyraGame/Weapons/Recoil/LyraRecoilState.h:110–145</code>：逻辑后座与镜头输出；<code>:694</code>：ApplyShot；<code>:700</code>：Advance；<code>:716-763</code>：相机读取。</li>
 <li><code>Source/LyraGame/Weapons/Recoil/LyraRecoilProfile.h</code>：已有 Kick、单发 Lift/Rebound、恢复、姿态和 Roll 参数。</li>
 <li><code>Source/LyraGame/Camera/LyraCameraModifier_WeaponRecoil.cpp</code>：镜头显示偏移。</li>
 <li><code>Source/LyraGame/Equipment/LyraEquipmentInstance.cpp:69–89</code>：武器 Actor 创建、挂接。</li>

@@ -470,17 +470,17 @@ int32 FRecoilRuntimeState::ResolveSeed(const ULyraRecoilProfile* Profile)
 float FRecoilRuntimeState::ComputeRecoveryTarget(
 	const ULyraRecoilProfile& Profile, float BurstStart, float Peak, float Cover, bool bApplyCover)
 {
-	// Camera recoil is display-only, so carrying a non-zero target into Idle
-	// permanently biases every later view angle (POV = ControlRotation + offset).
-	// Always consume the full display offset when a burst recovers. Refiring is
-	// still continuous because recovery interpolates from RecoveryBase to zero.
-	(void)Profile;
-	(void)BurstStart;
-	(void)Peak;
-	(void)Cover;
-	(void)bApplyCover;
-	return 0.0f;
+	if (!Profile.bCompensationAwareRecovery || !bApplyCover)
+	{
+		return 0.0f;
+	}
 
+	// POV = player aim + camera offset. Retain only the part of this burst
+	// already countered by the player: K=10, P=4 ends at the pre-shot POV;
+	// K=10, P=11 preserves the extra one degree of downward aim.
+	// The previous burst's offset is part of the new visible starting angle.
+	const float BurstKick = FMath::Max(0.0f, Peak - BurstStart);
+	return BurstStart + FMath::Clamp(Cover, 0.0f, BurstKick);
 }
 
 void FRecoilRuntimeState::SamplePlayerAim(float InAimPitchDegrees, float InAimYawDegrees)
@@ -1045,49 +1045,24 @@ void FRecoilRuntimeState::Advance(const ULyraRecoilProfile* Profile, float Delta
 
 			if (InterpStage != ERecoilInterpStage::None)
 			{
-				// 先冻结压枪量：下面算稳态值要用它，必须在"取稳态值之前"。
-				// 长帧路径可能整段跳过 Settle→Drop 的切换，所以不能指望那里冻过。
-				LyraRecoilStatePrivate::FreezeCompensationForRecovery(*this);
+				// A long frame can skip Settle -> Drop. Resolve the current shot's
+				// bounded peak before using compensation, just as normal Drop does.
+				// If Drop already started, preserve its frozen snapshot even if
+				// the player moved the mouse again during the long frame.
+				if (State != ERecoilState::Recovering)
+				{
+					float ReboundEndPitch = 0.0f;
+					float ReboundEndYaw = 0.0f;
+					LyraRecoilStatePrivate::ComputeBoundedShotAnchors(
+						*this, *Profile, RecoveryPeakPitch, RecoveryPeakYaw,
+						ReboundEndPitch, ReboundEndYaw);
+					LyraRecoilStatePrivate::FreezeCompensationForRecovery(*this);
+				}
 
-				// 稳态残留 = 本梭累计压枪量（与 Drop 段终点同一公式）
-				//
-				// Pitch / Yaw 都用本轴**已冻结的**累计量 + 本轴开关 ——
-				// 水平默认不抵扣，传累计量是为了资产显式打开时口径一致。
-				const float SteadyPitch = FRecoilRuntimeState::ComputeRecoveryTarget(
-					*Profile, BurstStartPitchOffset, RecoveryPeakPitch, RecoveryCompensationPitch);
-				const float SteadyYaw = FRecoilRuntimeState::ComputeRecoveryTarget(
-					*Profile, BurstStartYawOffset, RecoveryPeakYaw, RecoveryCompensationYaw,
-					Profile->bCompensationAwareRecoveryYaw);
-
-				// 补间输出直接落到稳态值：已经丢掉了时间，再推增量会让它与逻辑偏移脱节
-				const float VerticalUpperLimit = GetEffectiveVerticalKickLimit(*Profile);
-				const float VerticalLowerLimit = BurstStartPitchOffset - Profile->MaxVerticalKick;
-				CameraOffsetPitch = FMath::Clamp(SteadyPitch, VerticalLowerLimit, VerticalUpperLimit);
-				CameraOffsetYaw = FMath::Clamp(
-					SteadyYaw,
-					BurstStartYawOffset - Profile->MaxHorizontalKick,
-					BurstStartYawOffset + Profile->MaxHorizontalKick);
-				LastTargetPitch = CameraOffsetPitch;
-				LastTargetYaw = CameraOffsetYaw;
-
-				AccumulatedPitch = CameraOffsetPitch;
-				AccumulatedYaw = CameraOffsetYaw;
-
-				// 时间轴一次性收尾：转常规回正状态机，由它把 State 推到 Idle 并清计数器。
-				//
-				// RecoveryPeak 保存本发完整峰值，只用于压枪补偿上限；
-				// RecoveryBase 保存当前可见起点。长帧直接把进度设为 100%，
-				// 所以两者不会引入第二次下降。
-				const float PeakPitch = InterpBasePitch + InterpShotAmplitudePitch;
-				const float PeakYaw = InterpBaseYaw + InterpShotAmplitudeYaw;
-
+				RecoveryBasePitch = AccumulatedPitch;
+				RecoveryBaseYaw = AccumulatedYaw;
 				InterpStage = ERecoilInterpStage::None;
 				StageElapsed = 0.0f;
-				RecoveryPeakPitch = PeakPitch;
-				RecoveryPeakYaw = PeakYaw;
-				// ★ 基底一并带上：长帧收敛也不允许把已累加偏移衰减掉。
-				RecoveryBasePitch = InterpBasePitch;
-				RecoveryBaseYaw = InterpBaseYaw;
 				RecoveryElapsed = Profile->RecoveryTime;
 				State = ERecoilState::Recovering;
 				LyraRecoilStatePrivate::ApplyRecoveryStep(*this, *Profile);

@@ -48,7 +48,7 @@
 
 ## 2. 非线性恢复曲线实测
 
-用三份只有 `RecoveryCurve` 不同的临时 Profile（其余参数完全一致，`RecoilReturnRatio = 0` 便于观察回正进程本身），
+用三份只有 `RecoveryCurve` 不同的临时 Profile（其余参数完全一致，未喂入压枪量 ⇒ 回正终值 = 0，因 `ComputeRecoveryTarget` 无压枪量时返回起枪角 + 0），
 推进到 `RecoveryDelay + RecoveryTime × 0.5` 时读取 `RecoveryProgress`：
 
 | 曲线形状 | `RecoveryCurve` 关键帧 | 曲线求值 @t=0.5 | **运行时** `RecoveryProgress` @半程 |
@@ -60,7 +60,7 @@
 **结论**：
 1. 两条非线性曲线的半程进度差 **0.4000**（0.7667 − 0.3667），远超 0.25 的判定阈值 → 手感差异在数值上明确可区分。
 2. 运行时读到的进度与曲线求值**完全一致**（Δ = 0.0000），证明 `RecoveryCurve` 是真的接进了回正插值，而不是只在资产里躺着。
-3. 三条曲线最终都能在 `RecoveryDelay + RecoveryTime` 内把偏移归零（`RecoilReturnRatio = 0` 时精确为 0）。
+3. 三条曲线最终都能在 `RecoveryDelay + RecoveryTime` 内把偏移归零（未喂入压枪量 ⇒ 回正终值 = 起枪角 + 0，精确为 0）。
 
 ### 曲线求值的手工复核
 

@@ -47,6 +47,12 @@
 以 `DA_Recoil_Rifle_S` 为例，站姿、`Scale = 1.0`、`TimeBetweenShots = 0.12s` 连发 3 发后停火。
 参数：`RecoveryDelay = 0.12`、`RecoveryTime = 0.30`、`RecoilReturnRatio = 0.15`、`RecoveryCurve` = 线性。
 
+> ⚠️ **历史数值**：下述用到的 `RecoilReturnRatio = 0.15`，以及所有"残留 = 峰值 × Ratio"的表述，
+> 都属 2026-09-17 的模型分析（当时的默认残留比例）。
+> 该字段已于 **2026-09-21 删除**，现行回正口径以
+> [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md) 为准
+> （`BurstStart + clamp(累计压枪量, 0, max(0, 峰值-BurstStart))`），本文相关数字仅作历史对照。
+
 ```
 Pitch(°)
    ^
@@ -205,9 +211,11 @@ Pitch(°)
 > 现另增 `Interpolated` 模式，**已支持**「上抬曲线 / 回弹曲线 / 分段时长」，即上表后两行的"不支持"已被新模型补齐。
 
 > **2026-09-21 追加**：上表提到的 **「停在峰值 15% 的残留」已彻底不存在** ——
-> `RecoilReturnRatio` 字段已删除，现行回正终点是 **`min(本梭累计压枪量, 本轮峰值)`**（不压枪时为 0）。
-> 本文其余内容（模型差距分析）仍然有效，但**"最终停在哪"一律以
-> [11_RecoveryCompensation.md](11_RecoveryCompensation.md) 为准**。
+> `RecoilReturnRatio` 字段已删除，回正终点不再由残留比例决定。
+> 现行回正口径（2026-10-01 起）以
+> → **[14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md)** 为准
+> （`BurstStart + clamp(累计压枪量, 0, max(0, 峰值-BurstStart))`）。
+> 本文其余内容（模型差距分析）仍然有效。
 
 ---
 

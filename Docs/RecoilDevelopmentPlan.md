@@ -36,6 +36,11 @@
 | 后坐力累加 / 恢复曲线 | ❌ 缺失 | 无状态机、无恢复逻辑 |
 | 后坐力调试可视化 | ❌ 缺失 | 无 CVar、无 DebugDraw、无数据导出 |
 
+> ⚠️ **2026-10-01 更新**：上表最后四行的「❌ 缺失」也已被后续阶段推翻 ——
+> 相机 Kick（`UCameraModifier_WeaponRecoil`）、弹道 Pattern（`GetShotDirectionOffset` 注入）、
+> 后坐力累加 / 恢复（`FRecoilRuntimeState`）、调试可视化（`ULyraRecoilDebug` 的 CVar / DebugDraw / CSV）
+> 均已实现。本表仅作 P0 历史基线，现行能力见 §5 各阶段详情。
+
 ### 1.2 关键接入点（P0 阶段需逐条核实到行号）
 
 | 接入点 | 文件 | 说明 |
@@ -61,7 +66,7 @@
 - 运行时状态机与纯算法层（可脱离引擎单测）
 - 相机 Kick 输出链（CameraModifier）
 - 弹道 Pattern 输出链（发射方向注入）
-- 后坐力恢复（延迟 + 曲线 + 回正比例）
+- 后坐力恢复（延迟 + 曲线 + 按本梭累计压枪量决定回正目标）
 - 调试与可视化工具链（CVar / DebugDraw / CSV 导出 / 热调参）
 
 ### 2.3 范围外（本计划不做）
@@ -114,8 +119,10 @@
    （原文此处还列了"网络复制"作为耦合来源之一 —— 本项目 2026-09-17 已决定不做联机，该条不再适用，故删去；不影响结论。）
 2. **算法层独立成纯 USTRUCT，不依赖 UWorld。**
    这是"每阶段可验证"的技术保障——P2/P3 的核心逻辑可以跑纯数值 Automation 测试，不需要起 PIE、不需要人工看画面。
-3. **区分"视觉回正"与"弹道回正"，用 `RecoilReturnRatio` 单参数控制。**
-   语义：`0 = 相机完全回正（弹道不回正，玩家需自己压枪，竞技向）`；`1 = 相机完全不回正`。这一条决定整个系统的手感性格，是首要调参项。
+3. **区分"视觉回正"与"弹道回正"，用"本梭累计压枪量"决定回正目标。**
+   语义（现行唯一口径）：回正偏移目标 = 本轮起枪角 `B` + `clamp(本梭累计压枪量, 0, K)`，其中 `K = max(峰值 − B, 0)`。
+   即"玩家压了多少枪、镜头就停在压到的地方"：完全不压 → 回到开枪前（目标 `B`）；压过头 → 最多保留峰值增量 `K`。
+   （**注**：原 `RecoilReturnRatio` 单参数 `0 = 相机完全回正 / 1 = 完全不回正` 已于 **2026-09-21 删除**；现行口径见 [Recoil/14_RecoveryToBurstStart.md](Recoil/14_RecoveryToBurstStart.md)，实现见 `LyraRecoilState.cpp:470-484`。）
 4. **Pattern 采用"前 N 发固定 + 之后伪随机"。**
    前 `PatternLength` 发使用资产内配置的归一化 Pattern 数组（保证可学习、可复现）；其后走**基于随机种子的确定性随机游走**，避免纯 `VRand` 带来的每次弹道不可复现、无法测试的问题。
 5. **随机种子必须可控。**
@@ -212,7 +219,7 @@
 | Pattern | `HorizontalRandomRange` | Pattern 之后水平随机游走范围 |
 | 倍率 | `PoseMultiplier_Aiming / _Standing / _Crouching / _JumpingOrFalling` | 姿态倍率 |
 | 上限 | `MaxVerticalKick` / `MaxHorizontalKick` | 累加上限（Clamp） |
-| 回正 | `RecoilReturnRatio` | `0=完全回正`，`1=不回正`（核心手感开关） |
+| 回正 | `bCompensationAwareRecovery` | 回正目标 = 本轮起枪角 `B` + `clamp(本梭累计压枪量, 0, K)`，`K = max(峰值 − B, 0)`（核心手感开关）；**2026-09-21 已删除 `RecoilReturnRatio`**，现行口径见 [Recoil/14_RecoveryToBurstStart.md](Recoil/14_RecoveryToBurstStart.md) |
 | 随机 | `RandomSeedMode` | `Fixed` / `Random`（Fixed 供自动化测试） |
 
 **可验证内容**
@@ -255,7 +262,8 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
 - `Lyra.Recoil.State.` 测试组，断言：
   1. 连发 10 发后 `AccumulatedPitch` == 逐步累加和（容许浮点误差 `1e-4`）
   2. 累加值被正确 Clamp 在 `MaxVerticalKick`
-  3. 停火经过 `RecoveryDelay` + `RecoveryTime` 后，稳态偏移 == `MaxKick × RecoilReturnRatio`
+  3. 停火经过 `RecoveryDelay` + `RecoveryTime` 后，稳态偏移 == 本轮起枪角 `B` + `clamp(本梭累计压枪量, 0, K)`（`K = max(峰值 − B, 0)`；不压枪时 == `B`）
+     （**2026-09-21 删除 `RecoilReturnRatio`**，现行口径见 [Recoil/14_RecoveryToBurstStart.md](Recoil/14_RecoveryToBurstStart.md)）
   4. **确定性**：固定种子下连续两次模拟 30 发，逐发偏移序列完全一致
   5. `Recovering` 中途再次开火，状态正确回到 `Accumulating` 且不产生跳变
 
@@ -273,7 +281,7 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
 **目标**：子弹实际落点形成可学习、可复现的后坐力弹道。
 
 **交付物**
-- `FRecoilRuntimeState::GetShotDirectionOffset(ShotIndex)` → 返回角度偏移
+- `FRecoilShotKick FRecoilRuntimeState::GetShotDirectionOffset(const ULyraRecoilProfile& Profile, int32 InShotIndex) const` → 返回角度偏移
 - 修改 `LyraGameplayAbility_RangedWeapon.cpp`：在发射方向计算处叠加后坐力偏移（**叠加在扩散之前**，两者独立可调）
 - `Source/LyraGame/Tests/Data/RecoilGolden_*.json`：固定种子下的弹道基准数据
 
@@ -334,8 +342,9 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
   | `Lyra.Recoil.Dump` | 导出上一轮连发数据到 CSV |
   | `Lyra.Recoil.ReloadProfile` | 热重载当前武器的资产 |
 - DebugDraw 内容：准星当前偏移点、Pattern 点阵、回正进度指示
-- CSV 导出路径：`Saved/RecoilDump_<timestamp>.csv`，列：
-  `ShotIndex, VerticalKick, HorizontalKick, AccumulatedPitch, AccumulatedYaw, TimeSinceFire`
+- CSV 导出路径：`Saved/RecoilDump_<timestamp>.csv`，列（**8 列**）：
+  `ShotIndex, VerticalKick, HorizontalKick, AccumulatedPitch, AccumulatedYaw, TimeSinceFire, RollShake, SpreadAngle`
+  （前面 6 列 = `FRecoilShotResult` 字段顺序的前缀；后两列 `RollShake` / `SpreadAngle` 由 P8 / P10 追加）
 
 **可验证内容**
 
@@ -411,7 +420,7 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
 因此它是一条**并列的第三通道**，不是 Pitch/Yaw 的扩展 —— 这是本阶段的核心设计判断。
 
 **交付物**
-- `Source/LyraGame/Camera/LyraCameraShakeTypes.h`：参数/状态契约 + 镜头模式枚举
+- `Source/LyraGame/Camera/LyraCameraShakeTypes.h`：参数/状态契约（`FCameraRollShakeParams` / `FCameraRollShakeState`，无枚举）
 - `Source/LyraGame/Camera/LyraCameraRollShake.h/.cpp`：Roll 纯算法层（无 UWorld 依赖）
 - `ULyraRecoilProfile` 的 `Recoil|RollShake` 完整参数组
 - `Docs/Recoil/08_CameraRollShake.md`：策划案 + 实现方案（含实时调试说明）
@@ -431,7 +440,7 @@ Idle ──开火──► Accumulating ──停火 > RecoveryDelay──► Re
 
 **已知未落地项**（见 `08_CameraRollShake.md` §6）
 - 固定步长更新（文档 §2/§7 要求）仍走帧 DeltaSeconds
-- FOV / Breathing 模式只有枚举、无实现（属独立需求）
+- FOV / Breathing 模式尚未实现（连枚举也未定义，属独立需求）
 
 ---
 
@@ -557,19 +566,19 @@ D:\TPSGunsDemo\TPSGunsDemo\Docs\RecoilDevelopmentPlan.md
 | P5 | 调试与可视化工具链 | 待验收 | ✅ 6/6 PASS | ⏳ 待确认 | 2026-09-17 | 六个交付项全部落地；新增 CSV→HTML 曲线工具；命令注册钉成断言 |
 | ~~P6~~ | ~~联机同步~~ **已剔除** | 不做 | — | — | 2026-09-17 | 决定：本项目为单机 Demo，不做联机；详见 §5「P6 — 已剔除」 |
 | P7 | 手感调参 + 固化 | 未开始 | — | — | — | 可选 |
-| **P8** | **相机镜头 Roll 震屏 + 镜头模式** | **待验收** | ✅ 编译 + 5 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/08_CameraRollShake.md](Recoil/08_CameraRollShake.md) |
-| **P9** | **单发插值模型（InstantWrite / Interpolated 两套并存）** | **待验收** | ✅ 编译 + 6 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/10_SingleShotInterpolation.md](Recoil/10_SingleShotInterpolation.md) |
+| **P8** | **相机镜头 Roll 震屏 + 镜头模式** | **待验收** | ✅ 编译 + 7 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/08_CameraRollShake.md](Recoil/08_CameraRollShake.md) |
+| **P9** | **单发插值模型（InstantWrite / Interpolated 两套并存）** | **待验收** | ✅ 编译 + 9 个用例 | ⏳ 待确认 | 2026-09-17 | 见 [Recoil/10_SingleShotInterpolation.md](Recoil/10_SingleShotInterpolation.md) |
 | **P10** | **连发累积失效修复（Interpolated 锚点）**（云端） | **待 PIE 手测** | ✅ 编译 + 全绿 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/11_BurstAccumulationFix.md](Recoil/11_BurstAccumulationFix.md)。**回正目标的计算已由 P11 接管**（2026-09-20 合并决定：回正相关以本次实现为主），本条保留为根因分析与连发锚点的记录 |
-| **P11** | **回正扣减压枪量**（本次，**回正计算的权威实现**） | **待验收** | ✅ 8 个 `Lyra.Recoil.Compensation.*` 用例；全量 45/45 | ⏳ 待确认 | 2026-09-22 | 见 [Recoil/11_RecoveryCompensation.md](Recoil/11_RecoveryCompensation.md)。现行目标 `min(P,K)`：未压住回起枪点，压过头保留 `K−P`；代码**只走这一条** |
-| **P12** | **垂直钳制实时抵扣压枪量** | **待 PIE 手测** | ✅ 编译 + 37/37 全绿 | ⏳ 待确认 | 2026-09-20 | 同上 §12（编号未占 P11）；钳制口径仍成立，回正目标部分由 P11 提供 |
-| **P13** | **散布并入后坐力配置表（姿态-角度直接模型）** | **待 PIE 手测** | ✅ 编译 + 37/37 全绿 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/12_SpreadInProfile.md](Recoil/12_SpreadInProfile.md)；验收请求 [Recoil/Acceptance/P13_验收请求.md](Recoil/Acceptance/P13_验收请求.md) |
+| **P11** | **回正扣减压枪量**（本次，**回正计算的权威实现**） | **待验收** | ✅ 11 个 `Lyra.Recoil.Compensation.*` 用例；全量 57/57 | ⏳ 待确认 | 2026-09-22 | 见 [Recoil/11_RecoveryCompensation.md](Recoil/11_RecoveryCompensation.md)。现行目标 `min(P,K)`：未压住回起枪点，压过头保留 `K−P`；代码**只走这一条** |
+| **P12** | **垂直钳制实时抵扣压枪量** | **待 PIE 手测** | ✅ 编译 + 57/57 全绿 | ⏳ 待确认 | 2026-09-20 | 同上 §12（编号未占 P11）；钳制口径仍成立，回正目标部分由 P11 提供 |
+| **P13** | **散布并入后坐力配置表（姿态-角度直接模型）** | **待 PIE 手测** | ✅ 编译 + 57/57 全绿 | ⏳ 待确认 | 2026-09-20 | 见 [Recoil/12_SpreadInProfile.md](Recoil/12_SpreadInProfile.md)；验收请求 [Recoil/Acceptance/P13_验收请求.md](Recoil/Acceptance/P13_验收请求.md) |
 
-**累计自动化测试：37 个用例全绿**（`Lyra.Recoil.*` = P0–P5 的 19 + P8 的 5 + P9 的 6 + P13 的 7）。
+**累计自动化测试：57 个用例全绿**（2026-10-01 复核；`Lyra.Recoil.*` = P0–P5 的 19 + P8 的 7 + P9 的 9 + P11 的 11 + P13 的 7 + WeaponVisual 的 4）。
 实测证据：`Saved/Logs/TPSGunsDemo.log` 里
-`LogAutomationCommandLine: Display: ...Automation Test Queue Empty 37 tests performed.`
+`LogAutomationCommandLine: Display: ...Automation Test Queue Empty 57 tests performed.`
 一键复跑：`Docs/Recoil/Tools/run-all-checks.ps1`
 
-> **P13 的散布不体现在这 37 个用例的"后坐力"部分**：它是一套独立特性（7 个用例挂在
+> **P13 的散布不体现在这 57 个用例的"后坐力"部分**：它是一套独立特性（7 个用例挂在
 > `Lyra.Recoil.Spread.*` 下）。且 **磁盘上的 5 份 `DA_Recoil_*` 资产尚未重新生成**，
 > 所以 PIE 里跑的还是旧 heat 散佈链路 —— 这是刻意的零回归默认，不是漏配。
 

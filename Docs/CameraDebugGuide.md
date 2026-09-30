@@ -42,7 +42,7 @@
                                             ↓
                      ALyraPlayerCameraManager::UpdateViewTarget()
                                             ↓
-                     CameraModifier（WeaponRecoil / RollShake 在此叠加）
+        CameraModifier_WeaponRecoil（Pitch/Yaw + 算法层求解的 Roll 在此合流，统一施加到 POV）
                                             ↓
                                           屏幕
 ```
@@ -58,7 +58,7 @@
 | 产出最终 View | 同上 | L32-83 |
 | 栈内混合 | `Source/LyraGame/Camera/LyraCameraMode.cpp` | L330-341 / L407-428 |
 | 模式实例缓存（决定"改了要不要重启"） | 同上 | L343-363 |
-| 第三人称 offset 应用 | `Source/LyraGame/Camera/LyraCameraMode_ThirdPerson.cpp` | L35-72 |
+| 第三人称 offset 应用 | `Source/LyraGame/Camera/LyraCameraMode_ThirdPerson.cpp` | L93-111（`UpdateView()`） |
 | 调试打印 | `Source/LyraGame/Camera/LyraPlayerCameraManager.cpp` | L47-65 |
 
 ---
@@ -82,7 +82,7 @@
 | `bPreventPenetration` | 是否做相机防穿墙 | 同上 L70 |
 | `bDoPredictiveAvoidance` | 是否做预测性避让 | 同上 L73 |
 | `CollisionPushOutDistance` | 穿墙时的推出距离 | 同上 L77 |
-| `PenetrationAvoidanceFeelers` | 避让射线组（构造里默认 7 条） | `LyraCameraMode_ThirdPerson.cpp` L26-32 |
+| `PenetrationAvoidanceFeelers` | 避让射线组（构造里默认 7 条） | `LyraCameraMode_ThirdPerson.cpp` L58-69 |
 
 要点：**CM_ThirdPerson 未覆盖 `FieldOfView`、`BlendTime`、`CameraTypeTag`，走的是 C++ 默认值（80 / 0.5 / 空）**；
 CM_ThirdPersonADS 覆盖了 `FieldOfView`、`BlendTime`、`CameraTypeTag`。想知道 ADS 具体是多少，直接打开该资产看 Class Defaults。
@@ -90,7 +90,7 @@ CM_ThirdPersonADS 覆盖了 `FieldOfView`、`BlendTime`、`CameraTypeTag`。想�
 ### 3.2 偏移曲线（CurveVector）
 
 - 横轴是 **Pitch（角色俯仰，约 -89 ~ 89）**，不是时间。
-- X / Y / Z = 在角色局部空间的前后 / 左右 / 上下偏移（cm），代码里用 `PivotRotation.RotateVector(TargetOffset)` 应用。
+- X / Y / Z = 在角色局部空间的前后 / 左右 / 上下偏移（cm），代码里用 `CameraOrbitRotation.RotateVector(TargetOffset)` 应用；该朝向已叠加后座轨道偏移（`CameraOrbitRotation = PivotRotation + GetAppliedRecoilOrbitOffset(...)`）。
 - 曲线为零/不存在时，相机就落在 Pivot（眼睛高度）上，退化为越肩位置都没有的第一人称式视角。
 - 这就是"腰射手感（越肩位置、抬头/低头时相机怎么走）"和"ADS 收拢程度"的**唯一**决定因素。
 
@@ -108,7 +108,7 @@ CM_ThirdPersonADS 覆盖了 `FieldOfView`、`BlendTime`、`CameraTypeTag`。想�
 
 | 改什么 | 生效条件 | 依据 |
 | --- | --- | --- |
-| 偏移曲线资产 | **PIE 中实时生效**，边跑边拖点 | `UpdateView` 每帧从资产求值（`LyraCameraMode_ThirdPerson.cpp` L55） |
+| 偏移曲线资产 | **PIE 中实时生效**，边跑边拖点 | `UpdateView` 每帧从资产求值（`LyraCameraMode_ThirdPerson.cpp` L98） |
 | 相机模式标量属性 | 改蓝图 defaults 后**必须重启 PIE** | 模式实例由 `CameraModeInstances` 缓存，创建时从 CDO 拷贝一次（`LyraCameraMode.cpp` L343-363） |
 | `bUseRuntimeFloatCurves` | 内联曲线在 PIE 中**无法实时编辑** | 源码注释 UE-103986（`LyraCameraMode_ThirdPerson.h` L43） |
 | C++ 构造函数默认值 | 重编译 + 重启编辑器 | `LyraCameraMode.cpp` L52-63 |
@@ -148,8 +148,10 @@ PIE 控制台执行 `showdebug camera`（再执行一次关闭）。它走 `ALyr
 
 ### 5.4 先排除干扰层（必做）
 
-`UCameraModifier_WeaponRecoil` 和 `LyraCameraRollShake` 是在相机模式**之后**叠加到 POV 上的，
-由 `ULyraRangedWeaponInstance` 驱动（`LyraRangedWeaponInstance.cpp` L10），跟相机模式无关。
+`UCameraModifier_WeaponRecoil` 是**唯一**在相机模式**之后**改 POV 的相机修改器；Roll 由
+`ULyraCameraRollShake`（`UBlueprintFunctionLibrary`，纯算法层，不直接改 POV）求解后，与 Pitch/Yaw 一起
+经 `UCameraModifier_WeaponRecoil::SetRecoilOffset()` 施加到 POV。整套由
+`ULyraRangedWeaponInstance::UpdateRecoilCameraModifier()` 驱动（`LyraRangedWeaponInstance.cpp` L518 附近），跟相机模式无关。
 开着它们调曲线，你分不清画面变化是自己拖出来的还是后坐力推的。
 
 调相机前先执行：
