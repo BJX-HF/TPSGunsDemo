@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="对《FPS相机镜头》后坐力、增量旋转、固定时间步、Roll震动及全部核心伪代码的详细讲解。">
+<title>FPS 相机后坐力与伪代码详解</title>
+<style>
+:root{color-scheme:light;--bg:#f4f6f9;--paper:#fff;--ink:#182637;--muted:#5c6c7e;--line:#dce4ed;--blue:#2563a6;--teal:#148776;--amber:#b86b12;--code:#142234;--soft:#edf4fc}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.9 system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif}a{color:var(--blue);text-underline-offset:3px}header{background:#142234;color:white;padding:58px max(24px,calc((100vw - 1160px)/2)) 48px}header .eyebrow{color:#91bce9;font-size:13px;letter-spacing:.12em}h1{font-size:clamp(28px,4vw,42px);line-height:1.3;margin:12px 0 18px}header p{max-width:860px;color:#d1ddeb;margin-bottom:0}header .meta{font-size:13px;color:#aebed0;margin-top:20px}.layout{display:grid;grid-template-columns:224px minmax(0,1fr);max-width:1208px;margin:0 auto;gap:32px;padding:32px 24px 80px}aside{align-self:start;position:sticky;top:24px;font-size:13px;max-height:calc(100vh - 48px);overflow:auto}aside strong{display:block;margin:0 0 10px;color:var(--muted)}aside a{display:block;padding:6px 8px;border-left:2px solid var(--line);text-decoration:none;color:var(--muted)}aside a:hover{color:var(--blue);background:#e8eef6;border-color:var(--blue)}main{min-width:0;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:36px 44px}section+section{margin-top:48px}h2{font-size:25px;line-height:1.4;margin:0 0 22px;padding-bottom:13px;border-bottom:1px solid var(--line)}h2 .num{font-size:13px;color:var(--teal);margin-right:10px;vertical-align:middle}h3{font-size:19px;margin:28px 0 12px;line-height:1.5}h4{font-size:16px;margin:22px 0 10px}p{margin:0 0 16px;overflow-wrap:anywhere}ul,ol{padding-left:24px;margin:12px 0 20px}li{margin:6px 0}code{font:13px/1.7 Consolas,"Cascadia Code",monospace;background:#edf1f6;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre{background:var(--code);color:#e0eaf6;padding:20px 22px;border-radius:8px;overflow:auto;font:13px/1.8 Consolas,"Cascadia Code",monospace;margin:18px 0 22px;tab-size:4}pre code{background:none;color:inherit;padding:0;overflow-wrap:normal}table{width:100%;border-collapse:collapse;font-size:14px;margin:16px 0 24px}th,td{text-align:left;border:1px solid var(--line);padding:10px 12px;vertical-align:top}th{background:#eef3f8;font-weight:600}td code{font-size:12px}.table-scroll{overflow:auto}.table-scroll table{min-width:610px}.note{border-left:4px solid var(--blue);background:var(--soft);padding:16px 20px;margin:20px 0;border-radius:0 7px 7px 0}.note p:last-child{margin:0}.note.warn{background:#fff5e7;border-color:var(--amber)}.note.good{background:#eaf7f2;border-color:var(--teal)}.label{display:inline-block;font-size:12px;padding:2px 8px;margin-right:6px;border-radius:4px;background:#e5eef8;color:var(--blue);font-weight:600}.label.extra{background:#e4f4ec;color:#167057}.formula{font-family:Consolas,"Microsoft YaHei",monospace;background:#f5f7fa;border:1px solid var(--line);border-radius:7px;padding:16px 20px;margin:18px 0;overflow:auto;line-height:1.8}figure{margin:24px 0}figure img{display:block;max-width:100%;height:auto;margin:auto;border:1px solid var(--line);border-radius:6px;background:white}figcaption{font-size:13px;text-align:center;color:var(--muted);margin-top:10px}.stage-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0}.stage-grid div{padding:14px;background:#f4f7fb;border-top:3px solid var(--blue);border-radius:5px;font-size:13px}.stage-grid div:nth-child(2){border-color:var(--amber)}.stage-grid div:nth-child(3){border-color:var(--teal)}.stage-grid div:nth-child(4){border-color:#8870ad}.stage-grid b{display:block;margin-bottom:4px}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:18px;border:1px solid var(--line);border-radius:8px;margin:18px 0;font-size:13px}.flow span{padding:7px 10px;background:#edf4fc;border-radius:4px}.flow i{font-style:normal;color:var(--muted)}details{margin:18px 0;border:1px solid var(--line);border-radius:7px;padding:14px 18px}summary{cursor:pointer;font-weight:600;color:var(--blue)}details[open] summary{margin-bottom:16px}.demo{padding:22px;background:#f7fafc;border:1px solid var(--line);border-radius:9px}.demo .controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 24px;margin:14px 0}.control label{display:flex;justify-content:space-between;gap:12px;font-size:13px;font-weight:600}input[type=range]{width:100%;accent-color:var(--blue)}button{border:1px solid #b7c9dd;background:white;color:var(--blue);font:inherit;font-size:13px;padding:7px 14px;border-radius:5px;cursor:pointer}button.primary{background:var(--blue);color:white;border-color:var(--blue)}button:hover{filter:brightness(.96)}.buttons{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:15px 0}.small{font-size:13px;color:var(--muted)}.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.readout>div{background:white;border:1px solid var(--line);padding:10px 12px;border-radius:6px;font-size:12px;color:var(--muted)}.readout strong{display:block;color:var(--ink);font-size:19px}canvas{display:block;width:100%;height:280px;background:white;border:1px solid var(--line);border-radius:6px;margin-top:12px}canvas.roll{height:200px}.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:9px 0}.legend span:before{content:"";display:inline-block;width:16px;height:3px;vertical-align:middle;background:var(--blue);margin-right:6px}.legend span:nth-child(2):before{background:var(--amber)}.legend span:nth-child(3):before{background:var(--teal)}.footer{border-top:1px solid var(--line);padding-top:22px;margin-top:36px;font-size:13px;color:var(--muted)}.print-btn{float:right}.mini-heading{font-size:13px;letter-spacing:.03em;color:var(--muted);font-weight:600}
+@media(max-width:1000px){.layout{grid-template-columns:176px minmax(0,1fr);gap:18px}main{padding:28px}.stage-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){header{padding:34px 20px}.layout{display:block;padding:20px 12px 40px}aside{position:static;max-height:none;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:3px}aside strong{width:100%}aside a{padding:4px 7px;border:0;background:#eaf0f6;border-radius:4px}main{padding:24px 18px}h2{font-size:22px}.demo{padding:14px}.demo .controls{grid-template-columns:1fr}.readout{grid-template-columns:1fr 1fr}.readout>div:last-child{grid-column:1/-1}pre{font-size:12px;padding:16px}canvas{height:240px}.print-btn{float:none;margin-bottom:12px}}
+@media print{body{background:white;font-size:11pt}header{background:white;color:var(--ink);padding:0 0 20px}header p,header .eyebrow,header .meta{color:var(--muted)}.layout{display:block;padding:0}aside,.print-btn,.demo .controls,.buttons,.scrubber{display:none}main{border:0;padding:0}section+section{margin-top:30px}h2,h3,h4{break-after:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f5f8;color:#152335;font-size:9pt}figure,.note,.readout{break-inside:avoid}a{color:inherit}.demo{background:white}details{break-inside:auto}header h1{font-size:26pt}}
+</style>
+</head>
+<body>
+<header>
+<div class="eyebrow">ARTICLE EXPLAINED · 相机系统 / 后坐力</div>
+<h1>FPS 相机后坐力与伪代码详解</h1>
+<p>从“开枪时镜头抬起一下”拆到每个时间阶段、每个变量和每一次相机更新。重点解释原文为什么使用增量旋转、如何补齐曲线终点，以及 Roll 震动怎样与 Pitch/Yaw 共存。</p>
+<div class="meta">依据：你提供的《FPS相机镜头_精简版.html》 · 中文详细解读 · 2026 年 10 月 8 日 · 单文件，离线可读</div>
+</header>
+<div class="layout">
+<aside aria-label="文章目录">
+<strong>阅读目录</strong>
+<a href="#overview">01 核心思路</a><a href="#axes">02 三个旋转轴</a><a href="#stages">03 四个后坐力阶段</a><a href="#delta">04 绝对偏移与增量</a><a href="#up-code">05 RecoilUp 逐行解释</a><a href="#time">06 时间修正与固定步长</a><a href="#demo">07 可交互曲线演示</a><a href="#roll">08 Roll 阻尼震动</a><a href="#fsm">09 并存状态与 Tick</a><a href="#params">10 参数逐项解释</a><a href="#complete">11 补全单发伪代码</a><a href="#burst">12 连射与玩家压枪</a><a href="#others">13 其余伪代码</a><a href="#checks">14 实现检查要点</a>
+</aside>
+<main>
+<button class="print-btn" type="button" id="printBtn">打印 / 保存为 PDF</button>
+<section id="overview">
+<h2><span class="num">01</span>先抓住文章的核心思路</h2>
+<p>这篇文章里的后坐力，是一套<strong>由时间曲线驱动的相机旋转系统</strong>。它不要求先模拟枪械质量、枪口动量或肩部受力，而是直接指定镜头在开火后的不同时间应该偏转多少。这样，设计者可以独立调整“抬得多高”“冲击多快”“回弹多少”“停多久”“恢复多慢”。</p>
+<div class="flow"><span>开火事件</span><i>→</i><span>选本枪后坐力数据</span><i>→</i><span>推进时间 / 阶段</span><i>→</i><span>采样曲线</span><i>→</i><span>计算 Pitch/Yaw 差值</span><i>→</i><span>更新相机 + Roll</span></div>
+<p>最关键的区别是：<strong>曲线返回的“偏移值”，与相机接口需要的“本帧旋转增量”，不是一回事。</strong>原文的 Pitch/Yaw 通过差分转换后再应用，Roll 则把采样结果直接当作当前 Roll 值。</p>
+<div class="note"><p><span class="label">原文事实</span>文章展示了上抬函数、时间修正调用、Roll 震动函数和参数定义，但<strong>没有提供完整的回弹、下降、连射回正、鼠标补偿实现</strong>。</p><p><span class="label extra">补充说明</span>本文给出的完整控制流程、边界处理和示例曲线，是为理解与落地而补充的实现示例。不能把它们当作原作者未展示的源代码。</p></div>
+<p>文章标题覆盖整个相机系统，所以最后也解释状态机、呼吸晃动和骨骼跟随代码。它们和后坐力有一个共同问题：多个来源怎样同时影响相机，而不重复累加或互相覆盖。</p>
+</section>
+
+<section id="axes">
+<h2><span class="num">02</span>Pitch、Yaw、Roll 各自负责什么</h2>
+<table><thead><tr><th>轴</th><th>看到的变化</th><th>后坐力中的作用</th><th>原文应用方式</th></tr></thead><tbody>
+<tr><td><strong>Pitch</strong> · 俯仰</td><td>视线向上 / 向下</td><td>主要体现开枪上抬，以及后续回落</td><td>每步应用相对上步的差值</td></tr>
+<tr><td><strong>Yaw</strong> · 偏航</td><td>视线向左 / 向右</td><td>体现横向偏转、弹序方向变化</td><td>每步应用相对上步的差值</td></tr>
+<tr><td><strong>Roll</strong> · 滚转</td><td>画面绕视线倾斜，地平线左右歪</td><td>体现冲击、震动和释放过程</td><td>使用当前采样值，而非再次累加</td></tr>
+</tbody></table>
+<p>为方便阅读，本文把“向上抬”记为正 Pitch。<strong>实际引擎的 Pitch 正方向可能相反</strong>，最终要在相机接口处统一符号。原文参数说明中，Yaw/Pitch 数据标为弧度；下文数值演示使用度，只是方便直觉理解。</p>
+<div class="formula">度 = 弧度 × 180 / π<br>例如：0.02 rad ≈ 1.146°</div>
+<p>相机后坐力是否直接改变弹道，需要看项目的瞄准与射线系统。原文没有说明“子弹方向是否取最终相机方向”，因此不能仅凭这份文章认定 Pitch/Yaw 必然影响命中点，或者 Roll 必然只用于表现。</p>
+</section>
+
+<section id="stages">
+<h2><span class="num">03</span>单发后坐力为何拆成四个阶段</h2>
+<figure><img src="data:image/png;base64,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" alt="原文单发后坐力示意：上升、短促回弹、平台、下降到零"><figcaption>原文插图：纵向是偏移幅度，横向是时间；没有标明具体单位和参数值。</figcaption></figure>
+<div class="stage-grid"><div><b>t0 · 上抬</b>从 0 快速升到峰值。</div><div><b>t1 · 瞬时回弹</b>从峰值掉回一部分。</div><div><b>t2 · 稳定</b>短暂维持回弹后的高度。</div><div><b>t3 · 下降</b>把剩余偏移恢复到 0。</div></div>
+<h3>3.1 上抬：表现开火冲击</h3>
+<p>假设这枪 Pitch 峰值是 2°，上抬时间是 0.06 秒。镜头从后坐力偏移 0°，沿曲线升到 2°。如果是线性曲线，时间过半就抬到 1°；如果是“先快后慢”，一开始就会抬起较多，接近峰值时减速。</p>
+<p>Pitch 和 Yaw 使用同一个进度采样，但各自的目标幅度可以不同，例如 Pitch 为 +2°，Yaw 为 −0.4°。原文的 <code>RecoilUp()</code> 就负责这个过程。</p>
+<h3>3.2 瞬时回弹：从峰值退回稳定值</h3>
+<p><code>RecoilFallPct</code> 的原文注释是“后座稳定前回弹至百分比”。结合图形，合理理解是<strong>回弹后的剩余幅度占峰值的比例</strong>。例如取 0.65，峰值 2° 回弹后剩 1.3°，本次回弹的变化量为 −0.7°。</p>
+<div class="formula">稳定偏移 = 峰值偏移 × FallPct<br>回弹增量 = 稳定偏移 − 峰值偏移 = 峰值偏移 × (FallPct − 1)</div>
+<div class="note warn"><p>这里是根据参数注释做出的解释。原文没有展示实际乘法，不能完全排除项目把它定义成“回弹掉的比例”。接入已有代码时，应确认它实际表达的是“剩余 65%”，还是“退回 65%”。本文示例统一采用<strong>剩余比例</strong>。</p></div>
+<p>原图回弹段是短斜线，并非完全竖直；原文称它“瞬时”。参数列表又没有独立的回弹时长。因此可以确定存在这段表现，但<strong>不能确定它究竟是一个更新步内跳变，还是一个极短的插值过程</strong>。本文补全示例将它视为阶段交界处的一次瞬时变化。</p>
+<h3>3.3 稳定：保持剩余偏移</h3>
+<p>镜头在 1.3° 的后坐力偏移处保持一小段时间。对于增量相机接口，这时应传 <strong>0°</strong>，因为目标没有变化。若每步都传 1.3°，镜头会继续抬升，平台阶段就变成了持续爬升。</p>
+<h3>3.4 下降：释放剩余偏移</h3>
+<p>剩余 1.3° 沿下降曲线恢复到 0°。这段通常比上抬更舒缓，但具体时长与曲线属于调参选择。它回收的是<strong>系统自己施加的后坐力偏移</strong>；是否还要回到开枪前的世界朝向，则是额外设计问题，后文单独说明。</p>
+<h3>3.5 原文阶段编号有一处不一致</h3>
+<table><thead><tr><th>原文正文</th><th>参数列表注释</th><th>本文统一称法</th></tr></thead><tbody><tr><td>t0 上抬</td><td><code>RecoilUpTime</code>：t0</td><td>上抬时长 <code>T_up</code></td></tr><tr><td>t1 瞬时回弹</td><td>没有独立回弹时间字段</td><td>回弹事件 / 可选短回弹段</td></tr><tr><td>t2 稳定</td><td><code>RecoilStaticTime</code>：t1</td><td>稳定时长 <code>T_hold</code></td></tr><tr><td>t3 下降</td><td><code>RecoilDownTime</code>：t2</td><td>下降时长 <code>T_down</code></td></tr></tbody></table>
+<p>因此读代码时，应按变量语义理解，而不是把注释中的 t1/t2 与正文编号直接一一对应。若回弹是瞬时事件，总时间可以写成 <code>T_up + T_hold + T_down</code>；若回弹有独立时长，就还要加上 <code>T_fall</code>。</p>
+</section>
+
+<section id="delta">
+<h2><span class="num">04</span>为什么必须计算“本帧增量”</h2>
+<p>原文说，FpsPlacer 对 Pitch/Yaw 的 <code>Rotate</code> 操作接收的是“本帧相对上一帧的变化值”。因此调用的含义接近 <code>pitch += deltaPitch</code>，而不是 <code>pitch = targetPitch</code>。</p>
+<p>假设一段上抬曲线，连续三步采样得到 0.5°、1.2°、2.0°。这三个数表示在相应时刻，<strong>这一枪累计贡献的后坐力偏移应该是多少</strong>。</p>
+<table><thead><tr><th>更新步</th><th>曲线当前偏移</th><th>正确传入增量</th><th>正确累计结果</th><th>误把偏移直接累加</th></tr></thead><tbody><tr><td>1</td><td>0.5°</td><td>0.5 − 0 = 0.5°</td><td>0.5°</td><td>0.5°</td></tr><tr><td>2</td><td>1.2°</td><td>1.2 − 0.5 = 0.7°</td><td>1.2°</td><td>1.7°</td></tr><tr><td>3</td><td>2.0°</td><td>2.0 − 1.2 = 0.8°</td><td>2.0°</td><td>3.7°</td></tr></tbody></table>
+<div class="formula">q(t) = 曲线定义的后坐力偏移<br>Δqₙ = q(tₙ) − q(tₙ₋₁)<br>相机每步旋转 Δqₙ</div>
+<p>差值累加时，中间项会相互抵消：<code>(q₁−q₀)+(q₂−q₁)+…+(qₙ−qₙ₋₁)=qₙ−q₀</code>。所以，只要从同一条曲线正确计算差分、不漏末尾，也没有角度限幅等干预，<strong>最终累计偏移由曲线端点决定</strong>，不会因为采样步数多就越来越大。</p>
+<h3>一个特别容易混淆的变量</h3>
+<p><code>self.recoilPitch</code> 应当保存<strong>上一更新步的后坐力曲线偏移</strong>，不是整个相机的 Pitch。整个相机还有玩家鼠标输入、呼吸、动画等贡献。如果拿完整相机角度来做相减，就把别的来源也混进后坐力了。</p>
+<div class="note good"><p>牢记这三层：<strong>曲线偏移 q</strong> 是目标；<strong>本步差值 Δq</strong> 是增量接口的输入；<strong>相机最终朝向</strong> 是多个来源合成的结果。</p></div>
+</section>
+
+<section id="up-code">
+<h2><span class="num">05</span>RecoilUp 逐行解释</h2>
+<p><span class="label">原文代码</span>下面保留原文函数：</p>
+<pre><code>def RecoilUp(self):
+    # 计算此次 tick 需要上抬至的幅度
+    recoilPitch = Lerp(0, self.RecoilPitchRange,
+                       self.recoil_time / self.RecoilUpTime,
+                       self.RecoilUpEasing)
+    recoilYaw = Lerp(0, self.RecoilYawRange,
+                     self.recoil_time / self.RecoilUpTime,
+                     self.RecoilUpEasing)
+
+    # 相对上一次采样的增量
+    diffRecoilPitch = recoilPitch - self.recoilPitch
+    diffRecoilYaw = recoilYaw - self.recoilYaw
+
+    return recoilPitch, recoilYaw, diffRecoilPitch, diffRecoilYaw</code></pre>
+<h3>5.1 Lerp 的四个参数</h3>
+<p>标准线性插值常见写法只有三个参数；这里多出来的 <code>RecoilUpEasing</code>，说明原文使用的是带缓动曲线的自定义插值函数。按它的用途，可以理解为：</p>
+<pre><code># 补充：对原文 Lerp 用法的语义展开
+u = Clamp(elapsed / duration, 0, 1)
+w = Ease(u)                  # 把时间进度转换成曲线进度
+value = start + (end - start) * w</code></pre>
+<table><thead><tr><th>参数</th><th>这里的值</th><th>意思</th></tr></thead><tbody><tr><td>start</td><td>0</td><td>这一枪的局部上抬从零偏移开始</td></tr><tr><td>end</td><td><code>RecoilPitchRange</code> / <code>RecoilYawRange</code></td><td>本次上抬的目标峰值</td></tr><tr><td>u</td><td><code>recoil_time / RecoilUpTime</code></td><td>已消耗时长占整个上抬时长的比例</td></tr><tr><td>easing</td><td><code>RecoilUpEasing</code></td><td>时间进度到幅度进度的映射</td></tr></tbody></table>
+<p>如果峰值为 2°，时长为 0.06 秒，当前经过 0.03 秒，则 <code>u=0.5</code>。线性缓动 <code>E(u)=u</code> 会得到 1°；若用示例缓动 <code>E(u)=1−(1−u)³</code>，会得到 1.75°，因为它前快后慢。<strong>这里的具体缓动公式是讲解示例，原文没有列出 EasingType 的实现。</strong></p>
+<h3>5.2 两个 diff 才是要传给 Rotate 的值</h3>
+<p>第一行计算的是“现在应该达到多少”，下面相减计算的是“从上一更新步到现在，应该再转多少”。Yaw 为负也没有问题：从 0 到 −0.1 的差值是 −0.1，再到 −0.3 的差值是 −0.2。</p>
+<h3>5.3 四个返回值分别给谁使用</h3>
+<p>前两个返回值用于更新历史采样；后两个用于旋转相机。函数本身没有把 <code>self.recoilPitch</code> 和 <code>self.recoilYaw</code> 写回，所以调用者必须补上这一步。</p>
+<pre><code># 补充：原文未展示的必要调用流程
+pitch, yaw, deltaPitch, deltaYaw = self.RecoilUp()
+
+# 此处 Rotate 是接口语义示意，参数顺序以实际引擎为准
+camera.Rotate(deltaPitch=deltaPitch, deltaYaw=deltaYaw)
+
+self.recoilPitch = pitch     # 必须记住本次采样
+self.recoilYaw = yaw</code></pre>
+<p>如果忘了写回，旧值一直是 0，就会再次把完整偏移当增量叠加。另一个错误是先把历史值更新，再相减：那样差值永远是 0。</p>
+<h3>5.4 回弹与下降也必须沿用同样的差分规则</h3>
+<pre><code># 补充：下降阶段示例
+u = Clamp(downElapsed / downDuration, 0, 1)
+pitch = Lerp(stablePitch, 0, u, downEasing)
+yaw   = Lerp(stableYaw,   0, u, downEasing)
+
+deltaPitch = pitch - previousPitch
+deltaYaw   = yaw   - previousYaw
+
+camera.Rotate(deltaPitch=deltaPitch, deltaYaw=deltaYaw)
+previousPitch, previousYaw = pitch, yaw</code></pre>
+<p>下降段通常产生负 Pitch 增量，但这是相减自然得到的结果，不需要额外手动再加负号。稳定段 <code>pitch=previousPitch</code> 时，增量自然为 0。</p>
+</section>
+
+<section id="time">
+<h2><span class="num">06</span>时间修正：为什么曲线必须走到终点</h2>
+<h3>6.1 原文遇到的问题</h3>
+<p>按文章举例，每步加 0.016 秒，上抬持续 0.06 秒。采样时间依次为 0.016、0.032、0.048、0.064 秒。第三步没有到终点，第四步已经跨过去了。</p>
+<p>如果代码只在 <code>time &lt;= 0.06</code> 时调用上抬函数，那么第四步会直接离开上抬段，曲线从未采样 <code>u=1</code>。以线性、2°峰值为例，第三步只到 <code>2×0.048/0.06=1.6°</code>，上抬少了 0.4°。</p>
+<table><thead><tr><th>步</th><th>未修正时间</th><th>线性进度</th><th>线性目标</th><th>末步修正</th></tr></thead><tbody><tr><td>1</td><td>0.016 s</td><td>0.2667</td><td>0.5333°</td><td>正常采样</td></tr><tr><td>2</td><td>0.032 s</td><td>0.5333</td><td>1.0667°</td><td>正常采样</td></tr><tr><td>3</td><td>0.048 s</td><td>0.8000</td><td>1.6000°</td><td>正常采样</td></tr><tr><td>4</td><td>0.064 s</td><td>1.0667</td><td>可能跳过或越界</td><td>用 0.060 s 采样，达到 2.0000°</td></tr></tbody></table>
+<p><span class="label">原文代码</span></p>
+<pre><code>self.FixRecoilTime()
+if self.recoil_time &lt;= self.RecoilUpTime:
+    recoilPitch, recoilYaw, diffRecoilPitch, diffRecoilYaw = self.RecoilUp()</code></pre>
+<p>这两行的意图，是先修正跨过端点的时间，再完成本阶段采样。原文没有展示 <code>FixRecoilTime()</code> 函数，因此只能确认作者要求“终点必须被算到”，不能确认内部如何保存剩余时间或切换阶段。</p>
+<h3>6.2 不能把时间永久锁死在端点</h3>
+<p>若每步都做 <code>time=min(time,T_up)</code>，又继续用 <code>time&lt;=T_up</code> 判断上抬，就可能一直留在上抬状态。正确方案还必须明确：<strong>端点采样完成后，本阶段结束，进入下个阶段。</strong></p>
+<div class="note warn"><p>“钳制插值进度到 0～1”和“修正阶段状态”是两个问题。<code>Clamp(u,0,1)</code> 能防止插值越界，但如果整个采样调用已被阶段条件跳过，它无法补回漏掉的端点。</p></div>
+<h3>6.3 精确 60 Hz 的步长是 1/60</h3>
+<p>原文用 0.016 秒描述稳定 60 帧更新，但数学上 <code>1/60≈0.0166667</code> 秒。0.016 秒实际对应 62.5 Hz。若一秒实际调用 60 次而每次只累计 0.016，逻辑时间只前进 0.96 秒。</p>
+<p>因此，解释原文的 0.048/0.064 示例时，应保留它的数值；真正实现时，建议使用引擎提供的固定步长，或明确使用 <code>1.0/60.0</code>。精确 60 Hz 下，0.06 秒阶段的第四步到 0.0666667 秒，仍有同样的跨端点问题。</p>
+<h3>6.4 更完整的做法：用剩余时间推进后续阶段</h3>
+<p><span class="label extra">补充实现建议</span>第四步只需 0.01 秒就能把 0.05 秒推进到 0.06 秒。当前步长为 1/60 秒，则还剩约 0.0066667 秒，可以进入稳定段继续使用。这样既采样终点，也不丢掉真实经过的时间。</p>
+<pre><code># 阶段推进的核心思想
+remaining = fixedDt
+while remaining &gt; 0 and recoilIsActive:
+    consumed = min(remaining, phaseDuration - phaseElapsed)
+    phaseElapsed += consumed
+    remaining -= consumed
+
+    SampleAndApplyCurrentPhase()  # 包含 u=1 的端点
+
+    if phaseElapsed &gt;= phaseDuration:
+        EnterNextPhase()          # 下个阶段接着消耗 remaining</code></pre>
+<p>还要单独处理时长为 0 的阶段：直接采样终点并切换，不能做除法，也不能在循环中永远消耗 0 秒。完整示例会覆盖这一点。</p>
+<h3>6.5 固定更新能保证什么，不能保证什么</h3>
+<p>固定步长使曲线的逻辑采样不直接随渲染帧率变化，但还依赖引擎是否真正按固定时间推进、掉帧时是否补步，以及输入和开火事件如何进入逻辑更新。它并不自动保证低渲染帧率下画面同样平滑。</p>
+<p>0.05 秒上抬，在 60 Hz 下只有约 3 步。即使终点准确，曲线形状仍可能看起来较离散。需要更顺滑的视觉时，可以在渲染层插值前后两个逻辑状态；插值后的目标再和上次已呈现目标做差，不能把同一个逻辑增量每个渲染帧重复施加。</p>
+</section>
+
+<section id="demo">
+<h2><span class="num">07</span>拖动时间，直观看到偏移与增量</h2>
+<p>下面演示一枪完整曲线。上抬和下降使用<strong>示例三次缓出曲线</strong>，回弹采用瞬时变化；采样点按精确 60 Hz 标示。所有数值均为教学示例，不是文章给出的武器配置。</p>
+<div class="demo">
+<div class="controls">
+<div class="control"><label for="peak">Pitch 峰值 <output id="peakOut">2.00°</output></label><input id="peak" type="range" min="0.25" max="5" step="0.05" value="2"></div>
+<div class="control"><label for="fall">回弹后剩余比例 <output id="fallOut">65%</output></label><input id="fall" type="range" min="0" max="1" step="0.01" value="0.65"></div>
+<div class="control"><label for="up">上抬时间 <output id="upOut">0.060 s</output></label><input id="up" type="range" min="0.01" max="0.20" step="0.005" value="0.06"></div>
+<div class="control"><label for="hold">稳定时间 <output id="holdOut">0.080 s</output></label><input id="hold" type="range" min="0" max="0.30" step="0.01" value="0.08"></div>
+<div class="control"><label for="down">下降时间 <output id="downOut">0.240 s</output></label><input id="down" type="range" min="0.01" max="0.60" step="0.01" value="0.24"></div>
+<div class="control"><label for="rollA">Roll 峰值 <output id="rollAOut">0.70°</output></label><input id="rollA" type="range" min="0" max="2" step="0.05" value="0.70"></div>
+</div>
+<div class="buttons"><button class="primary" id="playBtn" type="button">播放一枪 · 4 倍慢速</button><button id="resetBtn" type="button">恢复示例参数</button><span class="small">也可拖动下方时间滑块。</span></div>
+<div class="scrubber control"><label for="scrubTime">观察时间 <output id="timeOut">0.000 s</output></label><input id="scrubTime" aria-label="观察时间" type="range" min="0" max="1000" step="1" value="0"></div>
+<div class="readout" aria-live="polite"><div>当前阶段<strong id="phaseText">上抬</strong></div><div>曲线偏移 q(t)<strong id="offsetText">0.000°</strong></div><div>近一个逻辑步的差值 Δq<strong id="deltaText">0.000°</strong></div></div>
+<canvas id="recoilCanvas" width="1400" height="560" role="img" aria-label="单发后坐力曲线，含上抬、回弹、稳定和下降阶段">你的浏览器不支持 Canvas；本文其他解释不受影响。</canvas>
+<div class="legend"><span>Pitch 目标偏移</span><span>当前观察时间</span><span>60 Hz 采样点</span></div>
+<canvas class="roll" id="rollCanvas" width="1400" height="400" role="img" aria-label="同一枪的 Roll 衰减震动曲线"></canvas>
+<p class="small" style="margin-top:12px">Δq 显示 q(t)−q(max(0,t−1/60))，用于观察差值符号；滑块不是固定更新循环。瞬时回弹是同一时刻的阶段事件，在交界点默认显示回弹后的值。Roll 演示固定相位为 0，周期 0.07 秒，线性包络衰减到 0，与原文逐步随机相位的版本有所区别。</p>
+</div>
+<p>观察时注意：上抬时差值通常为正；稳定时曲线仍高于 0，但差值为 0；下降时差值为负。<strong>“当前偏移大”并不等于“这一帧还需要转得多”。</strong></p>
+</section>
+
+<section id="roll">
+<h2><span class="num">08</span>Roll：用“衰减包络 × 余弦”做震动</h2>
+<figure><img src="data:image/png;base64,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GWwpZfoJUGwGjzUBbcRzEFNSzME2eX8vmPOuYDL/RedkPOW9FmedJVFTSm277bbqyy+/JI8zBILtRG3u3LmqefPm5NiiOggLfiy+iocJilrCMEdhxY4BV155ZdTp1Meh9bBhw1K3y9ogDeasfXFpL5i5KEHrh+hMyy8X65x1rvGJGrbX2WqrrazECgLBdqIGYC1atLCSiIaRGBb8mD+FvS+LWsIwR2GdMmWKNwJmYp/ZM888U9lYZiYMSxrMYe3zeEww51G19D6Lzuk5y2MLzjrX+EQN86Xq1q1rJa4QCC4StVatWjl78rM8+JctW6Z22mknK3y76qQccyU/sGH6EUccUala7Hk8QduoUSP17bffxtajOpkWM5UfNu0KZptsu+tLdHbHvc2eOetc4xO16dOneyNONgICgeAiUevYsaMaO3asDYjV+igP/vvvv9/pnLlqDhIcKMecpIv27dsr7H2qUx588EFVv359dffdd+s0N9JGB7ORjh0aEcwOybfYtehskWyHXXHWucYnapMmTVJ4MtJGQSC4SNR69epFvil3FH/lwY/1vbCNUpFLOeYkWBctWuSN7KZdBPgf//iHatasmZo9e3aSbsjq6GAmc8aSYcFsiWjH3YjOjgWw1D1nnWt8ooZdCfr27WslFBAILhK1cePGWRs1LCeyPPixrtvll19eXq1Qn8sxJwV38803ew+2jB49OlETbO6O29rYKsp10cXs2u8s/QvmLOzlp63onB+tsnjKWecan6j169dPXXLJJVn0TdwWgeAiUXvttddU06ZNE/tpsmJ58O+www7qs88+M9kFO1vlmNM4eOedd6rGjRtXfHJz8ODBql69euqJJ55IY56sbhbMZE4RGxbMxAQzMS86MxGC2A3OOtf4RA2Lg2Ikw0ZBILhI1IBt7733tr62FvoNBv/ChQvV7rvvboNqp30EMes4gsQaOxfg6dgePXooPPCydOlS7/Wkk05SderUUYceeqj64osvdMyTtMmKmcQpYqOCmZhgJuZFZyZCELvBWecan6hhov0jjzxCHAK/mkcguErU9t13X3XXXXdZwRnsJBj8V199daEXuvVxBzH7x3RekdjiiVDs17r//vsrPHCA5TdeffVVHXOkbUxhJnXSsHHBbJhQpuZEZ6bCGHaLs841PlHDkgavv/66YcnDzSEQXCVq3bt3VyNGjAh3jPBoMPjx0IaLxVgJ4YWaDmIOrVDAg4K5gKKGQBKdQ0gp4CHRmZeo5InaunXrQhFzCYTatWurVatWhfpo+iAwu0rUBg4cqLp06WIaUkV7QZ133HFHNX/+/Ipt8l4hiDnvWJL6L5iTMpXveqJzvvVL6r3onJQpO/XIE7UVK1aEIuEQCFgcdOuttw71j+IgMLtK1LB+WcOGDSlgxdr0dX7nnXfUrrvuGlu3KCd9zEXBkwSHYE7CUv7riM751zAJAtE5CUv26pAnapgYHVY4BMKCBQusrpIPzK4SNWiAifzffPNNmBxkx3ydb731VuMbq3LG1wAAGHRJREFUkJM5ndGwjzmjmVw1F8y5kkvbWdFZm7pcNRSdeclFnqj9/e9/D0XMIRBmzJihMMneVgFml4nannvuaX05B19nPK2YdjFXW7qY7sfHbNouZ3uCmbM65nwTnc1xydmS6MxLHfJEbebMmaGIOQTCtddem3mPxVBwEQeB2WWihsn8EyZMiPCO5rCvM267utziiAZduFUfc/jZYh4VzMXUtRyV6FzOSDE/i868dCVP1K6//vpQxBwC4eKLL1ZnnnlmqH8UB4HZZaKGRVKPP/54CmiRNoF5yZIl3obhkZUKdoJDbNumVDDbZtxNf6KzG95t9yo622Y8vj/yRG3MmDGhHnAIhLPPPlsl3a4nFETKg8DsMlHDqve2F5wF5ptuukm1bt06JVv5rc4htm2zJ5htM+6mP9HZDe+2exWdbTMe3x95onbuueeGesAhELArwdSpU0P9ozgIzC4TtZ9++knVr19fQXRbBZgxP6137962unTeD4fYtk2CYLbNuJv+RGc3vNvuVXS2zXh8f+SJ2sknnxzqAYdA2G+//aztSgASgNllogYf8ECBzbXMgHm33XZTN954Y2gcFPEgh9i2zatgts24m/5EZze82+5VdLbNeHx/5Ika9iwMKxwCweauBOAAmF0nahhFnDRpUpgkJMeWLVtWo+an+TpD65pUOFzPtvkWzLYZd9Of6OyGd9u9ctaZPFFr06ZNKN8cSNl2222tbmwNzK4TtZEjR6pevXqFakJxELeWsSF8TSocYts234LZNuNu+hOd3fBuu1fR2Tbj8f2RJ2q47RVWXAfCd999p7baaqsw18iOAbPrRO2+++6zukPBiSeeaHUJFDLxUhh2HdspXDVWVTAbo5K1IdGZtTzGnBOdjVFpxBB5orbNNtuEOuo6EBYuXKiw96TNAsyuEzXghSa4JWmjYNuo8ePH2+iKTR+uY9sFEYLZBev2+xSd7XPuokfR2QXr0X2SJ2pRo1auAwGLr9rclQASADOHRK19+/ZWFp9duXKl9/ACcNek4jq2XXAtmF2wbr9P0dk+5y56FJ1dsB7dJ3mituWWW4YuB+E6EKZMmWL9lhwwc0jU+vXrpy644ILoqDB05pZbbvGSYeCuScV1bLvgWjC7YN1+n6Kzfc5d9Cg6u2A9uk/yRA3rdoXdZnMdCFjotm/fvtHMEJwBZg6JGp76POSQQwgQlprEQwuHHXaYN5JYeqbYn1zHtgt2BbML1u33KTrb59xFj6KzC9aj+yRP1Jo3b64WLVpUzQPXgXDOOeeoSy65pJpflAeAmUOihsR5s802o4Tq2cbTnjfccIMkauRMu+/A9fXsggHB7IJ1+32KzvY5d9EjZ53JE7VOnTqpuXPnVuPdNSk9e/ZU06ZNq+YX5QFg1knU8OBDrVq1vL/p06dXc3Ht2rXqrLPOqqoTtW1XsCG2kpo5c2bwkNH3r776qsLSLK51NgoqoTHBnJConFcTnXMuYEL3ReeEROW8GmedyRM1JES33nprNQldk4JdCebNm1fNL8oDwJw2Ufvqq6+8JAyvwfdBP5GoDR8+XC1dujR4OPY9dowYNWpUbJ0sJy+99FIFjl3rnAWDblvBrMtcvtqJzvnSS9db0VmXuXy146wzeaKGkZ4JEyZUU8w1KXvssYd64403qvlFeQCY0yZqGE3zR8iiErLyEbWwUbdyXBMnTlTdunUrP2zs84EHHqj69OkjiZoxRnkbcn09u2BHMLtg3X6forN9zl30yFln8kRt0KBBqn///lX/sH0yli9frvDnf7b9iqdRFy9ebLV/4MXcMMwRS4oXt41HjBhRVR/vcSzYfsWKFerKK69UeMV8wKOOOkq98847JXWC9fH+/vvvV7Vr146tU94mzWcsffLYY495GrvUOY3Ppuq6jm1TONLYEcyfk11LaXSgris6i87UMebKPufYJk/UcHsNT/+Vk++SFPSNka1yn0x+xqKy5X9bb721Wm+99RRey8/5i9DCByRimJOG25Nz5sypStSQiOEhCCRjUb4iQUO7Soka2terV0/dcccdkbai+qh0/Lrrrquan+ZS50p+Up0XzPLPjCq2XNuV2JbYdh2DVP1zjm3yRA0T9o888shqI5k+2dVOWDjw7LPPqrp165L25OMLvi5ZsiR2RG316tXVfMK8s+OPP96bnxZ8X63ifw+gDuar4XZopXLaaaepoUOHVqqW+jy2jcKtTxQff2ojOW4gmHMsXgrXRecUZOW4quicY/FSuM5ZZ/JEDSNC7dq1q0aXS1LwtGPLli2r+UR9AJjTzlGDT5hz5j/1iTlr/rHOnTt7CVxwjtpee+2V+KGCm2++WR188MHGYbdt21ZhVA3Fpc7GgSU0KJgTEpXzaqJzzgVM6L7onJConFfjrDN5ovbUU0+pRo0aVZPQJSnYlSBslK+ak4YPALNOombYjSpzr732msKCxCbL/Pnz1f77719l0qXOVU5YfiOYLRPuqDvR2RHxlrsVnS0T7qg7zjqTJ2pvv/22NyernHuXpGBXgrPPPrvcJfLPwMwpUQNgPP2KkTVTBU/5duzYscqcS52rnLD8RjBbJtxRd6KzI+Itdys6WybcUXecdSZP1P7zn/+ojTfeuBr1LknBhPyxY8dW84n6ADBzS9QGDx6sjjvuOGPQO3TooC666KIqey51rnLC8hvBbJlwR92Jzo6It9yt6GyZcEfdcdaZPFED51gK4+OPPy6h3yUpxxxzjLr99ttL/LHxAZi5JWpPPPGE2meffYzAx+gpbnuuW7euyp5LnaucsPxGMFsm3FF3orMj4i13KzpbJtxRd5x1tpKoNWzYUL3++usl9LskBSvmI0GxXYCZW6IGDpo0aWJk8d8zzjij2oMjLnW2ra/fn2D2mSj2q+hcbH19dKKzz0SxXznrbCVRw56PTz75ZInKLknZbbfdjCQmJYASfABmjolaly5d1CmnnJIAQXwVJMBYeDdYXOoc9MPme8Fsk213fYnO7ri32bPobJNtd31x1tlKota1a1c1a9asEgVckrLFFluolStXlvhj4wMwc0zUbrjhBoW5ZVnKCy+84I2m/fzzzyVmXOpc4ojFD4LZItkOuxKdHZJvsWvR2SLZDrvirLOVRA2jNUgGgsUVKV9++aW36GzQF1vvgZljovbtt996OwmUzyNMwwuScWxdVV5c6Vzuh83Pgtkm2+76Ep3dcW+zZ9HZJtvu+uKss5VEbciQIVUbi/syuCIFc9MaNGjgu2H1FZg5JmogASNq2KlAt2BR4/Lb27DlSmddHCbaCWYTLPK3ITrz18iEh6KzCRb52+Css5VEDUthYBmIYHFFyt13311twnvQL8r3wMw1UbvqqqsU5pjpFCwgjAdGwoorncN8sXVMMNti2m0/orNb/m31LjrbYtptP5x1tpKo3XTTTQr7PwaLK1ImT56sevbsGXTF2ntg5pqogQQkathJIm1BOyR6YcWVzmG+2DommG0x7bYf0dkt/7Z6F51tMe22H846W0nU7r33XoV9KYPFFSmjRo1S5557btAVa++BmXOihqc/e/XqlYoPbENVu3Zt9f7774e2c6VzqDOWDgpmS0Q77kZ0diyApe5FZ0tEO+6Gs85WEjWM0pQvquqKlH79+lVbQsJWfAAz50Rt9uzZqn379qnowEjpwIEDI9u40jnSIQsnBLMFkhl0ITozEMGCC6KzBZIZdMFZZyuJGha7rVu3bokUrkjBk4nTp08v8cXWB2DmnKiBhwMOOCBxIvvhhx9624PFLR7sSmdbmob1I5jDWCneMdG5eJqGIRKdw1gp3jHOOltJ1LAkxh//+McSZV2RErb4boljhB+AmXuidvXVV6tdd901EQvDhw+vuE+oK50TASCqJJiJiGVmVnRmJgiRO6IzEbHMzHLW2UqiBj022WQT9dlnn1VJ44oULM2xZMmSKj9svgFm7oka+MBSGyNGjIil5uWXX1a77LKLevXVV2PrudI51inik4KZmGAm5kVnJkIQuyE6ExPMxDxnna0lakiQXnnllSpJXJGChPGLL76o8sPmG2DOQ6L2wAMPqN///vfq4YcfDqXnl19+UW3btlXXX3996PngQVc6B32w/V4w22bcTX+isxvebfcqOttm3E1/nHW2lqi1atVKPfbYY1UKuCBl+fLlavPNN6/ywfYbYM5DogZe8IDAXnvtpdasWVONpqOPPlr179+/2vGwAy50DvPD5jHBbJNtd32Jzu64t9mz6GyTbXd9cdbZWqJ2+OGHqxkzZlSp4IIUJIqNGzeu8sH2G2DOS6IGboYNG6aQYM+cOdOjav78+apJkybV1sSL49GFznH+2DgnmG2w7L4P0dm9BjY8EJ1tsOy+D846W0vUsN8nFpv1iwtS7rrrLnXQQQf5Llh/BeY8JWog6MYbb/SSsz322MN7vfLKK9XatWsTc+dC58TOEVUUzETEMjMrOjMThMgd0ZmIWGZmOetsLVHD6Mzo0aOrpHFBysSJE9Wpp55a5YPtN8Cct0TN52jlypX+21SvLnRO5SBBZcFMQCpDk6IzQ1EIXBKdCUhlaJKzztYStQkTJpTMa3JBygUXXKAuvPBCZyECzHlN1HRJc6Gzrq+m2glmU0zytiM689bHlHeisykmedvhrLO1RO22224rWXPLBSkYTbv22mudRQswS6LmjH5rHbuIbWvgIjoSzBHEFOyw6FwwQSPgiM4RxDg6bC1Rmzt3rurUqVMVTBeBcNhhhynsO+qqALMkaq7Yt9evi9i2hy68J8EczkvRjorORVM0HI/oHM6Lq6PWErXnn39eNW3atAqni0Bo1qyZeuaZZ6p8sP0GmCVRs826/f5cxLZ9lKU9CuZSPor6SXQuqrKluETnUj5cf7KWqL333nuqTp06VXhdBELt2rXV0qVLq3yw/QaYJVGzzbr9/lzEtn2UpT0K5lI+ivpJdC6qsqW4ROdSPlx/spaofffdd942Uj5g24Hwww8/qA033NDv3skrMEui5oR6q53ajm2r4CI6E8wRxBTssOhcMEEj4IjOEcQ4OmwtUQM+7Arw/vvve1BtBwJuvdatW9cRzb92C8ySqDmVwErntmPbCqgKnQjmCgQV5LToXBAhK8AQnSsQZPm01UStYcOG6u9//7sH0XYg4GGGNm3aWKa3tDtglkStlJMifrId2xw4FMwcVKD3QXSm55hDD6IzBxV+88FqotauXbuq7YhsB8K0adNUjx49fkPu4B0wS6LmgHjLXdqObcvwQrsTzKG0FO6g6Fw4SUMBic6htDg7aDVRO+qoo9QNN9zggbUdCGPHjlUDBgxwRjQ6BmZJ1JxKYKVz27FtBVSFTgRzBYIKclp0LoiQFWCIzhUIsnzaaqJ21llnqTFjxngQbQfCwIED1bhx4yzTW9odMEuiVspJET/Zjm0OHApmDirQ+yA603PMoQfRmYMKv/lgNVEbNWqUGjx4sNe77UDo2bOnuuWWW35D7uAdMEui5oB4y13ajm3L8EK7E8yhtBTuoOhcOElDAYnOobQ4O2g1UZsyZYo68cQTPbC2AwHz4x566CFnRKNjYJZEzakEVjq3HdtWQFXoRDBXIKggp0XngghZAYboXIEgy6etJmqzZ89Whx56qAfRdiA0aNBAvfTSS5bpLe0OmCVRK+WkiJ9sxzYHDgUzBxXofRCd6Tnm0IPozEGF33ywmqhh+6Z9993X6912IGCxWyy667IAsyRqLhWw07ft2LaDKr4XwRzPT1HOis5FUTIeh+gcz4/ts1YTNWzfVK9ePQ+jzUBYvHixwvZRrgswS6LmWgX6/m3GNj2aZD0I5mQ85b2W6Jx3BZP5Lzon48lWLauJ2urVq6sSJpuB8NRTTylsyO66ALMkaq5VoO/fZmzTo0nWg2BOxlPea4nOeVcwmf+iczKebNWymqgBFEa2PvvsM29iPYLBRpkxY4bq2rWrja5i+wBeSdRiKSrESfmSK4SMFUGIzhUpKkQF0bkQMlYEwVln64la/fr11ZNPPmk1Ubv66qvVGWecUVEo6goIBEnUqFl2b5/zBU/FjmCmYpaXXdGZlx5U3ojOVMzq2bWeqLVo0ULddtttVhO1YcOGKazh5rog+CVRc60Cff/yJUfPMYceRGcOKtD7IDrTc8yhB846W0/UDj/8cIURLpuknHDCCeq6665zHgvALImacxnIHbAZ2+RgEnYgmBMSlfNqonPOBUzovuickChL1awnaqeddpoaOXKk1UStY8eOCmu4uS4IfknUXKtA3798ydFzzKEH0ZmDCvQ+iM70HHPogbPO1hO1888/X/Xt29dqoobFbufPn+88FhAIkqg5l4HcAc4XPBV4wUzFLC+7ojMvPai8EZ2pmNWzaz1RmzhxourRo4fVRG2jjTZS3377rR5DBlsh+CVRM0goU1PyJcdUGMNuic6GCWVqTnRmKoxhtzjrbD1Rw1IZ++23n7VEbdmyZWrbbbc1LKmeOQSCJGp63OWpFecLnopHwUzFLC+7ojMvPai8EZ2pmNWzaz1Rw9IcjRs3tpaoPfvssywWu4U8CH5J1PQCNU+t5EsuT2rp+yo663OXp5aic57U0veVs87WEzVs5/TnP//ZWqJ27733qi5duuirZ7AlAkESNYOEMjXF+YKnokwwUzHLy67ozEsPKm9EZypm9exaT9R++OEHq4ka5sT16dNHjx3DrRD8kqgZJpWhOfmSYygKgUuiMwGpDE2KzgxFIXCJs87WEzXwu/POO3tPYYIY6jJkyBB10UUXUXeTyD7wSqKWiKpcV+J8wVMRK5ipmOVlV3TmpQeVN6IzFbN6dp0kao0aNVJTp071bn/quZ28FZ4wnTx5cvIGhDUR/JKoERLMxLR8yTERgtgN0ZmYYCbmRWcmQhC7wVlnJ4lahw4dvFEuEENdWrZsqWbOnEndTSL7wCuJWiKqcl2J8wVPRaxgpmKWl13RmZceVN6IzlTM6tl1kqhhlGvAgAFWRtS222479corr+ixY7gVgl8SNcOkMjQnX3IMRSFwSXQmIJWhSdGZoSgELnHW2Umi1q9fP4X9N0EMZfn+++/VVlttRdlFKtvAK4laKspyWZnzBU9FqGCmYpaXXdGZlx5U3ojOVMzq2XWSqI0ePVoddthh5Ina0qVLVb169fSYIWiF4NdN1IBl+PDhau3atQSe0ZmUC56OW06WRWdOatD5IjrTccvJsujMSQ2lnCRqN954o2rdujV5ovb000+rNm3asGEcwa+TqH311Veqc+fO6qyzzpJEjY2a0Y7Il1w0N0U6IzoXSc1oLKJzNDdFOsNZZyeJ2pw5c9Qee+xBnqjdeuutqnv37mxiCYGgk6jdfPPNauHChTKixkbJeEc4X/DxnuufFcz63OWppeicJ7X0fRWd9bmjaEmeqPmCB18feeQRhSU6li9f7iVrwXMm35933nnq1FNPJe0jjb/Au9lmmynsP5qmHeouWrRInXPOOWrFihWp26bty2R9YKbW2aS/JmwJ5s9zFaO6movOorNu7HBvJ7HNK7adJGpINnbbbTfyf+DHHHOMNwrl4qLYaaedVPnfjjvuqH73u9+pHXbYodo51PUTuLlz56patWqpk08+uSoxk0SN14UTF1PyJZcfreJ0rHROdBadK8VIXs9LbPOKbfJELWoYECNq2KCdsuy3337q+uuvp+wi0vaHH36oyv9efvlltemmm6o333yz2jnUXb16daQ9eZggkhp2J/wvZ3aOETokmAnJZWRadGYkBqErojMhuRqmnSZqU6ZM0XA5eZMGDRqoRx99NHkD4poIfp05anBLEjVicQyaly85g2QyNiU6MxbHoGuis0EyGZvirLOzRA1PfQ4aNIhUtjp16qhvvvmGtI80xhEIuolamn441eUc/FQ8CWYqZnnZFZ156UHljehMxSwvu5x1dpaode3aVfXu3ZtMKcyDq1u3Lpl9HcMIBEnUdJjLVxvOFzwVk4KZilledkVnXnpQeSM6UzGrZ9dZonbKKacoJGtU5amnnlJ77703lXktuwh+SdS0qMtVI/mSy5Vc2s6KztrU5aqh6JwrubSd5ayzs0Rt6NChql27dtqkVmqItcew+wGngkCQRI2TIjS+cL7gaRCrquU4qOxztCs6c1TFvE+is3lOOVrkrLOzRG38+PGqefPmZHpdeOGF3hpqZB1oGEYgSKKmQVzOmnC+4KmoFMxUzPKyKzrz0oPKG9GZilk9u84StRkzZqhmzZrpeZ2gFTZ9HzFiRIKa9qog+CVRs8e3q57kS84V83b7FZ3t8u2qN9HZFfN2++Wss7NEbcmSJaSJGm6rXnnllXaVrtAbAkEStQokFeA05wueil7BTMUsL7uiMy89qLwRnamY1bNLnaj9P1/Mr9lU/H8eAAAAAElFTkSuQmCC" alt="原文阻尼震动曲线：往复震动的幅度随时间降低"><figcaption>原文阻尼震动示意：有正负摆动，峰值逐渐缩小。</figcaption></figure>
+<p><span class="label">原文代码</span></p>
+<pre><code># DampingCurveSimulator Tick
+def Tick(self, damp_time):
+    self.damp_time = damp_time
+    a = Lerp(self.amplitude, self.endValue,
+             self.damp_time / self.duration, self.easing)
+    b = math.cos(2 * math.pi / self.period * self.damp_time
+                 + random.uniform(-self.phase, self.phase))
+    return a * b</code></pre>
+<h3>8.1 damp_time 是累计时间，不是每步 dt</h3>
+<p>函数直接把传入值赋给 <code>self.damp_time</code>，里面没有累加。因此按这个接口，调用者应该传“震动开始后已经经过多久”。如果每步都传相同的 0.016，曲线的时间位置不会正常前进。</p>
+<h3>8.2 a：控制震动还能摆多大</h3>
+<p><code>a</code> 从初始振幅 <code>amplitude</code> 插值到 <code>endValue</code>。它是包络。若振幅为 0.8°、结束为 0°、时长 0.2 秒、采用线性衰减，过 0.1 秒后包络是 0.4°。</p>
+<p>原图看起来像常见阻尼衰减，但原代码没有明确使用 <code>exp(-λt)</code>。因此这里是<strong>用可调插值曲线做出的衰减震动</strong>，是否指数衰减取决于 <code>easing</code> 的具体定义。</p>
+<h3>8.3 b：控制往哪一侧摆</h3>
+<div class="formula">b(t) = cos(2πt / P + φ)<br>Roll(t) = A(t) × b(t)<br>P：周期（秒）　φ：相位（弧度）　A(t)：当前包络振幅</div>
+<p>一个完整周期会经历正峰、零、负峰、零，再回到正峰。<code>P</code> 越小，摆动越快。例如 0.1 秒一个周期就是 10 Hz；周期 0.05 秒就是 20 Hz。<code>period</code> 必须大于 0。</p>
+<p>相位决定震动从哪个位置开始。固定 <code>φ=0</code> 时，<code>cos(0)=1</code>，初始就处于正向最大倾斜；<code>φ=π/2</code> 时，初始接近 0。要不要开火瞬间出现 Roll 跳变，是表现选择。</p>
+<h3>8.4 原文每一步都会重新抽随机相位</h3>
+<p><code>random.uniform(...)</code> 写在 <code>Tick</code> 里，所以每次调用都抽新的随机数。这并非“开火时抽一个固定相位，再平滑振荡”，而是<strong>在振荡位置上逐步加入随机扰动</strong>。当 <code>phase</code> 很大时，相邻采样值会明显跳动，可能表现为噪声。</p>
+<p><span class="label extra">可选改法</span>若想保留每枪差异，同时保持单枪曲线连续，可在开火时抽一次相位：</p>
+<pre><code>def OnFire(self):
+    self.elapsed = 0
+    self.shotPhase = random.uniform(-self.phase, self.phase)
+
+def Tick(self, elapsed):
+    u = Clamp(elapsed / self.duration, 0, 1)
+    envelope = Lerp(self.amplitude, self.endValue, u, self.easing)
+    wave = cos(2 * PI * elapsed / self.period + self.shotPhase)
+    return envelope * wave</code></pre>
+<p>这是修改建议，不是原文做法。需要可重复回放时，还应管理随机种子或记录每枪随机结果；固定时间步本身不会消除随机差异。</p>
+<h3>8.5 为什么 Roll 不做同样的增量叠加</h3>
+<p>假设连续 Roll 采样值是 0.8°、0.2°、−0.4°。原文要求当前倾斜依次就是这三个值。如果把它们都加到旧 Roll 上，结果会成为 0.8°、1.0°、0.6°，不再是设计的往复震动。</p>
+<pre><code># 对应原文“当前 Roll 值”的应用语义
+recoilRollOffset = damping.Tick(elapsed)
+cameraRoll = baseRoll + recoilRollOffset + otherRollOffsets</code></pre>
+<p>若相机底层只有增量旋转接口，也可以用 <code>newRoll−previousRoll</code> 转换；那是接口适配，曲线仍然描述当前偏移。多个 Roll 来源共存时，应先合成各自当前偏移，不能让后坐力直接覆盖骨骼或其他镜头效果。</p>
+<h3>8.6 结束时需要明确归零</h3>
+<p>当 <code>endValue=0</code> 且进度被钳制，终点输出为 0。若 <code>endValue≠0</code> 且继续推进余弦，则震动包络不会消失；若到时强制把结果设为 0，又可能发生跳变。所以要明确结束策略、终点采样和退出时的清理。</p>
+</section>
+
+<section id="fsm">
+<h2><span class="num">09</span>“无限状态机”其实是在管理可并存的效果</h2>
+<p>原文要解决的是：后坐力正在运行时，FOV 开镜变化也可能运行，呼吸晃动也可能存在。传统“同一时刻仅一个当前状态”的写法不方便，因此作者改成维护一个活动状态列表。</p>
+<p>文章的“无限状态机”是形象叫法，<strong>不表示数学意义上拥有无限状态</strong>。从展示的结构看，更接近“可同时激活多个镜头模式的管理器”。</p>
+<p><span class="label">原文代码</span></p>
+<pre><code>def FSMAppend(self, state, *args, **kwargs):
+    if isinstance(state, type):
+        state = state.NAME
+
+    if state in self.insert_state:
+        exitFunc = self.FSMGetHandler(state, 'Exit')
+        exitFunc and exitFunc()
+        self.insert_state.remove(state)
+
+    self.insert_state.append(state)
+
+    enterFunc = self.FSMGetHandler(state, 'Enter')
+    enterFunc and enterFunc(*args, **kwargs)
+
+def FSMRemove(self, state):
+    if isinstance(state, type):
+        state = state.NAME
+
+    exitFunc = self.FSMGetHandler(state, 'Exit')
+    exitFunc and exitFunc()
+    self.insert_state.remove(state)</code></pre>
+<h3>9.1 FSMAppend 的执行顺序</h3>
+<ol><li><code>isinstance(state,type)</code> 检查传入的是不是类对象。若传的是类，就取该类的 <code>NAME</code>，统一转成状态标识。</li><li>如果列表里已存在相同状态，先找到并调用 <code>Exit</code>，再把旧列表项删掉。</li><li>将状态名放到活动列表末尾。</li><li>找到并调用 <code>Enter</code>，并把这次传来的参数转交给它。</li></ol>
+<p>因此，重复 Append 同一状态不是忽略调用，而是<strong>退出后重新进入</strong>。开枪时再次追加后坐力状态，可能会重启它的生命周期。但旧后坐力如何继承、残留偏移如何处理，要看没有展示的 Enter/Exit 逻辑。</p>
+<h3>9.2 几个 Python 写法</h3>
+<table><thead><tr><th>写法</th><th>含义</th></tr></thead><tbody><tr><td><code>*args</code></td><td>收集额外位置参数，例如这次开火的弹序、强度。</td></tr><tr><td><code>**kwargs</code></td><td>收集额外关键字参数，例如 <code>ads=True</code>。</td></tr><tr><td><code>FSMGetHandler(state,'Enter')</code></td><td>按状态名寻找入口函数；具体查找方式未展示。</td></tr><tr><td><code>enterFunc and enterFunc(...)</code></td><td>短路求值：有函数才调用。更直白的写法是 <code>if enterFunc: enterFunc(...)</code>。</td></tr></tbody></table>
+<h3>9.3 FSMRemove 隐含了一个前提</h3>
+<p>它先调用 Exit，再执行 <code>list.remove</code>。若该状态不存在，Python 的 remove 会抛出 <code>ValueError</code>。工程上可以先检查成员关系，使 Remove 可以安全重复调用。还要避免在遍历活动列表时直接删除元素造成跳项；常见做法是遍历快照，或延后处理增删队列。</p>
+<h3>9.4 PhysicsPostTick 的绑定意味着什么</h3>
+<pre><code>genv.player.space.world.PhysicsSpace.BindEvent(
+    "PhysicsPostTick", self.OnPhysicsTick)</code></pre>
+<p>这行把 <code>OnPhysicsTick</code> 注册到物理更新后的事件里。按文章描述，作者的引擎在这里使用稳定 60 Hz 的逻辑更新。<strong>事件名本身并不保证所有引擎都是 60 Hz</strong>，具体频率与补步行为应以目标项目为准。</p>
+<p>文章未展示 Tick 遍历方式。一个清晰的补充结构是：先更新所有活动效果各自的输出，再统一合成 Pitch/Yaw 增量、Roll 偏移与 FOV 当前值，最后操作相机。这样多个模块不会反复读写同一个最终相机值。</p>
+</section>
+
+<section id="params">
+<h2><span class="num">10</span>后坐力参数逐项解释</h2>
+<p>原文这些 <code>('字段名', PFloat(...))</code> 项是<strong>数据 / 编辑器属性声明</strong>，不是每步执行的相机逻辑。<code>text</code> 是显示给调参者的说明，<code>precision</code> 通常是编辑或显示精度，不代表逻辑时间步长。</p>
+<h3>10.1 开关、每枪数据与单发曲线</h3>
+<div class="table-scroll"><table><thead><tr><th>字段</th><th>用途</th><th>阅读时注意</th></tr></thead><tbody>
+<tr><td><code>RecoilEnable</code></td><td>后坐力开关。</td><td>关闭时要清理本效果残留；不能只停 Tick。</td></tr>
+<tr><td><code>RecoilData</code></td><td>非 ADS 的每枪 Yaw/Pitch 及 x/y 额外像素偏移数据。</td><td>元素是 Vector4。注释暗示两项角度、两项像素，但准确分量顺序与“额外偏移”作用位置没有展示。</td></tr>
+<tr><td><code>RecoilDataAds</code></td><td>ADS，即瞄准 / 开镜状态的每枪数据。</td><td>同样声明为 Vector4，注释只写 YawPitch；其余分量不能据此断定。</td></tr>
+<tr><td><code>RecoilFallPct</code></td><td>稳定前回弹至百分比。</td><td>本文采用“剩余比例”解释；应核对实际实现。</td></tr>
+<tr><td><code>RecoilDataCycleIdx</code></td><td>后坐力数据循环相关索引。</td><td>可能用于循环起点或轮询位置；原文未说明越界后究竟如何取数。</td></tr>
+<tr><td><code>RecoilUpTime</code></td><td>上抬时长。</td><td>越短，冲击越集中；短于固定步长时必须处理跨阶段。</td></tr>
+<tr><td><code>RecoilStaticTime</code></td><td>稳定平台时长。</td><td>平台期间输出角度保持，但增量为零。</td></tr>
+<tr><td><code>RecoilDownTime</code></td><td>下降恢复时长。</td><td>影响松枪后的恢复速度。</td></tr>
+<tr><td><code>RecoilUpEasing</code></td><td>上抬缓动曲线。</td><td>决定相同峰值和时长下，幅度怎样分配到每一步。</td></tr>
+<tr><td><code>RecoilDownEasing</code></td><td>下降缓动曲线。</td><td>决定恢复是先快后慢、匀速或其他形状。</td></tr>
+</tbody></table></div>
+<h3>10.2 连射与回正参数</h3>
+<div class="table-scroll"><table><thead><tr><th>字段</th><th>按注释能确认的用途</th><th>原文没给出的细节</th></tr></thead><tbody>
+<tr><td><code>PersistRecoilDownEasing</code></td><td>连射回正插值函数。</td><td>何时启动、从哪个姿态开始、是否取消逐枪回落。</td></tr>
+<tr><td><code>PersistRecoilDownTimeShootIdx</code></td><td>按连射子弹数分段的阈值数组。</td><td>是“到达阈值”还是“超过阈值”，阈值排序与末段规则。</td></tr>
+<tr><td><code>PersistRecoilDownTimeMax</code></td><td>对应各弹数区间的最大回正时间。</td><td>实际时长如何计算，以及是否在区间间插值。</td></tr>
+<tr><td><code>IGNORE_RECOIL_RECOVER_PIX</code></td><td>与玩家移动像素、停止持续回正有关的阈值。</td><td>使用单步还是累计鼠标位移，长度怎样计算，何时取消回正。</td></tr>
+</tbody></table></div>
+<p>例如“1～3 发最多 0.2 秒，4～10 发最多 0.4 秒”可以说明分段配置的用途，但这只是示意，文章没有给出这样的实际阈值。最大时间也不等于每次都恰好用满该时间。</p>
+<h3>10.3 Roll 震动参数</h3>
+<div class="table-scroll"><table><thead><tr><th>字段</th><th>用途</th><th>影响 / 限制</th></tr></thead><tbody>
+<tr><td><code>DampEasing</code></td><td>振幅包络衰减曲线。</td><td>控制能量释放节奏。</td></tr><tr><td><code>DampEndValue</code></td><td>包络终值。</td><td>要完全停止震动，通常应为 0，或另有退出处理。</td></tr><tr><td><code>DampAmplitude</code></td><td>初始振幅。</td><td>原文未明确单位；必须与 Roll 相机接口一致。</td></tr><tr><td><code>DampAmplitudeAddShootIdx</code></td><td>连射随机振幅叠加开始的弹数。</td><td>是开始阈值，不是 Tick 内自动累加代码。</td></tr><tr><td><code>DampAmplitudeAdd</code></td><td>连发随机振幅叠加量。</td><td>随机分布、叠加上限和清零时机未展示。</td></tr><tr><td><code>DampPeriod</code></td><td>震动周期。</td><td>秒；越小越快，必须大于 0。</td></tr><tr><td><code>DampPhase</code></td><td>随机相位范围。</td><td>在 cos 内使用弧度；原代码每步重抽。</td></tr><tr><td><code>DampDuration</code></td><td>震动持续时间。</td><td>必须处理 0 时长与末端采样。</td></tr><tr><td><code>DampPeriodFactor</code></td><td>分段周期乘数。</td><td>具体在哪个阶段生效、怎样分段，原文未给。</td></tr><tr><td><code>DampRollFactor</code></td><td>Roll 幅度系数。</td><td>通常作幅度缩放；乘在哪一步没有展示。</td></tr>
+</tbody></table></div>
+<p><code>PBool</code> 是布尔属性，<code>PFloat</code> 是浮点属性，<code>PInt</code> 是整数属性，<code>PEnum</code> 是枚举属性，<code>PArray</code> 是数组属性，<code>PVector4</code> 是四分量元素类型。它们属于原作者的属性系统，不能直接假定是 Python 内置类。</p>
+</section>
+
+<section id="complete">
+<h2><span class="num">11</span>把缺失流程补齐：完整单发参考伪代码</h2>
+<p><span class="label extra">补充示例 · 非原文源码</span>以下保持文章“曲线目标 → 差分 → 增量旋转”的思路。例子支持上抬、瞬时回弹、稳定、下降，保留跨阶段剩余时间，结束时确保归零。</p>
+<div class="note"><p>范围明确：这是<strong>单发流程示例</strong>，只允许上一枪结束后再开始下一枪。连射需要额外选择累积策略，不能把这个限制直接删掉、每枪盲目归零。函数中的 <code>emitDelta(pitch,yaw)</code> 是对引擎相机接口的适配回调，内部所有角度采用同一单位。</p></div>
+<pre id="singleShotCode"><code>def Clamp01(x):
+    return max(0.0, min(1.0, x))
+
+def EaseOutCubic(u):
+    u = Clamp01(u)
+    return 1.0 - (1.0 - u) ** 3
+
+def Lerp(a, b, u, easing):
+    return a + (b - a) * easing(Clamp01(u))
+
+
+class SingleShotRecoil:
+    def __init__(self, emitDelta):
+        self.emitDelta = emitDelta
+        self.phase = "IDLE"
+        self.elapsed = 0.0          # 当前阶段的局部时间
+        self.previous = (0.0, 0.0) # 只存后坐力曲线偏移
+
+    def Fire(self, peakPitch, peakYaw,
+             upTime, holdTime, downTime, fallPct,
+             upEasing=EaseOutCubic, downEasing=EaseOutCubic):
+        if self.phase != "IDLE":
+            raise RuntimeError("本例仅支持无重叠的单发")
+        if min(upTime, holdTime, downTime) &lt; 0:
+            raise ValueError("阶段时长不能为负")
+        if not 0.0 &lt;= fallPct &lt;= 1.0:
+            raise ValueError("本例的剩余比例必须在 0～1 内")
+
+        self.peak = (peakPitch, peakYaw)
+        self.stable = (peakPitch * fallPct, peakYaw * fallPct)
+        self.upTime = upTime
+        self.holdTime = holdTime
+        self.downTime = downTime
+        self.upEasing = upEasing
+        self.downEasing = downEasing
+        self.previous = (0.0, 0.0)
+        self.elapsed = 0.0
+        self.phase = "UP"
+
+    def SetOffset(self, pitch, yaw):
+        oldPitch, oldYaw = self.previous
+        self.emitDelta(pitch - oldPitch, yaw - oldYaw)
+        self.previous = (pitch, yaw)
+
+    def PhaseDuration(self):
+        return {"UP": self.upTime,
+                "HOLD": self.holdTime,
+                "DOWN": self.downTime}[self.phase]
+
+    def Sample(self, u):
+        if self.phase == "UP":
+            self.SetOffset(
+                Lerp(0.0, self.peak[0], u, self.upEasing),
+                Lerp(0.0, self.peak[1], u, self.upEasing))
+        elif self.phase == "HOLD":
+            self.SetOffset(*self.stable)  # 保持值不变，差分为 0
+        elif self.phase == "DOWN":
+            self.SetOffset(
+                Lerp(self.stable[0], 0.0, u, self.downEasing),
+                Lerp(self.stable[1], 0.0, u, self.downEasing))
+
+    def FinishPhase(self):
+        # 切换前确保当前阶段的精确端点已应用。
+        if self.phase == "UP":
+            self.SetOffset(*self.peak)
+            self.SetOffset(*self.stable)  # 瞬时回弹事件
+            self.phase = "HOLD"
+        elif self.phase == "HOLD":
+            self.SetOffset(*self.stable)
+            self.phase = "DOWN"
+        elif self.phase == "DOWN":
+            self.SetOffset(0.0, 0.0)      # 回收末尾残留
+            self.phase = "IDLE"
+        self.elapsed = 0.0
+
+    def Tick(self, fixedDt):
+        if fixedDt &lt; 0:
+            raise ValueError("dt 不能为负")
+        remaining = fixedDt
+
+        while self.phase != "IDLE":
+            duration = self.PhaseDuration()
+
+            # 零时长阶段直接完成，避免除零 / 死循环。
+            if duration == 0.0:
+                self.Sample(1.0)
+                self.FinishPhase()
+                continue
+
+            if remaining &lt;= 0.0:
+                break
+
+            timeToEnd = max(0.0, duration - self.elapsed)
+            consumed = min(remaining, timeToEnd)
+            self.elapsed += consumed
+            remaining -= consumed
+            finished = consumed &gt;= timeToEnd
+
+            # 终点显式使用 u=1，避免数值误差漏端点。
+            u = 1.0 if finished else self.elapsed / duration
+            self.Sample(u)
+
+            if finished:
+                self.FinishPhase()
+                # 同一步内继续推进下个阶段，不丢剩余时间。
+
+    def CancelAndClear(self):
+        # 本例采用“立即回收本效果偏移”的取消策略。
+        self.SetOffset(0.0, 0.0)
+        self.phase = "IDLE"
+        self.elapsed = 0.0
+
+
+# 引擎适配示意：确认真实接口的符号、顺序和单位。
+def ApplyRecoilDelta(deltaPitch, deltaYaw):
+    camera.Rotate(deltaPitch=deltaPitch, deltaYaw=deltaYaw)
+
+recoil = SingleShotRecoil(ApplyRecoilDelta)
+recoil.Fire(peakPitch=2.0, peakYaw=-0.4,
+            upTime=0.06, holdTime=0.08,
+            downTime=0.24, fallPct=0.65)
+
+# 若接口使用弧度，上述 2.0 / -0.4 度需先换成弧度。
+def OnPhysicsTick(engineFixedDt):
+    recoil.Tick(engineFixedDt)</code></pre>
+<h3>11.1 为什么在一次 Tick 里可能转相机两次以上</h3>
+<p>例如跨过上抬终点时，先应用峰值差分，再应用回弹差分，之后还可能进入稳定或下降。若引擎允许顺序增量应用，这样能明确保证逻辑端点；如果采用统一合成，也可收集这些差分后在本步合并应用。</p>
+<p>但<strong>逻辑上经过峰值，不保证屏幕渲染一定显示这个峰值</strong>。若上抬终点和回弹发生在同一个固定步中，渲染可能只看到回弹后的最终值。想让峰值被清楚看见，可以配置有时长的回弹阶段、更合适的上抬时长或渲染采样策略。</p>
+<h3>11.2 为什么不能在退出时只把 previous 设成 0</h3>
+<p>如果镜头还有 0.1° 的后坐力残留，直接把历史变量清零只是“忘记了残留”，并未把镜头转回去。本例先 <code>SetOffset(0,0)</code> 发出最后一个负差值，再清理状态。这也是切枪、关闭效果、取消后坐力时需要决定的退出策略。</p>
+<p>这里的立即回收可能产生明显跳变。产品需要柔和取消时，可以改成短恢复段；原文没有规定这一点。</p>
+</section>
+
+<section id="burst">
+<h2><span class="num">12</span>连射和压枪：文章留下了哪些设计问题</h2>
+<h3>12.1 连射不是“每枪都重置为零”这么简单</h3>
+<p>如果射速为每分钟 600 发，每枪间隔是 0.1 秒。假设一枪曲线持续 0.38 秒，后几枪到来时，前枪尚未结束。需要决定旧贡献怎样保留、新贡献怎样加入。</p>
+<p>若镜头当前仍保留上一枪 +1.3° 的贡献，而新枪仅把 <code>previousPitch</code> 重置到 0，那么旧贡献没有被回收或继承到可追踪状态。后续恢复可能只回收新枪，造成漂移。相反，若每次 Enter 都立即清掉旧贡献，连射又可能出现明显向下跳动。</p>
+<h3>12.2 两种常见补充方案</h3>
+<table><thead><tr><th>方案</th><th>更新思路</th><th>需要处理的地方</th></tr></thead><tbody><tr><td>每枪独立曲线叠加</td><td>每枪创建独立生命周期。把所有未结束曲线的当前偏移加起来，再对总偏移做差。</td><td>多枪重叠、单枪退出归零、整体上限、同时回落造成的抵消。</td></tr><tr><td>维护连射累计偏移</td><td>新枪在当前累计偏移上追加上抬；持续射击时按规则处理恢复；停火后统一回收累计偏移。</td><td>重复入场要继承旧状态；恢复目标、连射弹数分段、玩家输入补偿。</td></tr></tbody></table>
+<pre><code># 补充：每枪独立曲线叠加的核心关系
+currentTotal = Sum(shot.SampleOffset(now - shot.fireTime)
+                   for shot in activeShots)
+delta = currentTotal - previousTotal
+ApplyCameraDelta(delta)
+previousTotal = currentTotal</code></pre>
+<p>原文的 Persist 参数说明作者考虑了连射回正，但不足以判定最终采用哪种方案、是否混合两种思路。FPS 手感中的“逐枪弹序”“持续累计”“停火回正”也可以拆成不同层。</p>
+<h3>12.3 玩家压枪时，应该恢复到哪里</h3>
+<p>用一维 Pitch 举例，基础视角是 10°，后坐力加 +2°，玩家拖鼠标压下 −1°，当前视角变成 11°。之后完整回收系统的 +2°，结果是 9°，即保留玩家的 −1°输入。</p>
+<p>这在“自动撤销全部后坐力贡献”的设计下是自洽的，但也可能带来：玩家已经压枪到目标，停火后镜头继续往下拉。另一种设计可以追踪玩家已经抵消的份额，只恢复未补偿部分；或在玩家明显移动视角后停止某种回正。具体选择取决于产品目标。</p>
+<div class="note warn"><p><strong>“移除后坐力贡献”和“返回开枪前朝向”不是同一个目标。</strong>前者保留玩家输入；后者可能需要覆盖、补偿或更新玩家输入。文章没有给出足够代码，不能把回正目标或鼠标处理方式当作已知事实。</p></div>
+<h3>12.4 像素阈值为什么要谨慎解释</h3>
+<p><code>IGNORE_RECOIL_RECOVER_PIX</code> 用的是像素阈值；像素位移与实际转角的关系又受鼠标灵敏度、输入实现、ADS 倍率等影响。不能直接把“若干像素”当作“若干度”。应确认阈值检测在原始输入还是处理后的输入上。</p>
+<h3>12.5 相机限幅可能破坏差分回收</h3>
+<p>若相机已经接近最大 Pitch，系统请求再抬 +2°，但相机只允许抬 +0.5°，后坐力历史却仍记为 +2°。之后回收 −2°，就可能下降过量。需要让“已施加贡献”与实际限幅一致，或采用基础视角与效果偏移分离的合成方案。这是补充的工程边界，不是原文已经解决的问题。</p>
+</section>
+
+<section id="others">
+<h2><span class="num">13</span>文章其余伪代码，也放到同一套思路里理解</h2>
+<h3>13.1 FOV：当前值接口，不要当增量相加</h3>
+<p>原文 FOV 部分没有独立函数代码，只说明主相机和附属相机各自做曲线过渡，且每次使用实际 FOV 值。若当前目标是 70°，应设为 70°，不能向旧 FOV 再加 70°。</p>
+<p>文章要求开镜途中关镜、关镜途中开镜时同步进度。意思是切换后不能突然从完整起点重放，否则 FOV 会跳。具体如何换算进度未展示；当开关镜曲线不同时，通常不能简单采用 <code>1−u</code>。</p>
+<pre><code># 补充：一种保持数值连续的通用方法
+def BeginFovTransition(newTarget, newDuration):
+    startFov = currentFov      # 从屏幕当前值开始
+    targetFov = newTarget
+    elapsed = 0
+    duration = newDuration
+
+def TickFov(dt):
+    elapsed += dt
+    u = 1 if duration == 0 else Clamp01(elapsed / duration)
+    currentFov = Lerp(startFov, targetFov, u, easing)
+    camera.SetFov(currentFov)</code></pre>
+<p>这种重新取起点的方法保证数值连续，但不一定保持原曲线速度、总耗时或原作者希望的开镜进度。若要求精确承接原曲线，可从当前 FOV 反求新曲线进度，再接着推进；需要曲线单调且有可求逆的定义。</p>
+<h3>13.2 呼吸晃动：返回值本身更像曲线位置</h3>
+<p><span class="label">原文代码</span></p>
+<pre><code># JitterSimulator Tick
+def Tick(self, dtime):
+    x = -math.cos(self.jitter_time) * self.period
+    y = -math.sin(2 * self.jitter_time) * self.amplitude
+    self.jitter_time += (dtime * self.speed)
+    return (x, y)</code></pre>
+<p><code>jitter_time</code> 在三角函数中其实承担“相位”的作用；<code>dtime×speed</code> 推进相位。x 用 cos，y 用二倍相位的 sin，因此 y 在 x 一个完整周期内摆动两次，组合轨迹可以形成类似“8”字的闭合路径。哪个分量映射 Yaw、哪个映射 Pitch，片段没有说明。</p>
+<p>虽然字段名叫 <code>period</code>，但在这段公式里它<strong>乘在 cos 外侧，是 x 的幅度系数</strong>，不是时间周期。实际频率由 <code>speed</code> 决定：若相位速度为 ω，x 的周期是 <code>2π/ω</code>，y 的周期是 <code>π/ω</code>。变量名和参数注释不能覆盖公式的数学意义。</p>
+<p>原文文字说呼吸晃动“每帧需要处理变化量”，但这个函数本身没有相减，只返回当前 x/y。所以差分大概率在调用层完成，或使用另外的偏移合成层；这部分代码未展示。</p>
+<pre><code># 补充：若调用的是增量相机接口
+current = jitter.Tick(fixedDt)
+delta = current - previousJitter  # 示意：向量减法
+camera.Rotate(delta)
+previousJitter = current</code></pre>
+<p>还要处理首帧：相位为 0 时 x=−period，y=0，并不从零偏移开始。可以先记录首样本作为基准，或让效果淡入；若关闭时要移除现有偏移，也要明确退出处理。</p>
+<h3>13.3 骨骼跟随：对局部旋转做差，再叠加到相机</h3>
+<p><span class="label">原文代码</span></p>
+<pre><code>def BoneFollow(self):
+    diffBonePitch, diffBoneYaw, diffBoneRoll = 0, 0, 0
+    if self.BoneFollowEnable:
+        if (self.lastBonePitch == 0 and self.lastBoneYaw == 0
+                and self.lastBoneRoll == 0):
+            curBoneTrans = self.target.GetBoneLocalTransform(self.BoneFollowName)
+            self.lastBonePitch = curBoneTrans.pitch
+            self.lastBoneYaw = curBoneTrans.yaw
+            self.lastBoneRoll = curBoneTrans.roll
+        else:
+            curBoneTrans = self.target.GetBoneLocalTransform(self.BoneFollowName)
+            curBonePitch = curBoneTrans.pitch
+            curBoneYaw = curBoneTrans.yaw
+            curBoneRoll = curBoneTrans.roll
+
+            diffBonePitch = curBonePitch - self.lastBonePitch
+            diffBoneYaw = curBoneYaw - self.lastBoneYaw
+            diffBoneRoll = curBoneRoll - self.lastBoneRoll
+
+            self.lastBonePitch = curBonePitch
+            self.lastBoneYaw = curBoneYaw
+            self.lastBoneRoll = curBoneRoll
+
+    return diffBonePitch, diffBoneYaw, diffBoneRoll</code></pre>
+<p>流程是：默认输出零；未启用时直接保持零；首次采样只记录基准；后续读取当前骨骼角度，减去上次记录，再更新历史。这样相机跟随动画变化，而不会每步重复叠加完整骨骼姿态。</p>
+<p><code>HP_Camera</code> 是原文提到的动画相机效果骨骼。为什么取局部变换？因为要提取动画相对其坐标基准的旋转，避免把角色世界转身重复加到相机。<strong>GetBoneLocalTransform 的“局部”具体相对父骨骼、根骨骼还是骨架组件，仍要核对该引擎 API。</strong>原文把它解释为相对根骨骼的变化，但函数名本身不足以证明这点。</p>
+<h4>原文这段有三个实用边界</h4>
+<ul><li><strong>用全零当首次采样标记不稳妥。</strong>骨骼合法姿态本来就可能全零，下一步又被误认为首帧，漏掉变化。应使用独立的 <code>hasPreviousBoneSample</code> 标志。</li><li><strong>欧拉角跨 ±180° 时不能直接减。</strong>从 179° 到 −179°，真实短路径是 +2°，直接相减却是 −358°。小角度场景可用最短角差；复杂三维旋转宜用四元数相对旋转，并明确乘法顺序和坐标空间。</li><li><strong>关闭再开启时要重建采样基准。</strong>否则停用期间变化可能在下一次启用时一次性加给相机。</li></ul>
+<pre><code># 补充：以度为单位的最短角差示例
+def ShortestAngleDelta(current, previous):
+    return (current - previous + 180.0) % 360.0 - 180.0
+
+# 弧度版本对应把 180 / 360 换成 PI / (2*PI)。
+# 三轴独立最短角差仍是小角度欧拉近似，不等于任意三维旋转合成。</code></pre>
+<h3>13.4 多个来源的统一合成</h3>
+<pre><code># 补充：示意性的更新管线，具体 API 以引擎为准
+inputDelta  = ConsumePlayerInputForThisStep()
+recoilDelta = recoil.UpdateAndGetDelta(fixedDt)
+jitterDelta = jitter.UpdateAndGetDelta(fixedDt)
+boneDelta   = bone.UpdateAndGetDelta()
+
+pitchYawDelta = inputDelta + recoilDelta + jitterDelta + boneDelta.pitchYaw
+camera.RotatePitchYaw(pitchYawDelta)
+
+# 本架构里，各 Roll 来源先转换成当前偏移，再统一合成。
+camera.SetRoll(baseRoll + recoilRollOffset + boneRollOffset + otherRollOffset)
+camera.SetFov(currentFov)</code></pre>
+<p>这段表达的是分工，而不是通用引擎 API。小角度的 Pitch/Yaw 相加便于理解；大角度或跨坐标空间时，旋转合成具有顺序性，要按引擎约定使用旋转对象 / 四元数。</p>
+</section>
+
+<section id="checks">
+<h2><span class="num">14</span>真正实现时，优先确认这八件事</h2>
+<ol><li><strong>明确相机接口。</strong>它接收当前值还是增量？角度用度还是弧度？Pitch/Yaw 参数顺序、正方向是什么？</li><li><strong>分开目标与历史。</strong>保存上一采样的后坐力偏移，别拿整个相机朝向代替它。</li><li><strong>完成所有阶段端点。</strong>不仅上抬要到峰值，下降也要到零，退出时不能留下未回收偏移。</li><li><strong>显式推进阶段。</strong>修正时间后要切换状态；跨段剩余时间、零时长、短于单步的曲线都要处理。</li><li><strong>每枪只选一次所需数据。</strong>ADS 数据、弹序与随机值何时确定要清楚，避免同一枪过程中意外变更目标。</li><li><strong>给连射选择清晰的策略。</strong>旧贡献继续存在、新枪继承或叠加、停火回正目标，都不能只靠重启 Enter 隐式决定。</li><li><strong>统一合成各镜头效果。</strong>尤其是 Roll 和 FOV 当前值的所有权，避免模块之间互相覆盖。</li><li><strong>检查真实表现与边界。</strong>低帧率、短时长、快速连射、压枪、Pitch 限幅、切枪、开关效果时，曲线逻辑正确还不够，画面也要符合预期。</li></ol>
+<div class="note good"><p>判断你是否读懂原文，可以用这句话：<strong>先用时间曲线决定“这一枪此刻应该贡献多少偏移”，再按相机接口把它转换为差分或当前值，最后与玩家输入及其他镜头效果合成。</strong></p></div>
+</section>
+<div class="footer"><p><strong>来源与边界：</strong>本文根据你提供的本地文件《FPS相机镜头_精简版.html》正文和其中两张曲线插图整理。原文代码按讲解需要换行，骨骼首次采样分支省略了重复的零值赋值；语义保持一致。原文未给出部分，均以“补充”“示例”“建议”或明确的不确定说明标注。没有读取、修改或验证你项目现有的后坐力实现。</p><p>本文件不依赖外部字体、脚本或网络资源。图表为本地 JavaScript 绘制，原文图片直接内嵌。</p></div>
+</main>
+</div>
+<script>
+(()=>{
+'use strict';
+const $=id=>document.getElementById(id);
+const defaults={peak:2,fall:.65,up:.06,hold:.08,down:.24,rollA:.7};
+let playing=false,lastFrame=0,elapsed=0,raf=0;
+const ease=u=>1-Math.pow(1-Math.max(0,Math.min(1,u)),3);
+function params(){const p={};for(const id of Object.keys(defaults))p[id]=Number($(id).value);p.total=p.up+p.hold+p.down;return p;}
+function offset(t,p){if(t<p.up)return p.peak*ease(t/p.up);if(t<p.up+p.hold)return p.peak*p.fall;if(t<p.total)return p.peak*p.fall*(1-ease((t-p.up-p.hold)/p.down));return 0;}
+function roll(t,p){return t>=p.total?0:p.rollA*Math.max(0,1-t/p.total)*Math.cos(2*Math.PI*t/.07);}
+function phase(t,p){if(t<p.up)return '上抬';if(t<p.up+p.hold)return '稳定（已回弹）';if(t<p.total)return '下降';return '结束 / 归零';}
+function draw(canvas,p,t,isRoll){
+ const rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+ const w=Math.max(280,rect.width),h=rect.height;
+ canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
+ const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+ const m={l:50,r:20,t:32,b:34},pw=w-m.l-m.r,ph=h-m.t-m.b;
+ const hi=isRoll?Math.max(.2,p.rollA*1.15):p.peak*1.16,lo=isRoll?-hi:0;
+ const X=x=>m.l+x/p.total*pw,Y=y=>m.t+(hi-y)/(hi-lo)*ph;
+ const shades=['#edf4fc','#eaf7f2','#f4eef9'];const bounds=[0,p.up,p.up+p.hold,p.total];
+ if(!isRoll){for(let i=0;i<3;i++){c.fillStyle=shades[i];c.fillRect(X(bounds[i]),m.t,X(bounds[i+1])-X(bounds[i]),ph);}}
+ c.font='11px system-ui, Microsoft YaHei';c.fillStyle='#53677c';
+ for(let j=0;j<=4;j++){const yy=lo+(hi-lo)*j/4;c.strokeStyle='#e0e7ee';c.beginPath();c.moveTo(m.l,Y(yy));c.lineTo(w-m.r,Y(yy));c.stroke();c.fillText(yy.toFixed(1)+'°',5,Y(yy)+4);}
+ for(let j=0;j<=5;j++){const tt=p.total*j/5;c.fillStyle='#64748b';c.textAlign='center';c.fillText(tt.toFixed(2),X(tt),h-12);}
+ c.textAlign='left';c.fillStyle='#30445b';c.font='12px system-ui, Microsoft YaHei';c.fillText(isRoll?'Roll 当前偏移：衰减包络 × cos':'Pitch 后坐力偏移 q(t)',m.l,18);
+ if(!isRoll){c.fillStyle='#6b7c90';c.font='11px system-ui, Microsoft YaHei';const labs=['上抬','稳定','下降'];for(let i=0;i<3;i++){if(X(bounds[i+1])-X(bounds[i])>35){c.textAlign='center';c.fillText(labs[i],X((bounds[i]+bounds[i+1])/2),m.t+16);}}c.textAlign='left';}
+ c.strokeStyle=isRoll?'#7060a0':'#2563a6';c.lineWidth=2.3;c.beginPath();
+ if(isRoll){for(let j=0;j<=700;j++){const tt=p.total*j/700,jy=Y(roll(tt,p));j?c.lineTo(X(tt),jy):c.moveTo(X(tt),jy);}}
+ else{c.moveTo(X(0),Y(0));for(let j=1;j<=120;j++){const tt=p.up*j/120;c.lineTo(X(tt),Y(p.peak*ease(j/120)));}c.lineTo(X(p.up),Y(p.peak*p.fall));c.lineTo(X(p.up+p.hold),Y(p.peak*p.fall));for(let j=1;j<=160;j++){const u=j/160;c.lineTo(X(p.up+p.hold+p.down*u),Y(p.peak*p.fall*(1-ease(u))));}}
+ c.stroke();
+ if(!isRoll){c.fillStyle='#148776';for(let tt=0;tt<=p.total+1e-8;tt+=1/60){c.beginPath();c.arc(X(Math.min(tt,p.total)),Y(offset(tt,p)),2.5,0,Math.PI*2);c.fill();}}
+ c.strokeStyle='#b86b12';c.lineWidth=1;c.setLineDash([5,4]);c.beginPath();c.moveTo(X(t),m.t);c.lineTo(X(t),h-m.b);c.stroke();c.setLineDash([]);c.fillStyle='#b86b12';c.beginPath();c.arc(X(t),Y(isRoll?roll(t,p):offset(t,p)),4,0,Math.PI*2);c.fill();
+}
+function render(){const p=params(),t=p.total*Number($('scrubTime').value)/1000;for(const id of ['peak','up','hold','down','rollA'])$(id+'Out').textContent=Number(p[id]).toFixed(id==='peak'||id==='rollA'?2:3)+(id==='peak'||id==='rollA'?'°':' s');$('fallOut').textContent=Math.round(p.fall*100)+'%';$('timeOut').textContent=t.toFixed(3)+' s';$('phaseText').textContent=phase(t,p);$('offsetText').textContent=offset(t,p).toFixed(3)+'°';const d=offset(t,p)-offset(Math.max(0,t-1/60),p);$('deltaText').textContent=(d>0?'+':'')+d.toFixed(3)+'°';draw($('recoilCanvas'),p,t,false);draw($('rollCanvas'),p,t,true);}
+function stop(){playing=false;cancelAnimationFrame(raf);$('playBtn').textContent='播放一枪 · 4 倍慢速';}
+function frame(now){if(!playing)return;if(lastFrame)elapsed+=(now-lastFrame)/1000/4;lastFrame=now;const p=params();$('scrubTime').value=String(Math.round(Math.min(1,elapsed/p.total)*1000));render();if(elapsed>=p.total){stop();return;}raf=requestAnimationFrame(frame);}
+$('playBtn').addEventListener('click',()=>{if(playing){stop();return;}elapsed=0;lastFrame=0;$('scrubTime').value='0';playing=true;$('playBtn').textContent='暂停';render();raf=requestAnimationFrame(frame);});
+$('resetBtn').addEventListener('click',()=>{stop();for(const [id,value]of Object.entries(defaults))$(id).value=String(value);$('scrubTime').value='0';render();});
+for(const id of [...Object.keys(defaults),'scrubTime'])$(id).addEventListener('input',()=>{stop();render();});
+$('printBtn').addEventListener('click',()=>window.print());
+window.addEventListener('resize',render);render();
+})();
+</script>
+</body>
+</html>

@@ -16,6 +16,7 @@ public class LyraEditor : ModuleRules
 
 		PrivateIncludePaths.AddRange(
 			new string[] {
+				"LyraEditor/Private"
 			}
 		);
 
@@ -39,6 +40,11 @@ public class LyraEditor : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new string[] {
 				"InputCore",
+				"AssetTools",
+				"ApplicationCore",
+				"GameplayTags",
+				"AssetRegistry",
+				"PropertyEditor",
 				"Slate",
 				"SlateCore",
 				"ToolMenus",

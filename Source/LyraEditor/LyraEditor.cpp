@@ -17,6 +17,8 @@
 #include "GameplayCueNotify_BurstLatent.h"
 #include "GameplayCueNotify_Looping.h"
 #include "Private/AssetTypeActions_LyraContextEffectsLibrary.h"
+#include "Private/AssetTypeActions_LyraRecoilProfile.h"
+#include "Private/Recoil/LyraRecoilEditorCommands.h"
 #include "ToolMenu.h"
 #include "ToolMenus.h"
 #include "UObject/UObjectIterator.h"
@@ -230,6 +232,8 @@ class FLyraEditorModule : public FDefaultGameModuleImpl
 			TSharedRef<FAssetTypeActions_LyraContextEffectsLibrary> AssetAction = MakeShared<FAssetTypeActions_LyraContextEffectsLibrary>();
 			LyraContextEffectsLibraryAssetAction = AssetAction;
 			AssetTools.RegisterAssetTypeActions(AssetAction);
+			LyraRecoilProfileAssetAction = MakeShared<FAssetTypeActions_LyraRecoilProfile>();
+			AssetTools.RegisterAssetTypeActions(LyraRecoilProfileAssetAction.ToSharedRef());
 		}
 	}
 
@@ -254,6 +258,12 @@ class FLyraEditorModule : public FDefaultGameModuleImpl
 			{
 				AssetToolsModule->Get().UnregisterAssetTypeActions(AssetAction.ToSharedRef());
 			}
+			if (AssetToolsModule && LyraRecoilProfileAssetAction.IsValid())
+			{
+				AssetToolsModule->Get().UnregisterAssetTypeActions(LyraRecoilProfileAssetAction.ToSharedRef());
+			}
+			LyraRecoilProfileAssetAction.Reset();
+			FLyraRecoilEditorCommands::Unregister();
 		}
 
 		FEditorDelegates::BeginPIE.RemoveAll(this);
@@ -302,6 +312,7 @@ protected:
 
 private:
 	TWeakPtr<IAssetTypeActions> LyraContextEffectsLibraryAssetAction;
+	TSharedPtr<IAssetTypeActions> LyraRecoilProfileAssetAction;
 	FDelegateHandle ToolMenusHandle;
 };
 

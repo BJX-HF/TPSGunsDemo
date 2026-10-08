@@ -1,0 +1,10 @@
+你是 DeepSeek Harness 开发子 agent D，任务15的P3画布开发。主agent Codex负责审查集成构建/测试。请直接完成文件实现。
+项目 D:\TPSGunsDemo\TPSGunsDemo，UE D:\UE_5.8。
+阅读 Docs/Recoil/后座GUI开发/开发计划纯文本.txt，重点04/05/06/07/09/P3；读现有 LyraRecoilPatternAdapter 和 LyraRecoilEditorSession/工具包接口。上游固定参考目录 C:\Users\Administrator\Documents\Codex\2026-10-01\d-tpsgunsdemo-tpsgunsdemo-2\work\UE5-CrystalRecoil。核对UE5.8 Slate API。
+独占写入范围：Source/LyraEditor/Private/Recoil/SLyraRecoilPatternGraph.h/.cpp；Docs/Recoil/后座GUI开发/验收/D-P3-开发报告.md。不写别的agent文件，不写LyraGame、资产、Golden，不git commit/reset/checkout，不启动构建。
+实现SLeafWidget/SCompoundWidget二维度单位累计Kick画布：固定原点、编号/连线/动态网格、Yaw右/Pitch上；前L固定点可写；确定性随机尾只读虚线（可调用FRecoilRuntimeState::ComputeShotKick进行预览），空L/空N不自动增加；draw/camera变换拒绝非有限值、裁剪大图。1000点需裁剪避免O(N²)，重叠点用菜单按序号选择。
+操作：单选/Ctrl切换/Shift框选追加、双向选择同步；中键平移、鼠标中心滚轮缩放、F适配选择/Home全部（含原点）、G切吸附、默认0.05度支持调步长；多选拖动临时候选，不逐帧写资产；同时移动选中固定累计点，其余保持，Adapter统一校验相邻发；旧位置/候选位置/逐发具体错误可见；合法结束一次CommitCumulative，invalid结束回原数据保留诊断。开始记录Revision，冲突拒绝；Esc/失焦/捕获丢失/外部刷新/Undo关闭取消，无补交事务。方向键按步长微调Shift10倍（交给工具包一次合法事务）。快捷键不抢文本输入焦点。
+公开接口：SLATE_BEGIN_ARGS ... SLATE_ARGUMENT(TSharedPtr<FLyraRecoilProfileEditor>, Editor); .Editor(ToolkitShared)；public FitAll(),FitSelection(),CancelDrag(),SetSnapEnabled(bool),IsSnapEnabled(),SetSnapStep(double),GetSnapStep()。内部弱工具包。B工具包公开GetProfile(),GetSession(),GetCumulativePoints(),GetSelectedIndices(),SelectIndices(Indices,bool bAppend),CommitPattern(Data,Description),CommitCumulative(Targets),RefreshFromAsset(),GetRevision(),SetDiagnostics(Errors)。实际签名如存在以B头为准；不要重复实现转换。B尚未完成则可先按这些接口编写，主agent最终集成。
+新增/删除/复制/粘贴/保存/Undo快捷键由工具包命令列表负责；图的OnKeyDown未处理的键交给基类/路由，避免自己开第二套事务。高级容纳强度/结构差异应用由主agent及工具包接入，报告说明图可提供哪些目标与错误。
+如果实质复制或改写上游代码，文件头保留Copyright(c)2024 CrystalVapor和MIT许可链接Docs/Recoil/ThirdParty/CrystalRecoil-LICENSE.txt，报告原文件固定commit与改写范围；若完全重新实现则写清仅行为参考。
+报告列出各交互已实现/未验证/实际限制、所用Toolkit API，完成stdout摘要，不虚报UI/编译通过。

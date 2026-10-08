@@ -1,0 +1,8 @@
+# Reuse the provider/model already selected in the user's desktop profile.
+# No credentials are stored in this project overlay.
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-account
+    model: deepseek-flash
+    reasoningEffort: high

@@ -1,0 +1,4 @@
+Real PIE world=/ShooterCore/Maps/UEDPIE_0_L_ShooterPerf.L_ShooterPerf weapon=/ShooterCore/Maps/UEDPIE_0_L_ShooterPerf.L_ShooterPerf:PersistentLevel.B_Hero_ShooterMannequin_C_0.B_WeaponInstance_Rifle_C_0 original=/Game/Weapons/Recoil/DA_Recoil_Rifle_S.DA_Recoil_Rifle_S
+Saved/unloaded/reloaded fixture=/RecoilPIEQA/Matrix_B748D8B54A5A3185FBFA499677EB0713.Matrix_B748D8B54A5A3185FBFA499677EB0713
+Only scenario fixture fields differ; Roll/Spread/WeaponVisual copied unchanged.
+FAIL saved GUI profile fire ability

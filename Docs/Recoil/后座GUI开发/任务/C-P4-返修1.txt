@@ -1,0 +1,9 @@
+主agent Codex 已预审你完成的C-P4源码，当前结论退回返修。先读 Docs/Recoil/后座GUI开发/验收/主agent预审问题.md 中C的全部5项，并在自己的独占范围修复，补充独立测试和报告。主agent继续统一构建测试，禁止自己启动构建，不改其他agent文件。
+必须修复：
+1. 输入脚本/姿态/倍率变化的时间戳同样作为事件边界，不能仅fire和frame分段。脚本在SetConfig时排序，严格验证有限数及枚举、合法范围。测试含不落在帧末/发射时刻的输入，独立手工调用状态机验证；不要复制控制器循环当唯一基准。
+2. Source Profile使用FLyraRecoilPatternAdapter::Validate做完整有限性和ValidateProfile校验，非法状态拒绝Refresh/Run并显示Errors，不能只warning继续。输入RPM、FrameSeconds、Tail、初角、倍率、seedmode、输入脚本、FireInputs都做有限性和工作量检查；输出状态/理论累积/curve样本检查非有限和float溢出，Run失败无非法绘图样本，Slate绘制再次拒绝非法点。禁止NaN被FMath::Max/Clamp隐藏。有效上限可以清晰拒绝或截断并解释，不修改运行时资产。
+3. SingleShotModeOverride从Instant/Interpolated切回FromProfile应恢复源快照的原模式；不能沿用上次改过的快照值。所有Snapshot明确RF_Transient，AddReferencedObject不能传.Get()临时值（如编译签名需要引用，改用局部或只登记已有成员）。
+4. 真实武器弹道链在ApplyShot前取旧ShotIndex，需维持既有接口时序；但是你的Shot记录和理论ComputeShotKick必须区分发前弹道索引、ApplyShot实际结果ShotHistory.Last().ShotIndex/Seed。在新轮次启动时，理论曲线目前可能拿旧轮末ShotIndex与Seed，改用实际本发记录计算倍率1Kick。不自己改状态机ShotIndex。补两个轮次且pattern变化明显的测试。
+5. 完整比较配置内容/缓存token，模式切回/脚本相同长度不同内容/FireInputs内容变更均invalidate；尾时长末端精确停止不超过用户要求。保持长帧Advance原样。config全局倍率0等原规范测试。
+6. 你报告中“原因是环境问题，不是代码问题”没有证据证明代码无问题，请改为“子agent shell受限，编译/测试未运行，代码是否通过由主agent验证”。不要擅自声称T13/T14通过。
+接口兼容主agent及B的预留。完成后更新C-P4报告新增返修节，stdout摘要。只改你的文件。

@@ -1,0 +1,10 @@
+你是 DeepSeek Harness 开发子 agent C。主 agent Codex 将逐项审查你的代码并运行构建和测试。请直接完成实现，不只给建议。
+项目D:\TPSGunsDemo\TPSGunsDemo；UE D:\UE_5.8。
+先读 Docs/Recoil/后座GUI开发/开发计划纯文本.txt 的完整要求，重点10、T13/T14；读现有14_RecoveryToBurstStart.md及LyraRecoilState/Profile、LyraRangedWeaponInstance和真实发射调用顺序。不得修改LyraGame、正式资产、Golden、开发计划、其他agent文件。不要git commit/reset/checkout，不启动整项目构建。
+独占写入：Source/LyraEditor/Private/Recoil/LyraRecoilPreviewController.h/.cpp、SLyraRecoilPreview.h/.cpp；Source/LyraEditor/Tests/LyraRecoilEditorPreviewTest.cpp；Docs/Recoil/后座GUI开发/验收/C-P4-开发报告.md。
+实现隔离瞬态Profile快照，全部FRuntimeFloatCurve有效RichCurve深复制成内联；固定种子模式在副本；GC通过FGCObject/TStrongObjectPtr；不写原Profile、CVar、PIE。使用现有FRecoilRuntimeState所有算法，不能复制改造Runtime。
+输入RPM/发数/步长/尾时长/姿态/瞄准Alpha/全局倍率/起枪角/带时间戳玩家输入脚本/两轮发射时刻。t0首发，事件边界分段，每Advance前和发射前SamplePlayerAim/倍率；按真实发射调用顺序采集方向偏移和ApplyShot；新轮次ShotIndex种子时机与武器一致。长帧场景显式传大Delta给Advance，不切碎伪覆盖。30/60/120Hz直接基准一致、两模式、4/10/11压枪、Drop重开、两轮、上限等测试。允许重放seek到t0，不能插值状态伪造。
+输出样本分开理论累计Kick、CameraOffset Pitch/Yaw/Roll、ControlRotation、VisibleAngle、State/InterpStage/ShotIndex/RecoveryPeak/Cover及逐发方向。不是弹着点。数值检查/限额4096发120s、缓存失效、预算增量执行（编辑器主线程）；播放墙钟不改变模拟时步。SLyraRecoilPreview使用SCompoundWidget/Slate时间曲线、事件表及控制参数、播放/暂停/重置/seek；关闭清理timer。用户可调全部预览参数。先用Controller自身刷新，主agent再接资产外部通知。
+接口：SLyraRecoilPreview Slate arg .Profile(ULyraRecoilProfile*)；提供RefreshProfile()。Controller可独立构造配置并Run/AdvanceBudget，供测试调用；优先头public API易于集成。
+LyraEditor有Json/Slate等，不直接编辑Build.cs，如新依赖必要在报告说明。Validate可以调用A正在开发的FLyraRecoilPatternAdapter::Validate，不写A文件。测试命名Lyra.Recoil.Editor.Preview.*。
+报告逐项功能、测试名字、可验证输入输出、未验证项和限制；完成 stdout摘要，不虚报编译/测试。

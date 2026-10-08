@@ -1,0 +1,22 @@
+你是 DeepSeek Harness 开发子 agent A。主 agent Codex 将逐项审查你的代码并运行构建和测试。请直接完成实现，不只给建议。
+项目 D:\TPSGunsDemo\TPSGunsDemo，UE D:\UE_5.8。
+先读取 Docs/Recoil/后座GUI开发/开发计划纯文本.txt 的完整要求，特别05/06/07/08和T01-T08，再读取现有 LyraRecoilProfile/Types/State API。不得修改 LyraGame、正式资产、Golden、开发计划、其他 agent 文件。不要 git commit/reset/checkout。你可以读取其他文件及本机引擎头文件。不要启动整项目构建（主 agent 统一执行）。
+你的独占写入范围：Source/LyraEditor/Private/Recoil/LyraRecoilPatternAdapter.h/.cpp；LyraRecoilClipboard.h/.cpp（如需要）；Source/LyraEditor/Tests/LyraRecoilEditorMappingTest.cpp；Docs/Recoil/后座GUI开发/验收/A-P1-开发报告.md。
+实现完整无 UI 数据转换及纯结构逻辑：累计点到归一化字段、有限数与全 Profile ValidateProfile 附加校验、双精度、无操作零补丁、未变字段不往返重算、零/极小分母保留隐藏值、负曲线、相邻固定点、L<N尾X/Y、空数组、全部失败原子拒绝；插入/删除/显式重排/边界和严格版本剪贴板JSON（1MiB/4096）。高级容纳强度命令生成候选及差异，不自动改变源资产。T01–T08有意义自动化测试。只生成候选，不直接修改真实 UObject。
+统一接口必须包含（允许添加辅助类型/API，但不删除这些）：
+struct FLyraRecoilPatternData { TArray<FRecoilPatternPoint> Points; int32 PatternLength=0; }; // FRecoilPatternPoint 来自 LyraRecoilTypes.h
+class FLyraRecoilPatternAdapter {
+public:
+ static FLyraRecoilPatternData Read(const ULyraRecoilProfile& Profile);
+ static bool Validate(const ULyraRecoilProfile& Profile, TArray<FString>& Errors);
+ static bool BuildCumulative(const ULyraRecoilProfile& Profile, TArray<FVector2D>& OutPoints, TArray<FString>& Errors); // 只构建前L个固定点，XYawYPitch
+ static bool MoveCumulative(const ULyraRecoilProfile& Profile,const TArray<FVector2D>& Targets,FLyraRecoilPatternData& OutData,TArray<FString>& Errors);
+ static bool Insert(const FLyraRecoilPatternData& Source,int32 Index,const TArray<FRecoilPatternPoint>& NewPoints,bool bFixedAtBoundary,FLyraRecoilPatternData& OutData,TArray<FString>& Errors);
+ static bool Delete(const FLyraRecoilPatternData& Source,const TArray<int32>& Indices,FLyraRecoilPatternData& OutData,TArray<FString>& Errors);
+ static bool Reorder(const FLyraRecoilPatternData& Source,const TArray<int32>& Order,FLyraRecoilPatternData& OutData,TArray<FString>& Errors);
+ static bool Equal(const FLyraRecoilPatternData& A,const FLyraRecoilPatternData& B);
+ static FString Copy(const ULyraRecoilProfile& Profile,const TArray<int32>& Indices);
+ static bool ParseClipboard(const FString& Text,TArray<FRecoilPatternPoint>& OutPoints,TArray<FString>& Errors);
+};
+JSON依赖已经有Json，优先用Json直接API。候选Validate不要触发源对象通知/Dirty。测试命名Lyra.Recoil.Editor.Mapping.*。
+报告列出每项实现、测试名称、未运行项、接口说明和限制。完成后 stdout 摘要。不要虚报编译/测试通过。

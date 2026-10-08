@@ -1,0 +1,15 @@
+{
+  "phase": "P1-P4-Repair3",
+  "filter": "Lyra.Recoil.Editor.Preview.CompensationVisibleEndpoints",
+  "processExit": 0,
+  "report": "D:\\TPSGunsDemo\\TPSGunsDemo\\Saved\\Automation\\RecoilGUI-P1-P4-Repair3-20261008-160725\\index.json",
+  "log": "D:\\TPSGunsDemo\\TPSGunsDemo\\Saved\\Logs\\RecoilGUI-P1-P4-Repair3-20261008-160725.log",
+  "succeeded": 1,
+  "succeededWithWarnings": 0,
+  "failed": 0,
+  "notRun": 0,
+  "inProcess": 0,
+  "tests": [
+    "Lyra.Recoil.Editor.Preview.CompensationVisibleEndpoints"
+  ]
+}

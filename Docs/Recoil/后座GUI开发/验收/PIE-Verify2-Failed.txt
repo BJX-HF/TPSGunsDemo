@@ -1,0 +1,5 @@
+Real PIE world=/ShooterCore/Maps/UEDPIE_0_L_ShooterPerf.L_ShooterPerf weapon=/ShooterCore/Maps/UEDPIE_0_L_ShooterPerf.L_ShooterPerf:PersistentLevel.B_Hero_ShooterMannequin_C_0.B_WeaponInstance_Rifle_C_0 original=/Game/Weapons/Recoil/DA_Recoil_Rifle_S.DA_Recoil_Rifle_S
+Saved/unloaded/reloaded fixture=/RecoilPIEQA/Matrix_459C1FFD48956A4EED358EA616347115.Matrix_459C1FFD48956A4EED358EA616347115
+Only scenario fixture fields differ; Roll/Spread/WeaponVisual copied unchanged.
+FAIL fire fired=2 elapsed=0.296 ability=Default__GA_Weapon_Fire_Rifle_Auto_C wasActive=1 ammo=53 ownerTags=Lyra.Player, Status.SpawningIn, Gameplay.DamageImmunity, GameplayCue.Character.Spawn, Movement.Mode.Walking, Cheat.GodMode, Event.Movement.WeaponFire
+FAIL saved GUI profile fire ability

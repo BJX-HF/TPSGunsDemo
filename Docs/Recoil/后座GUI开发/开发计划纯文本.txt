@@ -1,0 +1,386 @@
+ 
+ 
+ 
+ 
+ 
+ Lyra 后坐力 GUI 编辑器｜完整开发计划 
+
+ 
+ 
+ 
+ TPSGUNSDEMO · EDITOR DEVELOPMENT PLAN · 15 
+ 后坐力 GUI 编辑器开发计划 
+ 参考 CrystalRecoil 的点编辑与 Slate 交互，在现有 Lyra 编辑器中直接编辑并保存  ULyraRecoilProfile 。画布表达累计 Kick，运行时继续使用项目已有参数与算法。 
+  中文实施计划  2026-10-01  UE 5.8 · Win64  本次仅文档，GUI 尚未实施  离线可读，无外部资源依赖  
+ 
+ 
+ 
+ 目录 / 实施索引 
+ 01 · 决策与范围 
+ 02 · 调研依据与来源 
+ 03 · 现有行为保护 
+ 04 · GUI 布局与操作 
+ 05 · 参数映射与转换 
+ 06 · 可表达范围与错误处理 
+ 07 · 节点与固定区间规则 
+ 08 · 事务、保存与曲线 
+ 09 · 生命周期与同步 
+ 10 · 运行时数值预览 
+ 11 · 文件架构与复用 
+ 12 · 分阶段实施 
+ 13 · 测试与验收矩阵 
+ 14 · 本机验证与 Golden 
+ 15 · 风险与接手清单 
+ 
+ 
+ 
+ 01 · 决策与范围 
+  目标： 策划在二维画布中配置逐发后坐力，在同一编辑器中调整已有强度、曲线与行为参数，预览确定性数值结果，最后保存为现有资产字段。既有武器引用无需迁移。 
+  采用方案： 在  LyraEditor  模块中适配 CrystalRecoil 的画布及交互方式；资产工具包直接绑定  ULyraRecoilProfile ；累计点、选择 ID、拖动草稿均为编辑器临时数据；预览调用  FRecoilRuntimeState 。 
+   ① 唯一持久数据 现有 Profile 的 PatternPoints、PatternLength、强度与曲线等字段。   ② 编辑器工作模型 派生累计点 → 临时操作 → 反算与校验 → 原子提交已有字段。   ③ 运行时预览 读取 Profile 的隔离快照，调用现有状态机；采样结果只展示。  
+     必须交付  本计划不引入    
+  专用资产编辑器、点/表格双向编辑、选择与拖动、缩放/吸附、复制粘贴、撤销重做、保存/另存、错误定位。  第二套后坐力运行时资产、CrystalRecoil Runtime Component、运行时读取 GUI 图数据。  
+  全部现有参数分组展示；固定段与随机尾段明确区分；数值回放、压枪场景、保存重载和打包隔离验证。  替换当前回正、随机游走、弹道、散布或枪体后坐力算法；默认调整现有武器手感。  
+  上游许可归档、文件级任务、自动化与人工验收记录、后续 agent 可执行的交接顺序。  首版真实 3D 靶场、联网同步改造、跨项目 Crystal 资产导入、由相机轨迹自动拟合参数。  
+   
+ 首版预览为角度与时间图；Roll、散布、WeaponVisual 必须能配置和保存，但完整枪模动画、碰撞与真实弹着可视化另列后续扩展。不得把数值图包装为已通过 PIE 手感验收。 
+ 文中“必须”为验收约束，“建议”为可调整实现选择；类名与新文件名为拟定名称，不代表已实现。所有阶段当前均未开始。 
+ 
+ 
+ 02 · 调研依据与固定来源 
+ 上游基准固定为  UE5-CrystalRecoil @ d977456a8468ab15c7ca05ede8cddf72dd5e5bc5 。结论来自已下载并检查的该版本源码，不随 main 后续变动自动更新。 
+ 本机参考克隆： C:\Users\Administrator\Documents\Codex\2026-10-01\d-tpsgunsdemo-tpsgunsdemo-2\work\UE5-CrystalRecoil 。文档正文包含实施所需语义，联网仅用于查看原始来源。 
+     固定版本源码链接  调研结论 / 用途    
+   CRRecoilPattern.cpp    ConsumeShot()  使用当前点减前一点，首点减原点。画布点应按累计坐标理解。  
+   CRRecoilUnitGraph.h  /  .cpp   节点、排序与图操作参考；不将上游 Graph UObject 作为本项目运行时配置。  
+   CRRecoilPatternEditor.cpp   工具包、属性面板、事务与布局组织方式。  
+   CRRecoilUnitGraphEditor.cpp  /  BackgroundWidget.cpp   点编辑、框选、多选、缩放、网格和适配视图等交互参考。  
+   DragOperations.cpp  /  Commands.cpp   拖动、复制粘贴、删除和命令注册的实现参考；本项目快捷键按第 04 节统一。  
+   CRAssetTypeActions_RecoilPattern.cpp   资产打开入口参考；本项目目标类为 ULyraRecoilProfile。  
+   MIT LICENSE   上游为 MIT，版权声明为 Copyright (c) 2024 CrystalVapor。若复制或改写实质代码，必须随复用代码保留完整许可和版权声明，记录原文件与固定 commit。  
+   
+  语义裁决： 尽管  FCRRecoilUnit.Position  注释含有“delta”，以  ConsumeShot()  的运行行为为准： Δ[i] = Position[i] − Position[i−1] 。本项目现有  PatternPoints  则是逐发归一化参数，不能直接复制累计点进去。 
+ 项目侧核对入口： LyraRecoilProfile.h 、 Profile.cpp 、 LyraRecoilTypes.h 、 State.h 、 State.cpp 、 LyraRangedWeaponInstance.cpp 、 LyraEditor.cpp  与  LyraEditor.Build.cs 。 
+ 
+ 
+ 03 · 现有行为保护 
+ 
+  存量资产无迁移： 保留类、路径、Primary Asset 身份、武器引用、已有字段与默认值。仅打开、平移、缩放、选点和预览不能引起资产 Dirty。 
+  不改变运行时： 保持两种单发模式、确定性随机游走、姿态/瞄准倍率、上限、Roll、散布与 WeaponVisual 行为。GUI 不应成为 LyraGame 的依赖。 
+  保护尚未提交的工作： 后续 agent 先记录工作区状态，保留此前回正实现和文档；不得 reset、checkout 覆盖或以旧版文件替换这些内容。 
+  以最新回正实现为准：  14_RecoveryToBurstStart.md  的 2026-10-01 需求已取代 9 月 28 日“后坐力偏移一律归零”。旧注释或旧文档不能作为相反行为的验收依据。 
+ 
+  // 现有 ComputeRecoveryTarget 的行为，GUI 预览必须调用现有实现
+if (!Profile.bCompensationAwareRecovery || !bApplyCover)
+    return 0.0f;
+BurstKick = max(0.0f, Peak - BurstStart);
+return BurstStart + clamp(Cover, 0.0f, BurstKick);  
+ 在当前补偿回正场景下，设本轮起枪可见角度为 A、实际受限上跳量为 K、下压量为 C，终点为  A − max(C − K, 0) 。这里 K 取运行时实际峰值，不能用理论每发 Kick 的简单累加替代。Yaw 默认不参与补偿，保留资产开关行为。 
+     起枪角 A  实际 K  下压 C  最终可见 Pitch      0°  10°  4°  0°    0°  10°  10°  0°    0°  10°  11°  −1°    30°  10°  4° / 11°  30° / 29°     
+ 还必须覆盖无压枪、连续两轮、回正中重开火、长帧收尾与饱和上限。Idle 中保留补偿偏移是合法状态，不能以  CameraOffsetPitch == 0  作为通用通过条件。 
+ 此前验证基线：LyraEditor Win64 Development 构建成功， Lyra.Recoil 57/57 通过，failed=0、notRun=0 ；PIE 手感尚未人工验收。这是已有工作的结果，不代表 GUI 已构建或通过测试。 
+ 
+ 
+ 04 · GUI 布局与操作 
+ Content Browser 双击现有 Profile 打开专用编辑器；允许通过菜单打开原始属性视图以便排查。编辑器标题显示资产路径和 UE 标准 Dirty 标记。 
+  保存 / 另存　撤销 / 重做　新增 / 删除　适配视图　吸附步长　校验　播放 / 重置    左：逐发表格  序号 / 固定段标签 Pattern X / Y 逐发 ΔYaw / ΔPitch 累计角度 / 校验状态 尾段 Y 与未生效 X   中：配置画布  原点固定，X=Yaw 向右为正 Y=Pitch 向上为正，单位为度 固定段累计点可编辑 随机尾段虚线只读 编号、连线、网格、选择框 配置与预览图例始终可见   右：参数详情  Base / Pattern / Curves SingleShot / Recovery Pose / Roll / Spread WeaponVisual / Seed 选中点的精确数值    下：时间预览与诊断 　理论 Kick / 相机偏移 / ControlRotation / 可见角度；射速、种子、姿态、压枪脚本、阶段与逐发事件表。  
+ 主画布只把  i < PatternLength  的累计点作为双轴可编辑点； i ≥ PatternLength  的实际水平结果来自随机游走，显示为只读虚线。数组中这些尾段点的 Y 在逐发表格或按发序号的垂直图中编辑；X 保留在“当前水平未生效”高级列，可显式修改，不能借拖动随机线反写。 
+     操作  首版约定  安全与反馈    
+  单选 / 多选 / 框选  左键单选，Ctrl+左键切换；空白处左键框选，Shift+框选追加。  表格与画布双向同步；重叠点提供序号列表；原点不是可删节点。  
+  拖点 / 微调  左键拖动选择集；方向键按当前角度步长微调，Shift+方向键为 10 倍。  显示旧位置、候选位置、受影响的相邻发及合法范围；一次连续操作为一次 Undo。  
+  视图  中键拖动平移，滚轮以鼠标为中心缩放；F 适配选择，Home 适配全部。  不改变资产；限制缩放范围；适配需包含原点；支持高 DPI。  
+  网格吸附  G 切换；步长为度，默认建议 0.05°，工具栏可调。  只对本次拖动/新增目标生效，不重新量化既有点；吸附后仍需转换校验。  
+  新增 / 删除 / 重排  Insert 打开插入命令，Delete 删除选择；表格拖动行显式重排。  第 07 节定义数据语义；展示 PatternLength 变化；无按高度自动排序。  
+  剪贴板  Ctrl+C / Ctrl+V；Ctrl+A 选择当前点列表。  带版本的结构化数据；默认复制原始归一化逐发参数，角度粘贴须显式选择并校验。  
+  撤销 / 保存  Ctrl+Z / Ctrl+Y；Ctrl+S 保存；另存走菜单。  键绑定仅在相应工具包/画布生效，文本输入框优先；不覆盖引擎全局快捷键。  
+  取消 / 预览  Esc 取消当前拖动；Space 播放/暂停，工具栏重置。  失去捕获同取消；播放时间不参与 Undo，不标脏。  
+   
+ 错误不能只依赖颜色：同时显示“第几发、哪个字段、候选值、允许范围、解决方式”。工具提示标明 UI 序号从 1 开始，曲线采样与代码 ShotIndex 从 0 开始。自动排序首版默认关闭，不绑定快捷键；可提供一次性的“按累计 Pitch 排序”高级命令，但执行前必须展示重排和曲线索引变化。 
+ 
+ 
+ 05 · 参数映射与双向转换 
+ 5.1 坐标与数据域 
+ 定义数组长度  N = PatternPoints.Num() ，固定区间长度  L = PatternLength ，基础强度  H = RecoilPerShot_Horizontal 、 V = RecoilPerShot_Vertical ，曲线倍率  c[i] = Profile.GetVerticalKickCurveScale(i) 。画布配置基准固定为 姿态倍率=1、全局倍率=1 ；预览倍率不参与资产反算。 
+  // 固定段：0 ≤ i < L；P[-1] = (0, 0)，所有角度单位为度
+ΔYaw[i]   = H × PatternPoints[i].X
+ΔPitch[i] = V × PatternPoints[i].Y × c[i]
+P[i]      = P[i-1] + (ΔYaw[i], ΔPitch[i])
+
+// 编辑累计点后反算（分母可逆且结果在合法范围时）
+Δ[i] = P[i] - P[i-1]
+PatternPoints[i].X = Δ[i].X / H
+PatternPoints[i].Y = Δ[i].Y / (V × c[i])
+
+// 实际每发计算额外乘 M，不反写入 Pattern
+M = max(0, PoseMultiplier) × max(0, GlobalScale)
+VerticalKick   = V × GetPatternPoint(i).Y × c[i] × M
+HorizontalKick = H × ComputePatternHorizontal(Profile, i, Seed) × M  
+ 正向装载必须调用现有曲线求值接口，不手写一套“空曲线=0”的替代实现。当前无曲线数据返回 1；有数据时直接 Eval，包含插值、外推与外部引用。计算使用双精度中间值，提交时转为现有 float 字段并再做正向重建检查。 
+   GUI 与现有字段的映射合同    界面项  持久字段 / 运行时入口  写回规则    
+  固定段累计角度点  PatternPoints[0…L−1].X/Y  差分后除以强度及垂直曲线倍率；只写本次受影响字段，原始未触碰值不往返重算。  
+  逐发归一化表格  PatternPoints，X∈[−1,1]、Y∈[0,1]  数值直接写入；改变某一发增量后，后续累计点整体随之移动。  
+  固定区间边界  PatternLength，0≤L≤N  只由用户改边界或第 07 节结构命令调整；不由视图大小、发数或播放状态推导。  
+  随机水平尾段  HorizontalRandomRange / ComputePatternHorizontal  调整范围参数；样本折线只读，不存回 Pattern.X。  
+  垂直尾段  GetPatternPoint(i).Y × VerticalKickCurve(i)  L≤i<N 的 Y 仍生效，可编辑；i≥N 时沿用最后一点 Y，但曲线继续按 i 求值，不能假定最终 Kick 恒定。  
+  基础强度 / 上限  RecoilPerShot_Vertical/Horizontal；MaxVerticalKick/MaxHorizontalKick  分别表示每发幅度与状态上限；拖点默认不改二者，上限不参与反算。  
+  曲线  VerticalKickCurve、RecoveryCurve、LiftCurve、ReboundCurve、RollShake_*Curve  保留键、切线、插值、外推及引用；只有 VerticalKickCurve 参与配置点反算。  
+  单发与回正  SingleShotMode、LiftDuration、ReboundDuration、ReboundRatio、RecoveryDelay/Time、bCompensationAwareRecovery/Yaw  标准属性编辑；InstantWrite 灰显插值专属项但不清空它们；回正调用最新运行时。  
+  姿态 / Roll / 散布 / 枪体  PoseMultiplier_*、RollShake_*、Spread*、WeaponVisual  保留全部现有属性、EditCondition 与单位；按分组编辑，不能因画布提交被默认值覆盖。  
+  随机设置  RandomSeedMode / FixedRandomSeed  只有详情面板编辑写回；预览覆盖种子另存为编辑器会话设置。  
+  预览设置与视图  射速、预览发数、时间步、起始瞄准角、压枪脚本、缩放、选点  不存入 Profile；会话或 EditorPerProjectUserSettings 保存，不增加运行时字段。  
+   
+ 5.2 相邻点影响必须可见 
+ 累计点  P[k]  移动 d、其余点保持原位时， Δ[k] += d ，若下一固定点存在，则  Δ[k+1] -= d 。因此一次拖动可能使下一发 Y 变负或超限。必须校验整个受影响段，不能只校验选中点。固定段最后一点后的随机水平线由运行时重新计算；后续数组 Y 默认保持原参数，不用随机坐标反算。 
+ 多选拖动将所有选中累计点同时平移；连续选择内部的增量通常不变，边界发发生变化；非连续选择需计算每个边界。首版不提供容易混淆的隐式“带动所有后续点”模式：用户要改变一发且平移后续累计位置时，可直接编辑该发的归一化值或逐发角度。 
+  // 往返示例：H=0.2，V=0.4，c=[1, 0.5]
+Pattern = [(0.5, 0.75), (-0.5, 1.0)]
+Δ       = [(0.1, 0.3),  (-0.1, 0.2)]
+P       = [(0.1, 0.3),  (0.0, 0.5)]
+
+将第一点改为 (0.15, 0.35)，保持第二点：
+Δ'      = [(0.15, 0.35), (-0.15, 0.15)]
+Pattern'= [(0.75, 0.875),(-0.75, 0.75)]  
+ 5.3 尾段与空数组 
+   L < N  合法：数组尾部 X 当前不参与水平计算，但仍必须原样保留；尾部 Y 继续参与垂直计算。   L=0  时无双轴固定点，随机预览从第一发开始；逐发表格仍可编辑数组 Y 和保留的 X。   N=0  时显示“空数组，运行时使用 GetPatternPoint 的退化值”，不自动插入默认点；预览继续调用实际接口。现有退化点为纯垂直配置，新增必须是显式命令。  预览发数可以大于 N；自动生成的重复/随机点不能被删除或选为可写节点。若要编辑该发，先明确扩展数组或固定区间，展示由此产生的行为变化。  
+ 
+ 
+ 06 · 可表达范围与错误处理 
+ 默认策略是 拒绝不可表达的提交，保留原资产并解释原因 。拖动过程中显示红色候选位置和错误；松手校验失败则恢复开始位置，允许用户在诊断面板查看候选数值并显式选择调整方案。任何调整都必须先给出具体变化预览。 
+     条件  处理合同    
+  H>0、V×c[i] 可逆  按公式计算并验证 X/Y 范围。c[i]>0 时 ΔPitch∈[0,Vc]；c[i]<0 时 ΔPitch∈[Vc,0]。负曲线并非被运行时自动钳成零：界面显示“本发为向下 Kick”，仍按带符号分母反算，禁止擅自取绝对值或改曲线。  
+  H=0 或 V×c[i]=0  对应角度轴不可逆。原角度为零且本轴未改时保留原始 X/Y，不能把隐藏值写成 0；请求非零增量则拒绝。可通过原始表格显式改隐藏值，但提示当前角度不变。  
+  极小分母  建议以 |分母|≤1e−8° 作为反算锁定阈值，作为编辑器数值安全常量测试；不改变运行时求值。装载仍展示精确结果，未改轴原样保留；用户改强度或曲线后再解除锁定，禁止以 epsilon 代分母。  
+  X/Y 超界或候选 Pitch 方向不支持  报具体发序号、候选归一化值及允许区间。主路径回退；可显式调用“将候选投影到合法范围”，但须展示逐发误差与最终累计误差后应用，并标注这是有损调整。  
+  NaN、Inf、溢出  检查原始字段、曲线采样、坐标变换、除法与 float 转换结果；阻止对应编辑/预览/本工具保存，定位问题。禁止把非有限数传入 Slate 绘制；保留资产以便修复，不能静默清零。  
+  负基础强度 / 既有非法数据  不通过打开编辑器自动修复；显示原值与校验错误，允许明确修复。GUI 自身的保存校验需覆盖现有 ValidateProfile 和编辑器附加的有限数检查。  
+  曲线负值、跨零、外推  按实际 GetVerticalKickCurveScale(i) 采样，整数发序号各自判断。正负交替时每发范围不同；不能以单一全局 Y 限制代替。预览范围外曲线不承诺已穷举验证，保留引用与外推语义。  
+  浮点边界  建议归一化容差 1e−6、角度重建容差 1e−5°+1e−6×|目标角度|。仅允许容差内舍入归并到边界，并在诊断记录最大误差；超过容差绝不钳制后声称无损。具体阈值在 P1 测试锁定。  
+   
+ 显式“调整基础强度以容纳候选” 
+ 作为首版高级命令提供，不能拖动时自动触发。前提是强度非负、曲线有限且方向匹配；零曲线要求该发目标垂直增量也为零。建议候选强度： H' = max(H, max|ΔYaw|) ； V' = max(V, max(ΔPitch/c[i])) ，只纳入可逆且符号相容的目标发。随后基于候选强度重新归一化，整组字段一次事务提交。 
+  对所有已存在且可生效的有限数组发，保留未主动编辑发的目标逐发角度；固定段 X 和全数组 Y 一并计算候选，而不是只改选中点。按新分母反算：新分母仍不可逆且目标为零时保留原值；原分母为零而新分母可逆时，原先隐藏的值可能需要改为零才能保留零角度，必须在差异面板列出并随高级命令明确应用，不能声称这些原始值也被保留。  尾段未生效 X 原样保留。H 改变会改变随机尾段实际幅度；V 改变及重新归一化可能影响数组外沿用值和曲线外推处结果，尤其最后一点采样为零时。预览必须显示这些差异，不得承诺“全运行时无损”。  对 N 之外的尾段做指定发数、多个固定种子的前后比较；对无法保证的无限尾段明确标注。用户确认具体差异后才应用高级命令。  不自动调整 HorizontalRandomRange、姿态、上限，不重置 VerticalKickCurve 为 1。若当前数据无法满足这些条件，禁用该命令并建议手工修改参数。  
+ 基础强度或曲线在详情面板直接改变时，默认保持  Pattern 原值 、重建累计点，意味着有意改变手感；与上述“保持目标角度而重新归一化”的高级命令在名称、说明和事务标题上严格区分。 
+ 
+ 
+ 07 · 增删、重排与 PatternLength 
+ 结构操作默认保留既有节点的 归一化 X/Y ，按新序号重新采样曲线并重建累计点。不得为了固定旧累计坐标而偷偷改相邻节点。结构预览同时展示顺序、L/N、逐发角度和曲线采样的前后差异。 
+     操作  明确规则    
+  打开、重载、缩放、选中  L 与 N 均不改变。现有 Profile 在 PostLoad/PostEditChangeProperty 中有 SanitizePatternLength，会将 L 限于 [0,N]；编辑器应读取最终值，不能再额外令 L=N。  
+  在索引 k 插入 m 个节点  0≤k≤N；若 k<L，则 L'=L+m；若 k>L，则 L'=L；若 k=L，默认归入尾段、L 不变，提供明确的“插入固定段”选项令 L'=L+m。N'=N+m。  
+  新增值  默认归一化 (0,0)，或显式选择复制前发。画布“在此插入”仅用于固定段，按目标点与前一点算出新发参数，后续旧节点保留其归一化值并重算位置；提交前展示曲线索引变化。  
+  删除选择集 D  一次性按操作前索引计算：N'=N−|D|，L'=L−|{i∈D且i<L}|。剩余节点的归一化值保留。删光后 N=L=0，不自动补默认点。  
+  重排  N 和 L 的数值不变，固定段仍为新顺序的前 L 个节点。跨边界交换使部分 X 开始/停止生效，且 Y 曲线采样序号变化；必须预览并明确应用。  
+  改变 L  显式设置 0…N，数组长度和原始点不变。增大 L 将原尾段 X 激活，减小 L 开始随机游走；预览从边界起失效并重算。  
+  数组直接增删  详情面板的 PatternPoints 数组结构按钮由定制界面路由至同一命令服务，避免绕开规则。来自外部工具的更改接受其最终资产值，刷新并提示差异，不擅自套用本工具操作规则。  
+  自动排序  默认关闭、不随拖动触发。若实现一次性排序，按累计 Pitch、再原顺序稳定排序；按上述重排规则保存 X/Y，展示重新采样结果，不把排序前累计坐标当保存目标。  
+   
+ 复制粘贴格式与保护 
+ 使用带标识和版本号的 JSON 文本（例如  LyraRecoilClipboard/v1 ），记录序号顺序、原始 X/Y、可选源逐发角度、源 H/V 与采样倍率，仅作为剪贴板载荷，不是新的配置资产。默认“粘贴归一化参数”，在当前插入位置按上述规则执行。 
+ “按角度粘贴”在目标资产的强度和曲线下重新反算，并明确不复制源曲线引用。非连续选择按原发序号排序，复制原始逐发增量，不把所选累计点重新做差。校验版本、节点数量、数值类型、有限性及输入大小；未知版本或损坏数据整体拒绝。首版可限制单次粘贴为 4096 点、文本 1 MiB，作为编辑器保护值而非运行时资产上限。粘贴失败零写入，成功一次 Undo。 
+ 
+ 
+ 08 · 事务、保存与外部曲线 
+ 8.1 编辑提交与磁盘保存分开 
+ 采用 UE 常规资产编辑方式：每个合法操作完成后立即提交到 内存中的原 Profile 并标脏；Ctrl+S 才持久化到 .uasset。临时累计点不是等待另一次“应用”的第二份配置；只有正在进行的拖动草稿可以短暂与资产不同。 
+ 
+ 开始操作时记录受影响字段、节点 ID、资产修订号与曲线依赖修订号。拖动只更新临时模型，不逐帧调用 Modify 或改真实资产。 
+ 结束时先在临时候选 Profile 上做转换、字段范围检查、 ValidateProfile  与有限数检查，再正向重建验证；校验失败不进入事务。 
+ 合法且确有变化时建立一个  FScopedTransaction ，对 Profile 及参与 Undo 的临时 UObject 调用  Modify() ，执行正确的属性前后通知，提交最小字段差异。数组元素编辑使用合适的链式属性通知；结构命令在整组 N/L 写完后发一次完整通知，避免中途 Sanitize 改坏边界。 
+ 通过项目采用的属性通知/包 Dirty 路径标脏，读取  PostEditChangeProperty  后的最终状态，并刷新工作模型、详情与预览。自定义通知和 Property Handle 通知不得重复发送或嵌套事务。 
+ 比较为无变化时不建事务、不标脏。Esc、鼠标捕获丢失、资产失效或修订冲突时直接丢弃草稿，不需要一次“反向写回”。 
+ 
+ 详情面板普通字段沿用 PropertyEditor 的事务；Pattern 与结构字段通过同一编辑命令校验。Undo/Redo 必须同时还原 Profile 和必要的临时 ID 映射，随后从资产重建派生坐标。保存本身不清空撤销栈，撤销到已保存内容也不手工篡改引擎 Dirty 判断。 
+ 8.2 保存、另存与关闭 
+   保存： 先结束当前有效输入或取消拖动，再校验真实 Profile；只保存目标资产包。复用引擎源控/只读/保存错误处理。失败保留 Dirty 和内存修改，不显示“保存成功”。本工具的校验不是对任意外部脚本保存行为的全局拦截。   另存： 以当前已提交内存值复制为新的 ULyraRecoilProfile，重新分配包路径/资产名，成功保存后打开新编辑器；保留原资产当前 Dirty 状态与引用。不会自动把武器切换到新资产，也不覆盖同名资产而无标准确认。   关闭： 采用 UE 标准的保存/不保存/取消关闭语义；不额外自动提交非法草稿。明确“不保存到磁盘”与“把共享内存对象恢复到磁盘版本”不是同一件事。若提供“从磁盘重载”，需显式提示它会影响同一资产的其他编辑入口。   共享资产： 打开时显示路径及可选引用查看入口；修改同一个 Profile 会影响所有引用它的武器，想单独调一把枪应先另存再由用户显式改武器引用。   原样保存： 未改过的隐藏字段、尾部 X、曲线键及外部引用必须保留。无操作打开/关闭不触碰包；保存重载测试以序列化属性等价为准，不把 .uasset 二进制哈希相同作为引擎重新保存的唯一判据。  
+ 8.3 外部曲线的所有权 
+  FRuntimeFloatCurve  可能引用共享  UCurveFloat 。GUI 默认只读展示外部曲线内容，显示资产路径与“共享引用”标志；内联曲线可在 Profile 事务中编辑。所有曲线类别均采用同一规则，而不只保护 VerticalKickCurve。 
+     用户动作  必须采取的路径    
+  更换曲线引用  只修改 Profile 引用，不修改被引用对象；重新求值、校验与预览。  
+  为此 Profile 独立调曲线  提供“复制为内联曲线”：复制当前有效 RichCurve 的键、切线、插值、外推与默认值后清除外部引用，一次 Profile 事务，可撤销；不只复制采样点。  
+  保留资产形式但不共享  明确“复制为新曲线资产”，通过引擎创建/保存流程生成新资产后换引用。资产创建与文件删除不假装可由普通属性 Undo 全部撤回；取消或失败时不换引用，说明已创建但未引用资产的状态。  
+  编辑原共享曲线  只能通过明确的“打开共享曲线资产”动作；提示其他引用者也受影响。该曲线有独立的事务、Dirty 与保存流程，本工具 Ctrl+S 不顺带保存所有曲线。  
+  另存 Profile  默认保留外部曲线引用，不宣称获得深度独立副本；另存结果中继续显示共享标记。  
+   
+ 
+ 
+ 09 · 对象生命周期、选择 ID 与同步 
+ 建议由资产工具包拥有一个  ULyraRecoilEditorSession （Transient、RF_Transactional）和独立预览对象。Session 持有可事务化的节点身份映射；累计坐标、校验结果、视图状态为可重建缓存。不得把 Session 存入 Profile 的运行时 UPROPERTY。 
+ 
+  GC： 工具包采用  FGCObject::AddReferencedObjects  或项目兼容的强引用机制保护 Profile、Session 和临时预览快照；TSharedPtr 本身不能保护 UObject。Slate 回调使用弱工具包/弱 UObject，执行前检查有效性。 
+  稳定 ID： 节点用会话内 FGuid 标识，数组索引只表示当前发序号。拖动、重排与本工具 Undo/Redo 保持身份；复制生成新 ID；删除移除 ID；同坐标点仍可分别选中。ID 不进入运行时资产。 
+  外部结构修改： 外部工具可能无法提供节点身份。可证明只改数值且数组结构没变时保留索引映射；不能证明时重建 ID、清空选择并提示，不能凭相同坐标猜身份。重载/对象替换后同样重建。 
+  属性同步： 监听目标 Profile 与当前曲线依赖的属性改变，以及 Undo/Redo、资产重载/替换事件。按当前引擎 API 注册并保存 DelegateHandle，关闭或模块卸载时逐个解除。 
+  防重入： 自提交时使用作用域同步保护，合并通知；同一资产更新只导致一次重建。外部修改到来时先终止本地拖动，再接收最终资产值，提示“资产已在其他入口更新”，不覆盖外部新值。 
+  修订校验： 每次有效属性或曲线依赖变化递增修订；手势记录开始修订。提交前不匹配则拒绝草稿。修改曲线引用时先解绑旧依赖，再绑定新依赖。 
+  多窗口： 同一资产优先复用已有工具包；若出现多个窗口，均从对象通知同步，不允许长期持有互相覆盖的可写副本。分别打开不同资产时状态与命令列表隔离。 
+  拖动取消： Esc、失焦导致捕获丢失、关闭、Undo、资产重载均取消当前手势并恢复原选择/视图适当状态；鼠标松开后不再补一次提交。 
+  预览清理： 关闭工具包时取消 ActiveTimer/Ticker、解除属性监听并释放快照；禁止后台回调访问已销毁 Slate。Live Coding/模块重载后命令与资产动作不得重复注册。 
+ 
+ 预览首版在编辑器主线程以有限预算增量计算。若后续改为后台计算，必须先把 UObject 及曲线读数复制为安全快照，并证明现有运行时调用线程安全；不要直接把 UObject 访问放进任务线程。此扩展不是首版依赖。 
+ 
+ 
+ 10 · 使用现有运行时的数值预览 
+ 10.1 预览边界和输出通道 
+ 创建原 Profile 的隔离临时副本作为预览输入，深复制有效外部曲线到临时内联曲线，以固定本次回放快照；只在副本上覆盖固定种子等预览选项。预览从不写真实资产、不借用 PIE 正在运行的武器状态、不改变全局 CVar。 
+     曲线 / 数据  取得方式  必须说明的含义    
+  理论累计 Kick  累加现有 ComputeShotKick 的输出，配置图使用倍率 1。  未经过相机上限、回弹和回正，不能标成实际相机轨迹。  
+  相机偏移  GetCameraPitchOffset / GetCameraYawOffset；可选 Roll 通道。  由运行时 Advance / ApplyShot 得到，包含插值阶段与饱和。  
+  ControlRotation 与可见角度  独立输入脚本维护 ControlRotation；角度示意为 ControlRotation + CameraOffset。  不能把显示合成结果再反馈为玩家输入。完整相机边界、其他 Modifier、FOV 与枪模最终效果以 PIE 验证为准。  
+  每发方向偏移  GetShotDirectionOffset / ComputeShotKickGated，取本发索引和当时倍率、种子。  逐发方向参数，不累加成弹着点；首版不做伪“真实弹着散点图”。  
+  状态与诊断  ShotIndex、ShotHistory、State、InterpStage、RecoveryPeak/Cover、上限与回正目标。  显示真实状态机值；诊断通道只读，不反向写参数。  
+   
+ 10.2 时序合同 
+ 
+ 快照完成后调用  Reset(ProfileSnapshot) ，设置全局倍率、姿态/瞄准与初始玩家瞄准。预览覆盖种子使用副本的 Fixed 模式和指定值；由于新轮次可能 ResolveSeed，仅设置一次 ActiveSeed 不可靠。 
+ 射速为预览输入 RPM>0，间隔  60/RPM ，t=0 第一发；建议默认 600 RPM、20 发、1/60 s 外层步长。若从选定武器读取射速，显示来源，不能假定 Profile 自身存有射速。 
+ 按确定的时间事件推进：到达发射/输入关键时刻前先推进上一段时间；每次 Advance 前采样当前玩家瞄准，再调用 Advance；开火前再次 SamplePlayerAim 并刷新倍率。 
+ 开火事件读取本发方向偏移并调用 ApplyShot；本发索引、状态重置和种子时机须与  ULyraRangedWeaponInstance  及实际发射调用链对照，以同输入轨迹测试锁定。不得在预览额外递增 ShotIndex 或自行判断进入回正。 
+ 同时间戳按“输入/姿态更新 → 开火前采样 → 发射事件 → 记录”确定顺序；跨发射边界拆分外层步长，避免射速受编辑器帧率影响。保留现有 Advance 内部子步与长帧保护，不重写其阶段算法。 
+ 停火后继续 Advance 至指定尾时长并观察 Idle；不得看到 Idle 就清零偏移或重置输入。第二轮连发和回正中重开火沿用同一个状态实例，只在点击“重置回放”时 Reset。 
+ 拖时间轴向后跳时从 t=0 用同一快照重放或用验证过的完整状态检查点；不能用插值几个输出值代替重新推进状态机。播放速度只影响播放墙钟速度，不改变模拟时间步。 
+ 
+ 基准确定性回放与“长帧场景”分开：标准回放精确命中事件；长帧测试显式把大 DeltaSeconds 传给现有 Advance，以覆盖其真实收尾分支。不能把长帧全部切碎后声称覆盖了长帧保护。 
+ 10.3 必备场景 
+  InstantWrite 与 Interpolated 分别进行单发、持续连发、停火回正；显示 Lift / Rebound / Settle / Drop。RecoveryDelay 的现有复用语义保持不变。  固定段边界前后、N 之后尾段；同种子重复播放逐样本一致，不同种子只改变受随机逻辑影响的结果；预览覆盖种子不改变资产设置。  站立、蹲伏、空中，瞄准 Alpha=0/0.5/1；全局倍率=0/1/其他正值。配置画布位置不随这些预览选项变化。  起枪 0°/30°、实际受限上跳 10°、下压 0°/4°/10°/11°；采用既有测试夹具与输入时序，在两模式中核对最终可见角度。  连续两轮、Drop 中重开火、接近 Pitch/Yaw 上限、回弹饱和和长帧；部分压枪与超压都要覆盖。  固定步长 30/60/120 Hz 的结果与现有运行时在相同输入步长下逐样本比较；不要求不同步长下所有中间样本位级一致。  
+ 输入脚本用带时间戳的玩家瞄准角/增量表达，在每帧及开火前送入  SamplePlayerAim ；禁止直接写 RecoveryCover、RecoveryTarget 或 AimCompensation 来伪造通过结果。若加入散布数值预览，复用现有 ApplySpreadShot/AdvanceSpread 及武器调用顺序；若加入 WeaponVisual 数值通道，复用现有独立状态，完整动画仍需 PIE。 
+ 任何资产/曲线/预览输入改变都使缓存失效并从头计算，避免新旧参数混合。建议首版预览上限 4096 发、120 秒；大图节点裁剪绘制、重复样本缓存，超限给出原因。阈值只限制工具工作量，不更改运行时资产有效范围。 
+ 
+ 
+ 11 · 文件级架构与模块依赖 
+ 复用现有  LyraEditor  模块，无需新增 Runtime 插件。下表均为拟新增/拟修改文件；路径以项目根目录为基准， .h/.cpp  表示成对文件。 
+     文件 / 位置  职责与边界    
+  Source/LyraEditor/Private/Recoil/LyraRecoilProfileEditor.h/.cpp  FAssetEditorToolkit、Undo 客户端、GC 引用、标签页、工具栏、保存与关闭；协调服务，不承载反算公式。  
+  …/Recoil/LyraRecoilEditorSession.h/.cpp  Transient UObject：可事务化节点 ID/顺序、资产引用；非持久缓存和当前修订。不得序列化到运行时包。  
+  …/Recoil/LyraRecoilPatternAdapter.h/.cpp  Profile→累计点、候选→字段补丁、可表达性校验、误差报告；不调用 Slate，不直接改真实资产，便于纯数值测试。  
+  …/Recoil/LyraRecoilEditOperations.h/.cpp  插入/删除/重排/边界/粘贴的统一命令，生成最小字段补丁、执行单事务、发属性通知；拖动生命周期与冲突处理。  
+  …/Recoil/SLyraRecoilPatternGraph.h/.cpp  Slate 绘制、命中测试、变换、框选、缩放、吸附；只访问工作模型与命令，不直接写资产。  
+  …/Recoil/SLyraRecoilShotTable.h/.cpp  逐发表格、尾段 Y/未生效 X、精确编辑、错误定位与选择同步。  
+  …/Recoil/LyraRecoilProfileDetails.h/.cpp  局部 Details 定制：结构按钮路由、曲线所有权、分组/只读状态；优先局部注册，避免改变其他编辑器行为。  
+  …/Recoil/LyraRecoilPreviewController.h/.cpp  隔离快照、固定种子、输入脚本、事件时序、FRecoilRuntimeState 调用、缓存与取消。  
+  …/Recoil/SLyraRecoilPreview.h/.cpp  时间图、播放控制、阶段、逐发结果和误差；只展示 Controller 的结果。  
+  …/Recoil/LyraRecoilEditorCommands.h/.cpp  命令、快捷键与 CanExecute；按工具包焦点路由。  
+  Source/LyraEditor/Private/AssetTypeActions_LyraRecoilProfile.h/.cpp  沿用本项目现有 AssetTypeActions 注册习惯，打开专用工具包；与通用 DataAsset 编辑器入口去重。  
+  Source/LyraEditor/LyraEditor.cpp  Startup/Shutdown 注册及卸载资产动作、命令与可选 Details 定制；模块卸载不强行加载其他模块。  
+  Source/LyraEditor/LyraEditor.Build.cs  核对并增补编辑器私有依赖；不在 LyraGame 添加 Editor 依赖。  
+  Source/LyraEditor/Tests/LyraRecoilEditorMappingTest.cpp LyraRecoilEditorTransactionTest.cpp LyraRecoilEditorPersistenceTest.cpp LyraRecoilEditorPreviewTest.cpp  转换/结构、事务同步、临时包保存重载、预览与运行时一致性；名称建议归入 Lyra.Recoil.Editor.*。  
+  Docs/Recoil/ThirdParty/CrystalRecoil-LICENSE.txt Docs/Recoil/16_GUIRecoilEditor_Implementation.md  实施阶段新增完整 MIT 文本与复用清单；实现说明记录原文件、改写点、验收证据、偏离本计划的决策。  
+   
+ 现有  ULyraRecoilProfile  已有跨模块导出，优先直接调用。首版无需修改其布局，也无需修改  FRecoilRuntimeState  算法；若发现导出/API 限制，先提出最小接口调整及测试，不将算法复制到 Editor 解决。 
+ 依赖决策 
+ 当前 LyraEditor 已含 Core/CoreUObject/Engine、LyraGame、UnrealEd、EditorFramework、Slate/SlateCore、InputCore、ToolMenus、Json 等依赖。按实际 include 增补  AssetTools、PropertyEditor ；只有代码直接使用时才加 AssetRegistry、ContentBrowser 或 JsonUtilities。内联曲线优先复用 PropertyEditor 现有控件，确需独立 CurveEditor 时再添加该编辑器模块。以本机 UE 5.8 的头文件和现有注册代码为接口依据。 
+ 模块已经在 .uproject 中标为 Editor；保持单向  LyraEditor → LyraGame 。不得让 LyraGame 引用 UnrealEd/Slate 编辑器类，不给运行时 Profile 增加上游 UCRRecoilPattern/Graph 引用；不整包拷入上游插件。 
+ 上游复用范围 
+  可适配：画布坐标换算、网格绘制、点命中、框选、多选拖动、缩放、适配视图和命令组织。把 UCR 图对象依赖替换为本项目 Adapter/Session，不引入另一套持久数据源。  必须改写：逐发参数与累计点桥接、随机尾段、事务提交、稳定 ID、曲线保护、Profile 保存和运行时预览。  不接入：上游 Runtime Component、回正算法、随机尾段结束策略、资产类型和运行时参数结构。  实施时在派生源码保留许可/版权，并在复用清单逐项记录固定链接。升级上游需单独评估差异，不自动同步 main。  
+ 
+ 
+ 12 · 分阶段实施与依赖顺序 
+ 建议顺序： P0 → P1 → P2 → P3 → P4 → P5 → P6 。先证明转换与保存语义，再完成交互与预览；不能用画布看起来正常代替数据契约测试。以下工时为熟悉 UE 编辑器的单人净开发估算，不含外部等待，合计约 15–24 人日。 
+     阶段 / 依赖  任务与交付物  退出条件    
+   P0 基线与接入验证  1–2 日  记录工作区和当前回正基线；核对现有资产动作与 UE 5.8 API；列出样例资产、共享曲线和固定/随机边界；建立复用清单与许可文件。确定预览调用顺序测试夹具。  无运行时变更；正常加载既有资产；基线构建/测试证据可追溯；阻塞项记录而非静默绕过。  
+   P1 转换与编辑合同  依赖 P0 · 2–3 日  Adapter、候选补丁与校验结构；实现零分母、负曲线、误差、邻接影响、尾段、空数组；结构操作与剪贴板纯逻辑；测试先覆盖边界。  第 13 节 T01–T08 对应数值测试通过；无操作不产生补丁；不可表达候选整体失败，原数据不变。  
+   P2 资产工具包与持久化  依赖 P1 · 2–3 日  注册打开入口，建立 Toolkit/Session、Details、最小表格、统一事务；保存/另存、Undo/Redo、GC、外部属性同步、共享曲线策略。  可以不靠画布完成一次编辑→撤销→重做→保存→重开；T09–T12 通过；重复打开/关闭与强制 GC 无崩溃。  
+   P3 完整画布交互  依赖 P2 · 3–5 日  适配 Slate 图、网格与命中；单选/框选/多选、精确拖动、吸附、缩放、适配；邻接影响与不可表达诊断；稳定 ID、取消、复制粘贴、结构预览与显式强度调整。  第 04/06/07 节动作可演示；一次拖动一次 Undo；取消/失焦无残留；随机线不可写；高 DPI 与重叠点可操作。  
+   P4 数值预览  依赖 P3 · 3–5 日  隔离快照、固定种子、射速/姿态/输入脚本、事件回放、时间图与数据表；缓存失效与限额；保护当前回正行为。  相同输入下与 FRecoilRuntimeState 基准逐样本一致；回正 4/10/11°、两轮与长帧场景通过；不标脏、不改变全局或 PIE 状态。  
+   P5 回归与隔离  依赖 P4 · 3–4 日  运行完整 Lyra.Recoil 与 Editor 测试；保存重载/失败恢复、共享曲线和外部修改手测；真实编辑器 UI、PIE 和非 Editor 构建/打包验证。  failed/notRun 均为 0，基线用例仍存在；所有阻断项关闭；打包无 GUI 类/上游 Runtime 依赖；PIE 结果有记录。  
+   P6 交付  依赖 P5 · 1–2 日  完成实现说明、使用操作样例、快捷键表、测试报告路径、上游来源清单；整理提交，保留用户既有修改。  另一位 agent 可依文档构建、打开原 Profile、修改固定点、保存并在游戏中读取同一字段；没有未注明的行为差异。  
+   
+ 每阶段单独记录新增/修改文件与验证结果；跨阶段发现合同冲突先更新本计划及实现说明，并说明用户可见影响。任何引入运行时新数据源、替换回正或默认改现有资产手感的提案都超出本任务范围，不能以“方便 GUI”自行实施。 
+ 
+ 
+ 13 · 自动化测试与验收矩阵 
+ 测试关注数据丢失、运行时偏差和交互事务，不为配色、边距或静态标签编写镜像实现的单元测试。Editor 测试放 LyraEditor；既有数值/回正测试继续使用原入口。 
+     ID  覆盖场景  必须验证    
+  T01 正反转换  常量/非平凡垂直曲线、负水平、全零、示例数据与可复现随机合法数组。  固定段逐发 Kick 与现有 ComputeShotKick(倍率1) 相符；反算再重建在容差内；无操作不写回原始数据。  
+  T02 分母与异常  H=0、V=0、c=0/负/极小/非有限、float 溢出、非法强度。  零轴隐藏值保留；不可逆非零候选拒绝；负曲线范围正确；NaN/Inf 不进入图形与资产提交。  
+  T03 相邻影响  首点/中点/末点、连续/非连续多选、边界舍入、累计点导致下一发超限。  检查全部受影响发；末固定点与尾段处理正确；失败全回退，不出现半写入。  
+  T04 固定/随机尾段  L=0、L<N、L=N、N=0、i=N−1/N/N+1、N 后曲线仍变化。  打开不改 L；尾部 X 保留；尾部 Y 与 GetPatternPoint 一致；随机样本不反写；空数组不自动补点。  
+  T05 结构命令  边界前/处/后插入、跨边界多删、删光、跨边界重排、稳定排序、改 L。  L/N 按第 07 节计算，节点 ID 与原始参数正确，曲线按新索引求值；Undo 恢复两者。  
+  T06 越界解决方案  有损投影、扩大强度、零曲线无法解决、改变 H 后随机尾段变化。  默认拒绝不钳制；显式方案展示误差与受影响字段；不改曲线为 1；只在应用后一次提交。  
+  T07 剪贴板  同资产/不同强度/不同曲线、非连续点、未知版本、畸形 JSON、超量数据。  默认归一化语义稳定；角度模式目标反算；拒绝无副作用；新节点新 ID。  
+  T08 原样保留  含未生效尾部 X、零分母下非零原值、复杂曲线和全部附属参数的资产。  打开、选点、预览不 Dirty；局部编辑只影响合同规定字段，Roll/Spread/WeaponVisual 等序列化属性不变。  
+  T09 事务  长拖动、多点、详情数值、结构编辑、无变化、取消、Undo/Redo 多轮。  一个动作一个事务；Cancel 零事务；无空 Undo；资产、ID、图表与属性同步。  
+  T10 生命周期与冲突  GC、关窗、重开、多资产、对象替换、外部修改、曲线变化、拖动中重载。  无悬空引用/重复回调；修订冲突取消草稿；外部新值不被旧缓存覆盖。  
+  T11 保存重载  临时测试包编辑→保存→释放/重载→比较；另存、只读/保存失败。  逐字段和曲线引用等价；重新运行 Kick/回放等价；失败仍 Dirty；另存不改武器引用或原磁盘包。  
+  T12 曲线所有权  两 Profile 共享曲线；复制为内联、复制为新资产、替换引用、Undo。  默认操作不改共享对象；内联保留键/切线/外推；另存默认共享事实可见；预览快照隔离外部变动。  
+  T13 运行时预览  两单发模式、固定种子、姿态/瞄准、倍率 0、不同 RPM、发射边界和时间轴回放。  与同输入同时间步的直接状态机调用逐样本比对；相机、理论累计与每发方向分开；无全局副作用。  
+  T14 最新回正  0°/30°起枪、实际10°上跳、下压0/4/10/11°，两轮、Drop重开、长帧、饱和、补偿开关。  既有57项基线及新增相关测试通过；验证可见终点；不以 Idle 偏移为零判定通过。  
+  T15 打包与资产兼容  LyraGame 非 Editor 构建、实际项目可运行内容 Cook/Package、旧资产加载。  不含 LyraEditor/Crystal Runtime 依赖；Profile 没有临时 Session 引用；打包后仍能读取旧配置开火。  
+   
+ 测试夹具与保存重载要求 
+ 优先用 transient Profile 构造数学/状态测试。必须验证序列化时使用专用临时包目录，保存后释放引用、执行适当 GC 并重新加载，不能只从同一个内存对象读回。测试结束只清理已核对归属的测试包，不能改现有正式 .uasset 或覆盖 Golden。比较完整字段快照和运行时结果，避免只比画布点。 
+ GUI / PIE 人工验收清单 
+  双击既有资产，固定段点数和尾段标签正确；保存前后武器引用仍指向原资产。  单选、框选、多选、重叠点、网格吸附、缩放、适配、数值输入、快捷键焦点行为均可用。  拖过合法边界能看见具体错误；Esc、切窗口、关闭时不留半次修改；Undo/Redo 后当前选择不会指向错误节点。  L<N、L=0、空数组、零强度与负曲线能解释清楚；随机预览无可拖动伪节点。  外部详情或共享曲线编辑后更新一次；另存、只读失败、重新加载及恢复时 UI 状态正确。  在 100%/150%/200% DPI 和常见窗口尺寸下无命中偏移、控件遮挡；1000 个节点交互无持续卡顿，记录机器与耗时。  PIE 分别验证两种单发模式、压枪 4/10/11°及重开火；保存后的字段被真实武器加载，Roll/散布/枪体行为无意外变化。  非 Editor 构建与实际打包结果有日志；若受环境阻塞，写明未完成项，不能标记全验收通过。  
+ 
+ 
+ 14 · 本机验证、报告与 Golden 
+ 项目： D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject ；引擎： D:\UE_5.8 ；编辑器目标： LyraEditor Win64 Development 。以下为 后续实施阶段执行模板 ，本次文档编写不运行构建、UE 测试或生成 Golden。 
+ 14.1 构建与自动化 
+ 历史脚本的默认路径仍可能为 E 盘，所有参数显式指定 D 盘。脚本注释中的旧沙箱/权限环境描述不是当前环境事实；如遇 UBA 问题先读实际构建日志，使用项目 Saved 下独立缓存，不以切换 shell 代替问题定位。 
+  # PowerShell，在项目根目录执行；显式给全路径
+powershell -ExecutionPolicy Bypass -File .\Docs\Recoil\Tools\build.ps1 -EngineRoot 'D:\UE_5.8' -Project 'D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject' -Target LyraEditor -Platform Win64 -Config Development -UBARootDir 'D:\TPSGunsDemo\TPSGunsDemo\Saved\UBACache'
+
+# 标准脚本可作快速回归；完整验收还需下面的独立报告
+powershell -ExecutionPolicy Bypass -File .\Docs\Recoil\Tools\run-recoil-tests.ps1 -EngineRoot 'D:\UE_5.8' -Project 'D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject' -TestFilter 'Lyra.Recoil'  
+ 为每次验收使用新的报告目录，避免读取历史成功报告。关闭会锁定相关二进制的旧编辑器实例或按现有项目流程构建；不要依赖 Live Coding 代替完整构建。 
+  $runTag = Get-Date -Format 'yyyyMMdd-HHmmss'
+$guiReportDir = "D:\TPSGunsDemo\TPSGunsDemo\Saved\Automation\RecoilGUI-$runTag"
+$guiLogFile = "D:\TPSGunsDemo\TPSGunsDemo\Saved\Logs\RecoilGUI-$runTag.log"
+& 'D:\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' 'D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject' '-ExecCmds=Automation RunTests Lyra.Recoil' '-TestExit=Automation Test Queue Empty' "-ReportExportPath=$guiReportDir" "-abslog=$guiLogFile" -unattended -nopause -nullrhi -nosplash
+$guiEditorExit = $LASTEXITCODE
+$guiReportFile = Join-Path $guiReportDir 'index.json'
+if (-not (Test-Path -LiteralPath $guiReportFile)) { throw '缺少本轮自动化报告' }
+$guiReport = Get-Content -LiteralPath $guiReportFile -Raw -Encoding UTF8 | ConvertFrom-Json
+foreach ($key in @('failed', 'notRun', 'inProcess', 'succeeded', 'succeededWithWarnings')) {
+    if ($guiReport.PSObject.Properties.Name -notcontains $key) { throw "报告字段缺失: $key" }
+}
+if ($guiEditorExit -ne 0 -or $guiReport.failed -ne 0 -or $guiReport.notRun -ne 0 -or $guiReport.inProcess -ne 0) { throw '自动化未完整通过，请读报告与日志' }
+if (($guiReport.succeeded + $guiReport.succeededWithWarnings) -lt 57) { throw '原回归基线可能未完整运行' }
+# 还必须核对本轮测试清单包含全部原用例及新增 Lyra.Recoil.Editor.*；
+# 57 只是已知历史下限，不能替代本次预期用例总数/名称核对。
+# succeededWithWarnings 非零时逐条审阅并在验收记录解释。  
+  不能只相信退出码： 本项目曾出现测试失败但进程返回 0。必须读取本轮  index.json  的 failed/notRun/inProcess、测试清单与日志；缺报告、漏用例或跳过均不能标为通过。NullRHI 适合数值与资产测试，Slate 交互/绘制和 PIE 仍需正常编辑器。 
+ 非 Editor 隔离构建可使用现有  LyraGame  目标（本机已有 Target.cs）： 
+  powershell -ExecutionPolicy Bypass -File .\Docs\Recoil\Tools\build.ps1 -EngineRoot 'D:\UE_5.8' -Project 'D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject' -Target LyraGame -Platform Win64 -Config Development -UBARootDir 'D:\TPSGunsDemo\TPSGunsDemo\Saved\UBACache'  
+ 随后按项目实际 Experience/GameFeature 和地图执行现有 Cook/Package 流程，记录使用的参数、运行时加载资产与开火结果。不得凭编译成功替代打包验证，也不得为通过打包修改与本任务无关的内容配置。 
+ 14.2 已有回正证据 
+   Saved/Logs/RecoilRecoveryBuild-20261001.log    Saved/Logs/RecoilRecoveryTests-20261001-Final.log    Saved/Automation/RecoilRecovery-20261001-Final/index.json ：57 succeeded，0 failed，0 notRun。  
+ Saved 下文件属于本机验证证据，可能不随仓库分发；接手机器若缺少这些文件，应重跑基线并产生新的报告，不伪造或复用过期记录。 
+ 14.3 Golden 更新规则 
+   只新增 GUI、无资产/算法行为改变： 现有 Golden 必须保持不变。发现差异先定位，不以重新生成来消除失败。   经明确授权调现有正式资产： 记录资产路径和字段差异，说明预期 Kick/随机尾段变化；保存重载后生成候选 Golden，并检查逐发差异、种子及曲线语义。  会影响逐发基线的字段包括 PatternPoints、PatternLength、基础强度、VerticalKickCurve、HorizontalRandomRange、随机模式/种子；具体以当前 Golden 导出器和测试元数据校验为准，不只依赖旧脚本注释中列出的资产数量。  Golden 只在单独、可审阅的资产调参变更中更新；同时提交对应资产差异、生成器版本/运行命令、报告和解释。不能从失败测试的“实际输出”直接覆盖预期。  GUI 新测试使用独立夹具/临时包，不修改已有 Golden 以满足新编辑器测试。若运行时算法确需改动，另行立项和评审，超出本计划。  
+  # 仅在确有被授权的正式资产调参且审阅差异后执行
+powershell -ExecutionPolicy Bypass -File .\Docs\Recoil\Tools\gen-recoil-golden.ps1 -EngineRoot 'D:\UE_5.8' -Project 'D:\TPSGunsDemo\TPSGunsDemo\TPSGunsDemo.uproject'  
+ 
+ 
+ 15 · 风险、交接与最终完成定义 
+     风险  防范与证据    
+  累计点被当成逐发参数，或理论图被当成相机/弹着轨迹  Adapter 集中差分；图例与单位常驻；T01/T03/T13 验证；弹道不使用累计曲线。  
+  打开 GUI 就修正数组/曲线，破坏存量手感  无操作零补丁；L<N、零分母、尾部 X 与全部附属字段保留测试；禁止自动排序/归一化。  
+  强度调整隐藏改变随机尾段  默认拒绝越界；高级命令展示 H/V、随机样本与数组外差异，并明确无法保证无限尾段无损。  
+  共享曲线被误改或 Undo 不完整  外部曲线默认只读；显式复制内联/新资产；Profile 与曲线包保存分开；T12 覆盖两资产共享。  
+  事务拆碎、外部更新被旧缓存覆盖  拖动只改草稿，单事务提交；修订检查、统一命令入口、防重入和外部冲突取消。  
+  GC/Delegate 导致偶发崩溃  强引用保护、弱回调、关闭清理、重复开关/强制 GC/重载测试。  
+  预览看似合理但顺序/种子不一致  复制 Profile 后固定种子；对照武器调用链、同输入同时间步逐样本比较；保留长帧真实 Advance 路径。  
+  旧回正文档误导实现  以 2026-10-01 State.cpp 和文档 14 为准；可见终点 0/0/−1° 为关键验收，不再要求 Idle 偏移归零。  
+  上游 API 或引擎版本不兼容  固定 commit、少量适配；UE 5.8 API 本地核对；注册卸载完整；先构建小型接入阶段。  
+  测试退出码误判、打包夹带编辑器依赖  报告 failed/notRun/清单校验；非 Editor 构建、Cook/Package 和运行验证共同作为门槛。  
+   
+ 下一位 agent 的执行顺序 
+  阅读本文件及  最新回正说明 ；检查适用的 AGENTS.md 和工作区状态，记录当前 HEAD 与所有既有修改。不要重新研究整套上游；只核对实施所需 API。  保护下列已有回正相关文件，无论当前是否显示为未提交，都不要回退其最新行为。  
+  Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp
+Source/LyraGame/Weapons/Recoil/LyraRecoilState.h
+Source/LyraGame/Tests/LyraRecoilTest.spec.cpp
+Docs/Recoil/PROGRESS.md
+Docs/Recoil/11_RecoveryCompensation.md
+Docs/Recoil/13_TracePitchAndSaturationFix.md
+Docs/Recoil/14_RecoveryToBurstStart.md  
+  从 P0/P1 开始，先写无 UI 的转换/结构测试与候选补丁，再接 Toolkit。不得先整体安装 CrystalRecoil 插件。  按 P2→P4 形成可演示闭环：打开已有资产 → 拖固定点 → 查看相邻发变化 → 保存 → 重载 → 数值回放验证。  执行 P5 完整检查，并记录本轮报告路径、用例数和所有人工测试结果。测试缺失或环境阻塞时明确保持未完成状态。  P6 交接须列出改动文件、已完成阶段、未完成项、实际命令、测试报告、已知限制、复用许可与后续操作；不要以本计划存在代替实现完成。  
+ 最终 Definition of Done 
+  用户可通过 GUI 完成固定段后坐力配置，并保存到现有 ULyraRecoilProfile 字段，既有武器直接使用。  零分母、负曲线、超界、NaN/Inf、相邻点影响、随机尾段和 L/N 不一致情形都有明确行为和测试。  增删重排、复制粘贴、Undo/Redo、Dirty、保存/另存、重载、共享曲线、GC 与外部同步全部通过验收。  预览使用现有 FRecoilRuntimeState，固定种子和输入时序可复现；最新回正场景、原有测试与新增 Editor 测试通过。  GUI 手测、保存重载、PIE 与打包隔离均有记录；不存在第二套运行时配置来源。  用户既有修改完整保留；非调参任务不改正式资产与 Golden；许可和来源可追溯。  
+  本次交付边界： 仅新增此中文 HTML 开发计划。GUI 代码、资产、Golden 与运行时实现均未因本次文档任务修改；后续实施以阶段退出条件逐项推进。 
+  返回文档顶部 ↑  
+ 
+  
+ 开发计划 · 2026-10-01 · 本文件为独立 HTML，样式已内嵌；项目源码与历史文档使用相对链接，上游源码使用固定 commit 链接。 
+ 
+ 
+
