@@ -1,0 +1,54 @@
+{
+  "Date": "2026-10-09",
+  "BaseHead": "b6418a28",
+  "BuildLog": "日志/GUI-EditorBuild-23-RoutingOverlayRefresh.log",
+  "BuildExit": 0,
+  "ProcessExit": 0,
+  "Report": "D:\\TPSGunsDemo\\TPSGunsDemo\\Saved\\Automation\\RecoilGUI-RoutingRefresh83-Final-20261009-172931\\index.json",
+  "Succeeded": 83,
+  "SucceededWithWarnings": 0,
+  "Failed": 0,
+  "NotRun": 0,
+  "InProcess": 0,
+  "MissingPreviousTests": [],
+  "RoutingTest": [
+    {
+      "testDisplayName": "DefaultGUIAndRawDetailsRoundTrip",
+      "fullTestPath": "Lyra.Recoil.Editor.Routing.DefaultGUIAndRawDetailsRoundTrip",
+      "tags": [],
+      "state": "Success",
+      "deviceInstance": [
+        "F8D1C5AF456E146EDBAFC48E2E215265"
+      ],
+      "duration": 0.3147768974304199,
+      "dateTime": "2026.10.09-09.29.55",
+      "entries": [],
+      "warnings": 0,
+      "errors": 0,
+      "artifacts": []
+    }
+  ],
+  "ManualUI": [
+    "DA_Recoil_Rifle_7: Content Browser double-click opens recoil GUI",
+    "GUI top button opens raw Details",
+    "Raw Details top button returns to existing GUI",
+    "Right-click raw Details entry reuses editor",
+    "Right-click GUI entry reuses editor",
+    "Two asset tabs only; All Saved; no parameter edits or saves"
+  ],
+  "UIAudioMode": "-nosound",
+  "CrossComputerReproduction": "Not directly accessed; sync source and fully build LyraEditor required",
+  "AssetHashesAfterUI": [
+    {
+      "Path": "D:\\TPSGunsDemo\\TPSGunsDemo\\Content\\Weapons\\Recoil\\DA_Recoil_Rifle_S.uasset",
+      "Hash": "B035D764FD682641E6FB425543F4DAF43AEFF90D47EAB507560822C18FBBB2FD"
+    },
+    {
+      "Path": "D:\\TPSGunsDemo\\TPSGunsDemo\\Content\\Weapons\\Recoil\\DA_Recoil_Rifle_7.uasset",
+      "Hash": "A09A727E1D376C45C38E816D8EAB74ACF9D1005EDDB03C92C2BD48270757E9A8"
+    }
+  ],
+  "FullTask15Acceptance": "Incomplete: prior PIE failures and pending performance/manual/exit checks retained",
+  "UILog": "Saved/Logs/RecoilGUI-RoutingUI-RefreshFinal-20261009.log",
+  "StartupDiagnostic": "Turnkey VerifySdk failed with duplicate generated AssemblyInfo attributes (CS0579) in Build/Scripts; not fixed in this GUI routing scope."
+}

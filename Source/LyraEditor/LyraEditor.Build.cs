@@ -41,6 +41,8 @@ public class LyraEditor : ModuleRules
             new string[] {
 				"InputCore",
 				"AssetTools",
+				"AssetDefinition",
+				"ContentBrowser",
 				"ApplicationCore",
 				"GameplayTags",
 				"AssetRegistry",

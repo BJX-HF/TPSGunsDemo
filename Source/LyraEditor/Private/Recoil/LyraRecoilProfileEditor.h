@@ -51,6 +51,7 @@ public:
 	//~ Begin FAssetEditorToolkit interface
 	virtual void RegisterTabSpawners(const TSharedRef<FTabManager>& InTabManager) override;
 	virtual void UnregisterTabSpawners(const TSharedRef<FTabManager>& InTabManager) override;
+	virtual void PostRegenerateMenusAndToolbars() override;
 	virtual void MapToolkitCommands() override;
 	virtual FName GetToolkitFName() const override;
 	virtual FText GetBaseToolkitName() const override;

@@ -17,7 +17,8 @@
 #include "GameplayCueNotify_BurstLatent.h"
 #include "GameplayCueNotify_Looping.h"
 #include "Private/AssetTypeActions_LyraContextEffectsLibrary.h"
-#include "Private/AssetTypeActions_LyraRecoilProfile.h"
+#include "Private/AssetDefinition_LyraRecoilProfile.h"
+#include "Private/Recoil/LyraRecoilEditorRouting.h"
 #include "Private/Recoil/LyraRecoilEditorCommands.h"
 #include "ToolMenu.h"
 #include "ToolMenus.h"
@@ -150,6 +151,7 @@ static void CheckGameContent_Clicked()
 
 static void RegisterGameEditorMenus()
 {
+	LyraRecoilEditorRouting::RegisterMenus();
 	UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.PlayToolBar");
 	FToolMenuSection& Section = Menu->AddSection("PlayGameExtensions", TAttribute<FText>(), FToolMenuInsert("Play", EToolMenuInsertType::After));
 
@@ -232,8 +234,8 @@ class FLyraEditorModule : public FDefaultGameModuleImpl
 			TSharedRef<FAssetTypeActions_LyraContextEffectsLibrary> AssetAction = MakeShared<FAssetTypeActions_LyraContextEffectsLibrary>();
 			LyraContextEffectsLibraryAssetAction = AssetAction;
 			AssetTools.RegisterAssetTypeActions(AssetAction);
-			LyraRecoilProfileAssetAction = MakeShared<FAssetTypeActions_LyraRecoilProfile>();
-			AssetTools.RegisterAssetTypeActions(LyraRecoilProfileAssetAction.ToSharedRef());
+			// Native AssetDefinition CDO registration owns the recoil default editor route.
+			GetDefault<UAssetDefinition_LyraRecoilProfile>();
 		}
 	}
 
@@ -258,11 +260,6 @@ class FLyraEditorModule : public FDefaultGameModuleImpl
 			{
 				AssetToolsModule->Get().UnregisterAssetTypeActions(AssetAction.ToSharedRef());
 			}
-			if (AssetToolsModule && LyraRecoilProfileAssetAction.IsValid())
-			{
-				AssetToolsModule->Get().UnregisterAssetTypeActions(LyraRecoilProfileAssetAction.ToSharedRef());
-			}
-			LyraRecoilProfileAssetAction.Reset();
 			FLyraRecoilEditorCommands::Unregister();
 		}
 
@@ -273,6 +270,7 @@ class FLyraEditorModule : public FDefaultGameModuleImpl
 		if (UObjectInitialized() && ToolMenusHandle.IsValid())
 		{
 			UToolMenus::UnRegisterStartupCallback(ToolMenusHandle);
+			UToolMenus::UnregisterOwner(TEXT("LyraRecoilEditor"));
 		}
 
 		UnbindGameplayAbilitiesEditorDelegates();
@@ -312,7 +310,6 @@ protected:
 
 private:
 	TWeakPtr<IAssetTypeActions> LyraContextEffectsLibraryAssetAction;
-	TSharedPtr<IAssetTypeActions> LyraRecoilProfileAssetAction;
 	FDelegateHandle ToolMenusHandle;
 };
 

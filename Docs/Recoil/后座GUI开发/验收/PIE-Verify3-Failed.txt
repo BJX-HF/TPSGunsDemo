@@ -1,0 +1,69 @@
+Real PIE world=/ShooterCore/Maps/UEDPIE_0_L_ShooterPerf.L_ShooterPerf weapon=/ShooterCore/Maps/UEDPIE_0_L_ShooterPerf.L_ShooterPerf:PersistentLevel.B_Hero_ShooterMannequin_C_0.B_WeaponInstance_Rifle_C_0 original=/Game/Weapons/Recoil/DA_Recoil_Rifle_S.DA_Recoil_Rifle_S
+Saved/unloaded/reloaded fixture=/RecoilPIEQA/Matrix_6F222D0F473DF2A30BC397890877D398.Matrix_6F222D0F473DF2A30BC397890877D398
+Only scenario fixture fields differ; Roll/Spread/WeaponVisual copied unchanged.
+FAIL GUI-saved disk Profile=/RecoilGUIQA/QA_11E4A8434EA6886AC60540A3DBD2BE19.QA_11E4A8434EA6886AC60540A3DBD2BE19 loaded by actual weapon, shots=5 editedRawX[7]=0.444572359 lastActualYaw=0.0288000014
+case=0 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=0.0
+FAIL mode=InstantWrite start=0 pull=0 round=1 visible=-2.891134 expected=0.000000 camera=3.268866 state=2 shots=10 visualSerial=0
+case=0 round=1 peakCamera=13.219816 peakVisible=7.059816 pulled=0.0
+FAIL mode=InstantWrite start=0 pull=0 round=2 visible=-2.940184 expected=0.000000 camera=3.219816 state=0 shots=10 visualSerial=0
+case=1 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=4.0
+PASS mode=InstantWrite start=0 pull=4 round=1 visible=0.000000 expected=0.000000 camera=4.000000 state=0 shots=10 visualSerial=0
+case=1 round=1 peakCamera=14.000000 peakVisible=10.000000 pulled=4.0
+PASS mode=InstantWrite start=0 pull=4 round=2 visible=0.000000 expected=0.000000 camera=8.000000 state=0 shots=10 visualSerial=0
+case=2 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=10.0
+PASS mode=InstantWrite start=0 pull=10 round=1 visible=0.000000 expected=0.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=2 round=1 peakCamera=20.000000 peakVisible=10.000000 pulled=10.0
+PASS mode=InstantWrite start=0 pull=10 round=2 visible=0.000000 expected=0.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+case=3 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=11.0
+PASS mode=InstantWrite start=0 pull=11 round=1 visible=-1.000000 expected=-1.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=3 round=1 peakCamera=20.000000 peakVisible=9.000000 pulled=11.0
+PASS mode=InstantWrite start=0 pull=11 round=2 visible=-2.000000 expected=-2.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+case=4 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=0.0
+PASS mode=InstantWrite start=30 pull=0 round=1 visible=30.000000 expected=30.000000 camera=0.000000 state=0 shots=10 visualSerial=0
+case=4 round=1 peakCamera=10.000000 peakVisible=40.000000 pulled=0.0
+PASS mode=InstantWrite start=30 pull=0 round=2 visible=30.000000 expected=30.000000 camera=0.000000 state=0 shots=10 visualSerial=0
+case=5 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=4.0
+PASS mode=InstantWrite start=30 pull=4 round=1 visible=30.000000 expected=30.000000 camera=4.000000 state=0 shots=10 visualSerial=0
+case=5 round=1 peakCamera=14.000000 peakVisible=40.000000 pulled=4.0
+PASS mode=InstantWrite start=30 pull=4 round=2 visible=30.000000 expected=30.000000 camera=8.000000 state=0 shots=10 visualSerial=0
+case=6 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=10.0
+PASS mode=InstantWrite start=30 pull=10 round=1 visible=30.000000 expected=30.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=6 round=1 peakCamera=20.000000 peakVisible=40.000000 pulled=10.0
+PASS mode=InstantWrite start=30 pull=10 round=2 visible=30.000000 expected=30.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+case=7 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=11.0
+PASS mode=InstantWrite start=30 pull=11 round=1 visible=29.000000 expected=29.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=7 round=1 peakCamera=20.000000 peakVisible=39.000000 pulled=11.0
+PASS mode=InstantWrite start=30 pull=11 round=2 visible=28.000000 expected=28.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+case=8 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=0.0
+PASS mode=Interpolated start=0 pull=0 round=1 visible=0.000000 expected=0.000000 camera=0.000000 state=0 shots=10 visualSerial=0
+case=8 round=1 peakCamera=10.000000 peakVisible=10.000000 pulled=0.0
+PASS mode=Interpolated start=0 pull=0 round=2 visible=0.000000 expected=0.000000 camera=0.000000 state=0 shots=10 visualSerial=0
+case=9 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=4.0
+PASS mode=Interpolated start=0 pull=4 round=1 visible=0.000000 expected=0.000000 camera=4.000000 state=0 shots=10 visualSerial=0
+case=9 round=1 peakCamera=14.000000 peakVisible=10.000000 pulled=4.0
+PASS mode=Interpolated start=0 pull=4 round=2 visible=0.000000 expected=0.000000 camera=8.000000 state=0 shots=10 visualSerial=0
+case=10 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=10.0
+PASS mode=Interpolated start=0 pull=10 round=1 visible=0.000000 expected=0.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=10 round=1 peakCamera=20.000000 peakVisible=10.000000 pulled=10.0
+PASS mode=Interpolated start=0 pull=10 round=2 visible=0.000000 expected=0.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+case=11 round=0 peakCamera=10.000000 peakVisible=10.000000 pulled=11.0
+PASS mode=Interpolated start=0 pull=11 round=1 visible=-1.000000 expected=-1.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=11 round=1 peakCamera=20.000000 peakVisible=9.000000 pulled=11.0
+PASS mode=Interpolated start=0 pull=11 round=2 visible=-2.000000 expected=-2.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+case=12 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=0.0
+PASS mode=Interpolated start=30 pull=0 round=1 visible=30.000000 expected=30.000000 camera=0.000000 state=0 shots=10 visualSerial=0
+case=12 round=1 peakCamera=10.000000 peakVisible=40.000000 pulled=0.0
+PASS mode=Interpolated start=30 pull=0 round=2 visible=30.000000 expected=30.000000 camera=0.000000 state=0 shots=10 visualSerial=0
+case=13 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=4.0
+PASS mode=Interpolated start=30 pull=4 round=1 visible=30.000000 expected=30.000000 camera=4.000000 state=0 shots=10 visualSerial=0
+case=13 round=1 peakCamera=14.000000 peakVisible=40.000000 pulled=4.0
+PASS mode=Interpolated start=30 pull=4 round=2 visible=30.000000 expected=30.000000 camera=8.000000 state=0 shots=10 visualSerial=0
+case=14 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=10.0
+PASS mode=Interpolated start=30 pull=10 round=1 visible=30.000000 expected=30.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=14 round=1 peakCamera=20.000000 peakVisible=40.000000 pulled=10.0
+PASS mode=Interpolated start=30 pull=10 round=2 visible=30.000000 expected=30.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+case=15 round=0 peakCamera=10.000000 peakVisible=40.000000 pulled=11.0
+PASS mode=Interpolated start=30 pull=11 round=1 visible=29.000000 expected=29.000000 camera=10.000000 state=0 shots=10 visualSerial=0
+case=15 round=1 peakCamera=20.000000 peakVisible=39.000000 pulled=11.0
+PASS mode=Interpolated start=30 pull=11 round=2 visible=28.000000 expected=28.000000 camera=20.000000 state=0 shots=10 visualSerial=0
+COMPLETE cases=16 bursts=32 failed=3

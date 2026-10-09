@@ -13,7 +13,7 @@
 - 上游固定版本：[CrystalRecoil d977456a8468ab15c7ca05ede8cddf72dd5e5bc5](https://github.com/CrystalVapor/UE5-CrystalRecoil/tree/d977456a8468ab15c7ca05ede8cddf72dd5e5bc5)。
 - [MIT 许可全文](ThirdParty/CrystalRecoil-LICENSE.txt)，Copyright (c) 2024 CrystalVapor。
 - 画布坐标、网格、命中、多选、框选、缩放和命令组织的参考文件：`CRRecoilUnitGraphEditor.cpp`、`CRRecoilUnitGraphBackgroundWidget.cpp`、`CRRecoilUnitGraphWidgetDragOperations.cpp`、`CRRecoilPatternEditorCommands.cpp`。
-- 专用 Toolkit 与资产动作的参考文件：`CRRecoilPatternEditor.cpp`、`CRAssetTypeActions_RecoilPattern.cpp`；实际接入遵循项目既有 AssetTypeActions 和本机 UE 5.8 API。
+- 专用 Toolkit 与资产动作的参考文件：`CRRecoilPatternEditor.cpp`、`CRAssetTypeActions_RecoilPattern.cpp`；实际接入使用本机 UE 5.8 原生 AssetDefinition，旧 AssetTypeActions 保留兼容调用。
 - 本项目的归一化桥接、候选校验、事务、稳定 ID、随机尾段、共享曲线与运行时预览重新实现；未安装上游 Runtime 插件。
 - 本轮按上述上游行为参考独立实现，没有引入上游 Runtime 模块或实质复制上游源文件。完整许可单独归档，以下为实际代码清单。
 
@@ -23,7 +23,8 @@
 
 | 文件 | 职责与来源 |
 | --- | --- |
-| `Private/AssetTypeActions_LyraRecoilProfile` | 专用资产打开入口；参考上游资产动作组织，使用项目及 UE 5.8 API 独立接入 |
+| `Private/AssetDefinition_LyraRecoilProfile` | UE 原生资产定义注册表中的默认 GUI 入口；旧 AssetTypeActions 仅保留兼容调用，不再注册 |
+| `Private/Recoil/LyraRecoilEditorRouting` | GUI/原始 Details 双向顶部入口、资产右键入口与窗口复用 |
 | `Private/Recoil/LyraRecoilProfileEditor` | Toolkit、布局、命令路由、Undo 与资产生命周期；参考上游编辑器组织，独立实现 |
 | `Private/Recoil/SLyraRecoilPatternGraph` | 累计画布、命中、框选、拖动、缩放；参考上游交互行为，独立 Slate 实现 |
 | `Private/Recoil/LyraRecoilEditorCommands` | 命令与快捷键；参考上游命令组织，独立实现 |
@@ -40,6 +41,8 @@
 ## 操作说明
 
 在 Content Browser 双击 `ULyraRecoilProfile` 打开专用编辑器。顶部为原始逐发表格、累计画布、局部 Details，底部为数值预览。N 是原始数组长度，L 是固定段长度；随机尾段在图中以只读虚线显示，表中保留存储的原始参数。
+
+2026-10-09 默认入口改为原生 `AssetDefinition`。GUI 顶部“原始参数（Details）”打开引擎完整参数页，原始页顶部“后坐力 GUI”返回专用编辑器；资产右键也可显式选择任一入口。另一台电脑需同步源码并完整编译 LyraEditor，旧 DLL 不包含这些入口。详见 [本轮验收](后座GUI开发/验收/20261009-默认入口与页面切换.md)。
 
 画布编辑固定段累计角度；表格编辑 X/Y 归一化值。候选超出 X[-1,1] 或 Y[0,1] 时整次拒绝并显示诊断。拖动在释放时形成一次事务，取消、无变化或拒绝不写入资产。高级强度调整会先展示对其他发及随机尾段的影响，确认后原子提交。
 
@@ -63,11 +66,13 @@
 
 ## 当前验证
 
-本轮最终 `LyraEditor Win64 Development` 第14轮完整构建成功；非 Editor `LyraGame` 构建以及实际 Cook/Stage/Package/Archive 成功。最终 `Lyra.Recoil` 82/82 通过，原57项完整保留，0 failed、notRun、inProcess、warnings，引擎退出码0。最终报告为 `Saved/Automation/RecoilGUI-P5-Full82-Repair-20261008-165251/index.json`，见 [主 agent 核查](后座GUI开发/验收/P5-Full82-主agent核查.json)。失败轮次及运行器归档编码问题也保留在进度中。
+2026-10-09 `LyraEditor Win64 Development` 第23轮完整构建成功。其后的 `Lyra.Recoil` 83/83通过，前轮82项及原57项完整保留，0 failed、notRun、inProcess、warnings，运行器及引擎退出码0；报告为 `Saved/Automation/RecoilGUI-RoutingRefresh83-Final-20261009-172931/index.json`。顶部按钮刷新修复及正常 UI 复验见 [默认入口验收](后座GUI开发/验收/20261009-默认入口与页面切换.md)。此前非 Editor `LyraGame` 构建及实际 Cook/Stage/Package/Archive 成功；失败轮次及运行器归档编码问题也保留在进度中。
 
 正常 GUI 已验证四面板、图表同步、拒绝越界候选、拖动、选择保留、Undo/Redo 与临时资产保存。打包游戏实际载入旧 `DA_Recoil_Rifle_S` 并开火，IoStore/Pak 清单未包含 Editor 资产或模块。
 
-任务15尚未全量验收：真实 PIE 驱动第一次失败，修正已构建但未复验；真实 DPI、1000节点性能和完整人工交互矩阵未完成；打包游戏 Alt+F4 退出出现引擎断言，退出验收未通过。用户按物理 Escape 停止电脑控制后，本轮停止全部后续 UI 操作。详见 [正常 GUI/PIE/打包记录](后座GUI开发/验收/P3-P5-GUI手测记录.md)。
+2026-10-09 正常 UI 已确认 Rifle_7 双击默认进入 GUI，GUI/原始 Details 两个顶部按钮及两个右键入口实际往返成功、窗口复用，All Saved，正式资产文件哈希不变；此次使用-nosound，不扩展为带音频退出验收。
+
+任务15尚未全量验收：真实 PIE 第三轮完成16场景32轮，有3项失败，见 `后座GUI开发/验收/PIE-Verify3-Failed.txt`；真实100%/150%/200% DPI已验证并修复显示与点击问题，原125%已恢复；1000节点性能和完整人工交互矩阵仍待完成；打包游戏 Alt+F4 出现引擎断言，带音频编辑器退出也有失败记录。用户再次请求验证后已恢复 UI 验证，详见 [续验记录](后座GUI开发/验收/20261008-续验.md) 和 [此前正常 GUI/PIE/打包记录](后座GUI开发/验收/P3-P5-GUI手测记录.md)。
 
 ## 后续验收入口
 

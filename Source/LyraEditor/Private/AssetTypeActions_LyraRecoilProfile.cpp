@@ -1,6 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 #include "AssetTypeActions_LyraRecoilProfile.h"
-#include "Recoil/LyraRecoilProfileEditor.h"
+#include "Recoil/LyraRecoilEditorRouting.h"
 #include "Weapons/Recoil/LyraRecoilProfile.h"
 
 UClass* FAssetTypeActions_LyraRecoilProfile::GetSupportedClass() const { return ULyraRecoilProfile::StaticClass(); }
@@ -9,7 +9,6 @@ void FAssetTypeActions_LyraRecoilProfile::OpenAssetEditor(const TArray<UObject*>
  for(UObject* Object:InObjects)
   if(ULyraRecoilProfile* Profile=Cast<ULyraRecoilProfile>(Object))
   {
-   if(auto Existing=FLyraRecoilProfileEditor::FindEditorForProfile(Profile)) Existing->FocusWindow(Profile);
-   else MakeShared<FLyraRecoilProfileEditor>()->InitEditor(Host,Profile);
+   LyraRecoilEditorRouting::OpenGUI(Profile,Host);
   }
 }

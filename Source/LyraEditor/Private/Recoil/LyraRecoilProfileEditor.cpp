@@ -9,6 +9,7 @@
 #include "Recoil/SLyraRecoilShotTable.h"
 #include "Recoil/SLyraRecoilPatternGraph.h"
 #include "Recoil/SLyraRecoilPreview.h"
+#include "Recoil/LyraRecoilEditorRouting.h"
 #include "Framework/Commands/GenericCommands.h"
 #include "Weapons/Recoil/LyraRecoilProfile.h"
 
@@ -97,6 +98,16 @@ void FLyraRecoilProfileEditor::InitEditor(const TSharedPtr<IToolkitHost>& InitTo
 	BindExternalListeners();
 	if (GEditor) GEditor->RegisterForUndo(this);
 	RefreshFromAsset();
+	RegenerateMenusAndToolbars();
+}
+
+void FLyraRecoilProfileEditor::PostRegenerateMenusAndToolbars()
+{
+	FAssetEditorToolkit::PostRegenerateMenusAndToolbars();
+	const TWeakObjectPtr<ULyraRecoilProfile> WeakProfile(Profile);
+	SetMenuOverlay(SNew(SButton).Text(LOCTEXT("RawDetailsToolbar", "原始参数（Details）"))
+		.ToolTipText(LOCTEXT("RawDetailsToolbarTip", "打开同一资产的引擎通用 Details；顶部按钮可返回后坐力 GUI。"))
+		.OnClicked_Lambda([WeakProfile] { LyraRecoilEditorRouting::OpenRawDetails(WeakProfile.Get()); return FReply::Handled(); }));
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +192,7 @@ TSharedRef<SDockTab> FLyraRecoilProfileEditor::SpawnDetailsTab(const FSpawnTabAr
             + SVerticalBox::Slot().AutoHeight()
             [SNew(SButton).Text(LOCTEXT("RawDetails","原始 Details（高级）"))
                 .ToolTipText(LOCTEXT("RawDetailsTip","打开引擎通用 Details。外部数组结构修改会重建节点身份并取消草稿。"))
-                .OnClicked_Lambda([this] { FSimpleAssetEditor::CreateEditor(EToolkitMode::Standalone,nullptr,Profile); return FReply::Handled(); })]
+                .OnClicked_Lambda([this] { LyraRecoilEditorRouting::OpenRawDetails(Profile); return FReply::Handled(); })]
             + SVerticalBox::Slot().FillHeight(1)[DetailsWidget]
 		];
 }
