@@ -21,6 +21,8 @@ bool FRecoilEditorDefaultRouting::RunTest(const FString&)
         Definition && Definition->IsA<UAssetDefinition_LyraRecoilProfile>())) return false;
 
     TStrongObjectPtr<ULyraRecoilProfile> Profile(NewObject<ULyraRecoilProfile>(GetTransientPackage(), NAME_None, RF_Transactional));
+    Profile->bUseDirectShotAngles = false;
+    Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
     Profile->PatternPoints = { FRecoilPatternPoint(.2f, .5f), FRecoilPatternPoint(-.3f, .7f) };
     Profile->PatternLength = 2;
     const auto OriginalPoints = Profile->PatternPoints;

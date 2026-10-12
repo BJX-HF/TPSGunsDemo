@@ -21,6 +21,8 @@ namespace RecoilEditorTransactions
 ULyraRecoilProfile* MakeProfile(UObject* Outer=GetTransientPackage(), FName Name=NAME_None)
 {
     auto* P=NewObject<ULyraRecoilProfile>(Outer,Name,RF_Transactional);
+    P->bUseDirectShotAngles = false;
+    P->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
     P->PatternPoints={FRecoilPatternPoint(.2f,.3f),FRecoilPatternPoint(-.1f,.5f),FRecoilPatternPoint(.7f,.8f)};
     P->PatternLength=2;
     P->RecoilPerShot_Horizontal=2;

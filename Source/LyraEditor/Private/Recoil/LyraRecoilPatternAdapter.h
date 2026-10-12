@@ -18,17 +18,21 @@ class ULyraRecoilProfile;
  *
  * 单位与语义（与 §05 一致）：
  *  - H = RecoilPerShot_Horizontal，V = RecoilPerShot_Vertical，c[i] = GetVerticalKickCurveScale(i)；
+ *  - 角度格式：ΔYaw=X，ΔPitch=Y，累计点为逐发角度之和；不再受归一化上限约束。
+ *  - 以下 H/V/c 公式仅适用于旧格式兼容：
  *  - 固定段 0 ≤ i < L：ΔYaw[i] = H × X[i]，ΔPitch[i] = V × Y[i] × c[i]，P[i] = P[i-1] + Δ[i]，P[-1] = (0,0)；
  *  - 反算：X = ΔYaw / H，Y = ΔPitch / (V × c[i])；
  *  - 中间量一律 double，仅在写回 float 字段时降精度，并做正向重建容差校验。
  */
 struct FLyraRecoilPatternData
 {
-	/** 原始归一化逐发参数（与 ULyraRecoilProfile::PatternPoints 同序）。 */
+	/** 逐发参数（当前格式为角度；旧格式为归一化值），与 Profile 同序。 */
 	TArray<FRecoilPatternPoint> Points;
 
 	/** 固定区间长度（与 ULyraRecoilProfile::PatternLength 同义）。 */
 	int32 PatternLength = 0;
+	/** Units used by this candidate, for structural insertion validation. */
+	bool bUsesDirectAngles = false;
 };
 
 /**
@@ -48,11 +52,13 @@ struct FLyraRecoilConversionReport
 };
 
 /**
- * 结构化剪贴板载荷（§07 “LyraRecoilClipboard/v1”）。
+ * 结构化剪贴板载荷（§07 “LyraRecoilClipboard/v2，兼容 v1”）。
  * 同时保留原始归一化值与可选的源逐发角度，供“粘贴归一化参数 / 按角度粘贴”两种模式使用。
  */
 struct FLyraRecoilClipboardData
 {
+	/** v2=degrees; v1=legacy normalized values. */
+	bool bUsesDirectAngles = false;
 	/** 源资产中的发序号（按序号升序存储；仅作元信息）。 */
 	TArray<int32> SourceIndices;
 
@@ -206,7 +212,7 @@ public:
 	static bool Equal(const FLyraRecoilPatternData& A, const FLyraRecoilPatternData& B);
 
 	/**
-	 * 生成版本化剪贴板 JSON（LyraRecoilClipboard/v1）。
+	 * 生成版本化剪贴板 JSON（LyraRecoilClipboard/v2，兼容 v1）。
 	 * Indices 会按原发序号升序、去重；索引非法、非有限或载荷超过保护值时返回空串。
 	 */
 	static FString Copy(const ULyraRecoilProfile& Profile, const TArray<int32>& Indices);

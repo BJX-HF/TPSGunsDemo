@@ -50,10 +50,10 @@ void SLyraRecoilShotTable::Construct(const FArguments& InArgs)
 		.DefaultLabel(LOCTEXT("ColSegment", "段"))
 		.FixedWidth(52.0f));
 	HeaderRow->AddColumn(SHeaderRow::Column(LyraRecoilShotTableColumns::RawX)
-		.DefaultLabel(LOCTEXT("ColRawX", "原值 X"))
+		.DefaultLabel_Lambda([this] { auto E=EditorWeak.Pin(); return FText::FromString(E && E->GetProfile() && E->GetProfile()->bUseDirectShotAngles ? TEXT("逐发 Yaw°") : TEXT("原值 X")); })
 		.FixedWidth(84.0f));
 	HeaderRow->AddColumn(SHeaderRow::Column(LyraRecoilShotTableColumns::RawY)
-		.DefaultLabel(LOCTEXT("ColRawY", "原值 Y"))
+		.DefaultLabel_Lambda([this] { auto E=EditorWeak.Pin(); return FText::FromString(E && E->GetProfile() && E->GetProfile()->bUseDirectShotAngles ? TEXT("逐发 Pitch°") : TEXT("原值 Y")); })
 		.FixedWidth(84.0f));
 	HeaderRow->AddColumn(SHeaderRow::Column(LyraRecoilShotTableColumns::DeltaYaw)
 		.DefaultLabel(LOCTEXT("ColDeltaYaw", "逐发 ΔYaw°"))
@@ -241,8 +241,8 @@ void SLyraRecoilShotTable::RefreshRows()
 		const int32 Num = Profile->PatternPoints.Num();
 		const int32 PatternLength = FMath::Clamp(Profile->PatternLength, 0, Num);
 
-		const double Horizontal = static_cast<double>(Profile->RecoilPerShot_Horizontal);
-		const double Vertical = static_cast<double>(Profile->RecoilPerShot_Vertical);
+		const double Horizontal = static_cast<double>(Profile->GetPatternHorizontalScale());
+		const double Vertical = static_cast<double>(Profile->GetPatternVerticalScale());
 
 		Rows.Reserve(Num);
 		for (int32 Index = 0; Index < Num; ++Index)
@@ -253,7 +253,7 @@ void SLyraRecoilShotTable::RefreshRows()
 			Row->bTailHorizontalInactive = Index >= PatternLength;
 			Row->RawValue = Profile->PatternPoints[Index];
 
-			const double VerticalScale = static_cast<double>(Profile->GetVerticalKickCurveScale(Index));
+			const double VerticalScale = static_cast<double>(Profile->GetPatternVerticalCurveScale(Index));
 
 			if (Row->bFixed)
 			{
@@ -303,13 +303,15 @@ FText SLyraRecoilShotTable::GetRowValidationText(TSharedPtr<FLyraRecoilShotRow> 
 	}
 
 	const FRecoilPatternPoint& Point = Row->RawValue;
+	auto E = EditorWeak.Pin();
+	const bool bAngles = E && E->GetProfile() && E->GetProfile()->bUseDirectShotAngles;
 	TArray<FString> Issues;
 
 	if (!FMath::IsFinite(Point.X))
 	{
 		Issues.Add(TEXT("X 非有限数（NaN/Inf）"));
 	}
-	else if (Point.X < -1.0f || Point.X > 1.0f)
+	else if (!bAngles && (Point.X < -1.0f || Point.X > 1.0f))
 	{
 		Issues.Add(FString::Printf(TEXT("X=%.6f 超出允许范围 [-1, 1]"), Point.X));
 	}
@@ -318,9 +320,9 @@ FText SLyraRecoilShotTable::GetRowValidationText(TSharedPtr<FLyraRecoilShotRow> 
 	{
 		Issues.Add(TEXT("Y 非有限数（NaN/Inf）"));
 	}
-	else if (Point.Y < 0.0f || Point.Y > 1.0f)
+	else if (Point.Y < 0.0f || (!bAngles && Point.Y > 1.0f))
 	{
-		Issues.Add(FString::Printf(TEXT("Y=%.6f 超出允许范围 [0, 1]"), Point.Y));
+		Issues.Add(bAngles ? FString::Printf(TEXT("上抬角度 %.6f° 必须非负"), Point.Y) : FString::Printf(TEXT("Y=%.6f 超出允许范围 [0, 1]"), Point.Y));
 	}
 
 	if (Row->bTailHorizontalInactive)
@@ -455,6 +457,8 @@ TSharedRef<SWidget> SLyraRecoilShotTableRow::GenerateWidgetForColumn(const FName
 	}
 
 	const TSharedPtr<FLyraRecoilShotRow> Row = RowData;
+	auto E = EditorWeak.Pin();
+	const bool bAngles = E && E->GetProfile() && E->GetProfile()->bUseDirectShotAngles;
 
 	if (ColumnName == LyraRecoilShotTableColumns::Index)
 	{
@@ -477,8 +481,8 @@ TSharedRef<SWidget> SLyraRecoilShotTableRow::GenerateWidgetForColumn(const FName
 			{
 				return TOptional<float>(Row->RawValue.X);
 			}))
-			.MinValue(TOptional<float>(-1.0f))
-			.MaxValue(TOptional<float>(1.0f))
+			.MinValue(bAngles ? TOptional<float>() : TOptional<float>(-1.0f))
+			.MaxValue(bAngles ? TOptional<float>() : TOptional<float>(1.0f))
 			.AllowSpin(false)
 			.OnValueCommitted(SNumericEntryBox<float>::FOnValueCommitted::CreateLambda(
 				[this](float NewValue, ETextCommit::Type CommitType) { OnRawXCommitted(NewValue, CommitType); }));
@@ -492,7 +496,7 @@ TSharedRef<SWidget> SLyraRecoilShotTableRow::GenerateWidgetForColumn(const FName
 				return TOptional<float>(Row->RawValue.Y);
 			}))
 			.MinValue(TOptional<float>(0.0f))
-			.MaxValue(TOptional<float>(1.0f))
+			.MaxValue(bAngles ? TOptional<float>() : TOptional<float>(1.0f))
 			.AllowSpin(false)
 			.OnValueCommitted(SNumericEntryBox<float>::FOnValueCommitted::CreateLambda(
 				[this](float NewValue, ETextCommit::Type CommitType) { OnRawYCommitted(NewValue, CommitType); }));
@@ -546,7 +550,7 @@ TSharedRef<SWidget> SLyraRecoilShotTableRow::GenerateWidgetForColumn(const FName
 	{
 		return SNew(STextBlock)
 			.Text(Row->bTailHorizontalInactive
-				? LOCTEXT("TailXInactive", "未生效（可显式修改原值 X）")
+				? LOCTEXT("TailXInactive", "未生效（水平由随机尾段控制）")
 				: LOCTEXT("TailXActive", "生效"))
 			.ColorAndOpacity(Row->bTailHorizontalInactive
 				? FSlateColor(FLinearColor(0.70f, 0.70f, 0.70f))

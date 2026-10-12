@@ -32,19 +32,19 @@ void FLyraRecoilEditorCommands::RegisterCommands()
 
 	UI_COMMAND(CopySelection,
 		"复制节点",
-		"以 LyraRecoilClipboard/v1 结构化载荷复制原始归一化逐发参数",
+		"复制逐发角度（v2），并兼容旧归一化载荷（v1）",
 		EUserInterfaceActionType::Button,
 		FInputChord(EModifierKey::Control, EKeys::C));
 
 	UI_COMMAND(PasteNormalized,
-		"粘贴归一化参数",
-		"按当前插入位置粘贴原始归一化逐发参数（默认语义）",
+		"粘贴逐发参数",
+		"按当前插入位置粘贴逐发参数；跨格式时按源角度转换",
 		EUserInterfaceActionType::Button,
 		FInputChord(EModifierKey::Control, EKeys::V));
 
 	UI_COMMAND(PasteByAngle,
 		"按角度粘贴",
-		"用目标资产强度与曲线反算载荷中的源逐发角度后粘贴",
+		"按源逐发角度粘贴；角度格式直接保存度数",
 		EUserInterfaceActionType::Button,
 		FInputChord(static_cast<EModifierKey::Type>(EModifierKey::Control | EModifierKey::Shift), EKeys::V));
 

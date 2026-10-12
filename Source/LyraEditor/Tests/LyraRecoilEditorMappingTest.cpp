@@ -26,6 +26,8 @@ namespace LyraRecoilEditorMappingTest
 		float Horizontal, float Vertical)
 	{
 		ULyraRecoilProfile* Profile = NewObject<ULyraRecoilProfile>(GetTransientPackage());
+		Profile->bUseDirectShotAngles = false;
+		Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
 		Profile->PatternPoints = Points;
 		Profile->PatternLength = PatternLength;
 		Profile->RecoilPerShot_Horizontal = Horizontal;
@@ -1369,6 +1371,8 @@ bool FLyraRecoilEditorMappingPreservationTest::RunTest(const FString& Parameters
 	const FString PackageName = FString::Printf(TEXT("/Temp/LyraRecoilEditorMapping_%s"), *FGuid::NewGuid().ToString(EGuidFormats::Digits));
 	UPackage* Package = CreatePackage(*PackageName);
 	ULyraRecoilProfile* Profile = NewObject<ULyraRecoilProfile>(Package, TEXT("MappingPreservationProfile"));
+	Profile->bUseDirectShotAngles = false;
+	Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
 
 	Profile->PatternPoints.Empty();
 	Profile->PatternPoints.Add(FRecoilPatternPoint(0.5f, 0.5f));

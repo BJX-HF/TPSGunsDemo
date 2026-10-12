@@ -15,8 +15,8 @@ class SListView;
  * 逐发表格的一行数据（可重建缓存，不是持久数据）。
  *
  * 列语义（计划 §04 左栏）：
- *  - 原值：PatternPoints[i].X / .Y（归一化，直接写入）；
- *  - 逐发：ΔYaw[i] = H × X，ΔPitch[i] = V × Y × c[i]（只读展示）；
+ *  - 原值：PatternPoints[i].X / .Y（当前格式为度数，直接写入）；
+ *  - 逐发：角度格式 ΔYaw=X、ΔPitch=Y；旧格式仍使用 H/V/曲线（只读展示）；
  *  - 累计：P[i] = P[i-1] + Δ[i]（固定段可精确编辑，走 MoveCumulative）；
  *  - 尾段：i ≥ PatternLength 的 Y 仍参与垂直计算（可编辑），X 当前不参与水平计算
  *    （"未生效"高级列，可显式修改但不会影响当前水平结果）。
@@ -29,7 +29,7 @@ struct FLyraRecoilShotRow
 	/** 是否落在固定段（i < PatternLength）。 */
 	bool bFixed = false;
 
-	/** 原始归一化参数（原值列）。 */
+	/** 逐发存储参数（角度列；兼容旧归一化格式）。 */
 	FRecoilPatternPoint RawValue;
 
 	/** 逐发角度（度）。尾段的 ΔYaw 当前不参与水平计算，故为 0 并标记无效。 */
@@ -51,7 +51,7 @@ struct FLyraRecoilShotRow
 };
 
 /**
- * 逐发表格：序号 / 段 / 归一化原值 / 逐发角度 / 累计角度 / 尾X状态 / 校验。
+ * 逐发表格：序号 / 段 / 逐发角度配置 / 应用角度 / 累计角度 / 尾X状态 / 校验。
  *
  * 编辑路径统一走 FLyraRecoilProfileEditor（内部再走 FLyraRecoilEditOperations），
  * 因此不会绕过结构规则，也不会出现"普通 Details 数组按钮绕过校验"的情况。

@@ -38,6 +38,8 @@ namespace LyraRecoilSpreadTest
 	static ULyraRecoilProfile* MakeSpreadProfile()
 	{
 		ULyraRecoilProfile* Profile = NewObject<ULyraRecoilProfile>(GetTransientPackage());
+		Profile->bUseDirectShotAngles = false;
+		Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
 
 		Profile->bEnableProfileSpread = true;
 
@@ -89,6 +91,8 @@ bool FLyraRecoilSpreadDisabledIsNoOpTest::RunTest(const FString& Parameters)
 	// 新建资产默认必须**关闭** —— 这是"既有资产/既有手感零回归"的第一道保证：
 	// 只要没人在资产上勾这个开关，运行时就一定走 Lyra 原生 heat 链路。
 	ULyraRecoilProfile* Profile = NewObject<ULyraRecoilProfile>(GetTransientPackage());
+	Profile->bUseDirectShotAngles = false;
+	Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
 	TestTrue(TEXT("A freshly created ULyraRecoilProfile has profile spread disabled by default"),
 		!Profile->bEnableProfileSpread);
 

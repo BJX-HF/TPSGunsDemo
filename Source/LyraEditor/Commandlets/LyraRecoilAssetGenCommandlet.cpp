@@ -339,6 +339,7 @@ namespace LyraRecoilAssetGen
 	 */
 	static void ApplySpec(ULyraRecoilProfile& Profile, const FProfileSpec& Spec)
 	{
+		Profile.bUseDirectShotAngles = false;
 		Profile.RecoilPerShot_Vertical = Spec.RecoilPerShot_Vertical;
 		Profile.RecoilPerShot_Horizontal = Spec.RecoilPerShot_Horizontal;
 
@@ -494,6 +495,7 @@ namespace LyraRecoilAssetGen
 		}
 
 		ApplySpec(*Profile, Spec);
+		if (!Profile->ConvertLegacyPatternToAngles()) return nullptr;
 		return Profile;
 	}
 }

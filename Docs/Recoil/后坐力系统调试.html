@@ -12,18 +12,20 @@
 </head>
 <body><main class="wrap">
 <header><h1>后坐力系统调试</h1><div class="muted">可调参数与 Debug 速查 · TPSGunsDemo</div></header>
+<div class="note">2026-10-11：逐发配置直接使用角度，旧归一化资产在加载时进行版本化转换。配置、迁移和相邻点拖动规则见 <a href="17_PerShotAngles.md">逐发角度配置说明</a>。</div>
 <nav><a href="#base">后坐力</a><a href="#single">单发与回正</a><a href="#roll">Roll</a><a href="#spread">散布</a><a href="#ammo">弹匣、备弹与射速</a><a href="#debug">Debug 命令</a><a href="#panels">读数与排错</a></nav>
 <div class="note">角度单位均为度。后坐力参数位于当前武器的 <code>DA_Recoil_*</code> 资产；<code>DA_Recoil_Rifle_S</code> 与 <code>DA_Recoil_Rifle_7</code> 目前都使用 <code>Interpolated</code> 单发模式。表中的“默认”是字段默认值，具体枪械请以资产面板中的值为准。</div>
 
 <h2 id="base">1 · 后坐力与轨迹参数</h2>
 <h3>Recoil | Base / Curves / Pattern</h3>
 <div class="scroll"><table><tr><th>参数</th><th>含义</th></tr>
-<tr><td><code>RecoilPerShot_Vertical</code></td><td>每发基础垂直力度；与轨迹点 Y、垂直力度曲线及姿态倍率共同决定抬枪量。</td></tr>
-<tr><td><code>RecoilPerShot_Horizontal</code></td><td>每发基础水平力度；与轨迹点 X 及姿态倍率共同决定左右摆幅。</td></tr>
-<tr><td><code>VerticalKickCurve</code></td><td>按发序号调整垂直力度。横轴为从 0 开始的发序号，纵轴为倍率；不改变水平力度。</td></tr>
-<tr><td><code>PatternPoints</code></td><td>固定轨迹点。X 控制水平走向，Y 控制垂直走向；调整点位可改变 S 形、7 字形等图案。</td></tr>
+<tr><td><code>PatternPoints.X / Y</code></td><td>当前格式直接配置逐发角度：X 是水平 Yaw（度，右正左负），Y 是上抬 Pitch（度，非负，无 1.0 上限）。画布显示这些角度的累计值；姿态和全局倍率仍生效。</td></tr>
+<tr><td><code>RecoilPerShot_Vertical / Horizontal</code></td><td>旧归一化格式的基础力度，保留用于兼容；在角度资产中隐藏，不再重复缩放数组内角度。</td></tr>
+<tr><td><code>VerticalKickCurve</code></td><td>角度格式仅在启用数组外尾段曲线时使用；数组内配置角度不乘此曲线。横轴为从 0 开始的发序号，纵轴为倍率。旧归一化格式继续按原定义使用。</td></tr>
+<tr><td><code>PatternPoints</code></td><td>逐发数据数组。固定水平段按 X 配置走向，超过固定段后水平使用随机游走；数组内每一发的 Y 仍为该发上抬角度。调整点位可改变 S 形、7 字形等图案。</td></tr>
 <tr><td><code>PatternLength</code></td><td>固定轨迹覆盖的发数，不可超过轨迹点数量；之后进入随机区间。</td></tr>
-<tr><td><code>HorizontalRandomRange</code></td><td>固定轨迹结束后的水平随机游走范围，单位为归一化轨迹量。越大，后续左右偏移越明显。</td></tr>
+<tr><td><code>HorizontalRandomRangeDegrees</code></td><td>固定水平段结束后的确定性随机游走范围（±度数）。旧 HorizontalRandomRange 仅用于归一化格式兼容。</td></tr>
+<tr><td><code>TailPitchDegrees / bUseTailPitchCurve</code></td><td>超过逐发数组后每发的上抬角度；可启用 VerticalKickCurve 尾段倍率。数组内每发直接使用配置角度。旧资产自动转换时保留原曲线及无限尾段行为。</td></tr>
 <tr><td><code>RandomSeedMode</code> / <code>FixedRandomSeed</code></td><td>选择随机种子的取得方式；固定种子用于复现随机段。固定种子字段仅在固定模式下生效。</td></tr>
 </table></div>
 <h3>Recoil | Multipliers / Clamp</h3>

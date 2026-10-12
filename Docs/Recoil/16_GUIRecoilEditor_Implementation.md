@@ -2,11 +2,13 @@
 
 开发依据：[完整开发计划](15_GUIRecoilEditor_DevelopmentPlan.html)。实际进度、委派单、开发报告和主 agent 验收统一保存到 [后座GUI开发](后座GUI开发/进度.md)。本说明随实施更新，不把尚未验证的阶段标成完成。
 
+> **2026-10-11 当前配置定义**：逐发参数直接保存角度，旧包通过版本化加载转换保留实际后坐力。新规则、尾段与操作说明见 [逐发角度配置](17_PerShotAngles.md)。此前任务15的归一化描述及验收记录保留为历史。
+
 ## 数据与模块边界
 
-编辑器位于现有 `LyraEditor`，唯一持久配置仍是 `ULyraRecoilProfile`。固定段画布使用累计角度，逐发表格使用原始归一化参数；转换通过 Adapter。随机尾段来自现有运行时，仅作只读数值显示。会话 ID、选择、视图和预览快照不进入运行时 Profile。
+编辑器位于现有 `LyraEditor`，唯一持久配置仍是 `ULyraRecoilProfile`。固定段画布使用累计角度，逐发表格直接编辑单发 Yaw/Pitch 角度；累计与逐发转换通过 Adapter。随机尾段来自现有运行时，仅作只读数值显示。会话 ID、选择、视图和预览快照不进入运行时 Profile。
 
-运行时沿用任务14回正到本轮起枪角的实现。正式 Profile、现有 Golden、LyraGame 算法不因本任务自动调整。
+运行时沿用任务14回正到本轮起枪角的实现。2026-10-11 角度格式更新了 LyraGame 的逐发 Kick 入口及旧资产加载转换；回弹/回正算法沿用既有实现。历史 Golden 保留，正式资产文件不因加载测试而自动保存。
 
 ## 来源与许可
 
@@ -36,7 +38,7 @@
 | `Tests/LyraRecoilEditor*Test.cpp` | 映射、预览、事务、实际 Toolkit 通知及保存卸载重载回归 |
 | `Tests/LyraRecoilEditorUIFixtures.cpp`、`LyraRecoilEditorPIEFixtures.cpp` | 仅 Editor 的显式人工验收夹具，临时资产位于 Saved |
 
-`LyraEditor.Build.cs` 与模块启动/关闭注册同步更新；所有新增依赖及测试夹具只在 Editor 模块。没有修改 `Source/LyraGame`、正式 `Content` 资产或现有 Golden。
+`LyraEditor.Build.cs` 与模块启动/关闭注册同步更新；所有新增依赖及测试夹具只在 Editor 模块。此前任务15未修改 `Source/LyraGame`、正式 `Content` 或现有 Golden；2026-10-11 的角度格式改造增加运行时支持和迁移版本，详见当前配置文档。
 
 ## 操作说明
 
@@ -44,7 +46,7 @@
 
 2026-10-09 默认入口改为原生 `AssetDefinition`。GUI 顶部“原始参数（Details）”打开引擎完整参数页，原始页顶部“后坐力 GUI”返回专用编辑器；资产右键也可显式选择任一入口。另一台电脑需同步源码并完整编译 LyraEditor，旧 DLL 不包含这些入口。详见 [本轮验收](后座GUI开发/验收/20261009-默认入口与页面切换.md)。
 
-画布编辑固定段累计角度；表格编辑 X/Y 归一化值。候选超出 X[-1,1] 或 Y[0,1] 时整次拒绝并显示诊断。拖动在释放时形成一次事务，取消、无变化或拒绝不写入资产。高级强度调整会先展示对其他发及随机尾段的影响，确认后原子提交。
+画布编辑固定段累计角度；表格编辑单发 X=Yaw°、Y=Pitch°。角度格式允许 X 为任意可存储的有限正负角度，Y 为有限非负上抬角度，没有 1.0 上限。累计 Pitch 下降会因相邻发产生负上抬而被原子拒绝。拖动在释放时形成一次事务，取消、无变化或拒绝不写入资产。高级归一化强度调整仅保留在旧格式兼容分支；角度资产中隐藏该按钮。
 
 | 输入 | 操作 |
 | --- | --- |
@@ -54,7 +56,7 @@
 | 方向键、Shift+方向键 | 微调、十倍步长；按键释放提交一次事务 |
 | Esc | 取消当前草稿手势 |
 | Ctrl+Z、Ctrl+Shift+Z | 撤销、重做 |
-| Ctrl+C、Ctrl+V、Ctrl+Shift+V | 复制、按归一化参数粘贴、按源角度反算粘贴 |
+| Ctrl+C、Ctrl+V、Ctrl+Shift+V | 复制、粘贴逐发参数、按源角度粘贴；跨单位载荷按源角度转换 |
 | Insert、Delete、Alt+上下 | 插入、删除、重排选中发 |
 | Ctrl+S | 校验并保存当前 Profile 包 |
 
@@ -65,6 +67,8 @@
 预览支持射速、发数、两轮间隔、起枪角、姿态、ADS、倍率、种子、运行模式和压枪输入。控制器复制 Profile 及外部曲线，用既有运行时函数推进；预览参数与结果不持久化到 Profile。修改资产后刷新快照。理论累计、Camera Pitch/Yaw、Visible Pitch、Control Pitch 曲线与逐发表来自同一模拟结果，播放倍率只改变回放位置。
 
 ## 当前验证
+
+2026-10-11：角度格式改造完成，Editor 和 Game 的 Win64 Development 构建成功，90/90 后坐力自动化通过，0失败/跳过/进行中/警告。比例尺与GUI视觉由用户自行检查；详细证据见 [逐发角度验收](后座GUI开发/验收/20261011-逐发角度配置.md)。以下2026-10-09结果为历史记录。
 
 2026-10-09 `LyraEditor Win64 Development` 第23轮完整构建成功。其后的 `Lyra.Recoil` 83/83通过，前轮82项及原57项完整保留，0 failed、notRun、inProcess、warnings，运行器及引擎退出码0；报告为 `Saved/Automation/RecoilGUI-RoutingRefresh83-Final-20261009-172931/index.json`。顶部按钮刷新修复及正常 UI 复验见 [默认入口验收](后座GUI开发/验收/20261009-默认入口与页面切换.md)。此前非 Editor `LyraGame` 构建及实际 Cook/Stage/Package/Archive 成功；失败轮次及运行器归档编码问题也保留在进度中。
 

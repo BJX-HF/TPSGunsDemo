@@ -387,6 +387,10 @@ uint32 FLyraRecoilPreviewController::ComputeRequestToken() const
 		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->PatternLength));
 		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->PatternPoints.Num()));
 		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->HorizontalRandomRange));
+		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->bUseDirectShotAngles));
+		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->HorizontalRandomRangeDegrees));
+		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->TailPitchDegrees));
+		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->bUseTailPitchCurve));
 		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->MaxVerticalKick));
 		Token = HashCombine(Token, GetTypeHash(SnapshotProfile->MaxHorizontalKick));
 		Token = HashCombine(Token, GetTypeHash(static_cast<uint8>(SnapshotProfile->SingleShotMode)));

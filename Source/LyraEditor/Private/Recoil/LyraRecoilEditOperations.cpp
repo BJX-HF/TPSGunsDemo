@@ -148,6 +148,8 @@ bool FLyraRecoilEditOperations::CheckFiniteNumbers(const ULyraRecoilProfile& Tar
 {
 	bool bFinite = true;
 
+	bFinite &= LyraRecoilEditOperationsLocal::CheckFiniteFloat(TEXT("TailPitchDegrees"), Target.TailPitchDegrees, OutErrors);
+	bFinite &= LyraRecoilEditOperationsLocal::CheckFiniteFloat(TEXT("HorizontalRandomRangeDegrees"), Target.HorizontalRandomRangeDegrees, OutErrors);
 	bFinite &= LyraRecoilEditOperationsLocal::CheckFiniteFloat(TEXT("RecoilPerShot_Vertical"), Target.RecoilPerShot_Vertical, OutErrors);
 	bFinite &= LyraRecoilEditOperationsLocal::CheckFiniteFloat(TEXT("RecoilPerShot_Horizontal"), Target.RecoilPerShot_Horizontal, OutErrors);
 	bFinite &= LyraRecoilEditOperationsLocal::CheckFiniteFloat(TEXT("MaxVerticalKick"), Target.MaxVerticalKick, OutErrors);
@@ -422,7 +424,7 @@ bool FLyraRecoilEditOperations::CommitPointNormalized(int32 Index, float X, floa
 	Data.Points[Index] = FRecoilPatternPoint(X, Y);
 
 	return CommitPatternInternal(Data,
-		FText::Format(LOCTEXT("EditPoint", "编辑第 {0} 发归一化参数"), FText::AsNumber(Index + 1)),
+		FText::Format(LOCTEXT("EditPoint", "编辑第 {0} 发逐发参数"), FText::AsNumber(Index + 1)),
 		OutErrors, [](ULyraRecoilEditorSession&) {});
 }
 
@@ -593,21 +595,41 @@ bool FLyraRecoilEditOperations::PasteNormalizedFromClipboard(TArray<FString>& Ou
 		OutErrors.Add(TEXT("剪贴板为空。"));
 		return false;
 	}
+	return PasteParameters(ClipboardText, OutErrors);
+}
 
-	TArray<FRecoilPatternPoint> Points;
-	if (!FLyraRecoilPatternAdapter::ParseClipboard(ClipboardText, Points, OutErrors))
+bool FLyraRecoilEditOperations::PasteParameters(const FString& ClipboardText, TArray<FString>& OutErrors)
+{
+	ULyraRecoilProfile* Target = Profile.Get();
+	if (!Target)
+	{
+		OutErrors.Add(TEXT("没有正在编辑的 Profile。"));
+		return false;
+	}
+
+	FLyraRecoilClipboardData Clipboard;
+	if (!FLyraRecoilPatternAdapter::ParseClipboardEx(ClipboardText, Clipboard, OutErrors))
 	{
 		// 失败零写入：解析失败直接返回，不建事务。
 		return false;
 	}
 
+	TArray<FRecoilPatternPoint> Points = Clipboard.Points;
+	if (Clipboard.bUsesDirectAngles != Target->bUseDirectShotAngles)
+	{
+		if (!Clipboard.bHasSourceAngles)
+		{ OutErrors.Add(TEXT("剪贴板单位不同且缺少源角度，请在源资产重新复制。")); return false; }
+		const auto* PasteSession = Session.Get();
+		const int32 PasteIndex = PasteSession && !PasteSession->GetSelectedIndices().IsEmpty() ? PasteSession->GetSelectedIndices()[0] : Target->PatternPoints.Num();
+		if (!FLyraRecoilPatternAdapter::ConvertClipboardAngles(*Target, Clipboard, PasteIndex, Points, OutErrors)) return false;
+	}
 	if (Points.Num() == 0)
 	{
 		OutErrors.Add(TEXT("剪贴板载荷不含任何节点。"));
 		return false;
 	}
 
-	// 默认语义：粘贴原始归一化逐发参数，插到数组末尾（k == N，归入尾段，L 不变）。
+	// 粘贴存储单位的逐发参数；有选择时在该处插入，否则追加到数组末尾。
 	const auto* Sess=Session.Get();
 	const int32 Index=Sess && !Sess->GetSelectedIndices().IsEmpty()?Sess->GetSelectedIndices()[0]:Target->PatternPoints.Num();
 	return InsertPoints(Index, Points, /*bFixedAtBoundary=*/false, OutErrors);
@@ -638,7 +660,7 @@ bool FLyraRecoilEditOperations::PasteByAngleFromClipboard(TArray<FString>& OutEr
 
 	if (!Clipboard.bHasSourceAngles)
 	{
-		OutErrors.Add(TEXT("该剪贴板载荷不含源逐发角度，无法按角度粘贴；请改用「粘贴归一化参数」。"));
+		OutErrors.Add(TEXT("该剪贴板载荷不含源逐发角度，无法按角度粘贴；请改用「粘贴逐发参数」。"));
 		return false;
 	}
 

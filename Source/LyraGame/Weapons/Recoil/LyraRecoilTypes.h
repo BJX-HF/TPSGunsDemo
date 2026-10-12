@@ -100,29 +100,20 @@ enum class ERecoilSingleShotMode : uint8
 	Interpolated	UMETA(DisplayName = "Interpolated")
 };
 
-/**
- * Pattern 中的一个归一化弹着点。
- *
- * 语义（重要，后续阶段不得更改）：
- *  - X 为水平方向，右为正，取值范围 [-1, 1]
- *  - Y 为垂直方向，上为正，取值范围 [0, 1]，0 表示该发不抬枪
- *
- * 该值只描述"形状"，实际幅度由 ULyraRecoilProfile::RecoilPerShot_Vertical /
- * RecoilPerShot_Horizontal 缩放。因此调整单发威力不会破坏 Pattern 形状。
+/** A per-shot point. Current assets store X/Y in degrees; legacy units are tracked on the Profile.
+ * X is signed horizontal kick; Y is non-negative upward kick. Canvas positions are cumulative.
  */
 USTRUCT(BlueprintType)
 struct FRecoilPatternPoint
 {
 	GENERATED_BODY()
 
-	/** 归一化水平偏移，右为正，[-1, 1] */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ClampMin = "-1.0", ClampMax = "1.0",
-		ToolTip = "归一化水平偏移（右为正，-1~1）。实际水平偏移 = 本值 × RecoilPerShot_Horizontal。"))
+	/** Per-shot horizontal angle in degrees, positive to the right. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ForceUnits = deg, ToolTip = "本发水平偏移角度（度）：右为正，左为负。"))
 	float X = 0.0f;
 
-	/** 归一化垂直偏移，上为正，[0, 1] */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0",
-		ToolTip = "归一化垂直偏移（上为正，0~1）。实际抬枪角度 = 本值 × RecoilPerShot_Vertical；0 = 这一发不抬枪。"))
+	/** Per-shot upward angle in degrees, non-negative. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ForceUnits = deg, ClampMin = "0.0", ToolTip = "本发上抬角度（度），0 表示该发不抬枪；没有归一化的 1.0 上限。"))
 	float Y = 0.0f;
 
 	FRecoilPatternPoint() = default;

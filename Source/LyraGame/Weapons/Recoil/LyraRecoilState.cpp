@@ -731,7 +731,7 @@ float FRecoilRuntimeState::ComputePatternHorizontal(const ULyraRecoilProfile& Pr
 
 	// 伪随机区间：从 PatternLength 起做确定性随机游走，逐步 Clamp 在 ±HorizontalRandomRange 内。
 	// 循环是 O(ShotIndex)，但 ShotIndex 量级只有几十，且换来了"纯函数、可复现"这两个关键性质。
-	const float Range = FMath::Max(0.0f, Profile.HorizontalRandomRange);
+	const float Range = FMath::Max(0.0f, Profile.bUseDirectShotAngles ? Profile.HorizontalRandomRangeDegrees : Profile.HorizontalRandomRange);
 
 	float Walk = 0.0f;
 	for (int32 StepIndex = Profile.PatternLength; StepIndex <= ClampedIndex; ++StepIndex)
@@ -753,14 +753,12 @@ FRecoilShotKick FRecoilRuntimeState::ComputeShotKick(
 {
 	const int32 ClampedIndex = FMath::Max(0, ShotIndex);
 
-	const FRecoilPatternPoint PatternPoint = Profile.GetPatternPoint(ClampedIndex);
 	const float PatternHorizontal = ComputePatternHorizontal(Profile, ClampedIndex, Seed);
-	const float KickCurveScale = Profile.GetVerticalKickCurveScale(ClampedIndex);
 	const float Magnitude = FMath::Max(0.0f, PoseMultiplier) * FMath::Max(0.0f, GlobalScale);
 
 	FRecoilShotKick Kick;
-	Kick.Vertical = Profile.RecoilPerShot_Vertical * PatternPoint.Y * KickCurveScale * Magnitude;
-	Kick.Horizontal = Profile.RecoilPerShot_Horizontal * PatternHorizontal * Magnitude;
+	Kick.Vertical = Profile.GetShotPitchDegrees(ClampedIndex) * Magnitude;
+	Kick.Horizontal = Profile.GetPatternHorizontalScale() * PatternHorizontal * Magnitude;
 
 	return Kick;
 }

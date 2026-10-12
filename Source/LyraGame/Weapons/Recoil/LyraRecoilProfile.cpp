@@ -3,10 +3,21 @@
 #include "Weapons/Recoil/LyraRecoilProfile.h"
 
 #include "LyraLogChannels.h"
+#include "Serialization/CustomVersion.h"
+#include "UObject/PropertyPortFlags.h"
+#include "Curves/CurveFloat.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(LyraRecoilProfile)
 
 #define LOCTEXT_NAMESPACE "LyraRecoilProfile"
+DEFINE_LOG_CATEGORY_STATIC(LogLyraRecoilMigration, Log, All);
+
+namespace LyraRecoilPatternVersion
+{
+	const FGuid GUID(0x36EA2481, 0xAC5D46F0, 0xB3192BC9, 0x29DB9073);
+	constexpr int32 DirectAngles = 1;
+	FCustomVersionRegistration Registration(GUID, DirectAngles, TEXT("LyraRecoilPatternAngles"));
+}
 
 namespace LyraRecoilProfileConstants
 {
@@ -17,8 +28,12 @@ namespace LyraRecoilProfileConstants
 	static constexpr float DegeneratePatternY = 1.0f;
 }
 
-ULyraRecoilProfile::ULyraRecoilProfile()
+ULyraRecoilProfile::ULyraRecoilProfile(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
+	// Duplicates and explicit templates already carry their source units.
+	const UObject* Template = ObjectInitializer.GetArchetype();
+	bInitializeNewAngles = !Template || Template->HasAnyFlags(RF_ClassDefaultObject);
 	// 构造默认值 —— 只影响"新建资产时的初值"，运行时一律从资产读取。
 	// 与 ULyraRangedWeaponInstance 构造函数里给 HeatToHeatPerShotCurve 加默认键
 	// （LyraRangedWeaponInstance.cpp L18-L19）是同一范式。
@@ -73,9 +88,79 @@ ULyraRecoilProfile::ULyraRecoilProfile()
 	PatternLength = LyraRecoilProfileConstants::DefaultPatternLength;
 }
 
+void ULyraRecoilProfile::Serialize(FArchive& Ar)
+{
+	if (Ar.IsLoading() && (Ar.GetPortFlags() & (PPF_Duplicate | PPF_DuplicateForPIE | PPF_DuplicateVerbatim)))
+	{
+		// Duplication serializes deltas against the CDO. PostInit's new-asset defaults
+		// must not survive when the source's legacy default-valued fields are omitted.
+		const ULyraRecoilProfile* Defaults = GetClass()->GetDefaultObject<ULyraRecoilProfile>();
+		bUseDirectShotAngles = Defaults->bUseDirectShotAngles;
+		PatternPoints = Defaults->PatternPoints;
+		HorizontalRandomRangeDegrees = Defaults->HorizontalRandomRangeDegrees;
+		TailPitchDegrees = Defaults->TailPitchDegrees;
+		bUseTailPitchCurve = Defaults->bUseTailPitchCurve;
+	}
+	Ar.UsingCustomVersion(LyraRecoilPatternVersion::GUID);
+	Super::Serialize(Ar);
+	// Duplicate readers can be persistent, but their missing version is not an old disk package.
+	if (Ar.IsLoading())
+	{
+		const bool bPackageLoad = Ar.IsPersistent() && !Ar.IsTransacting()
+			&& !(Ar.GetPortFlags() & (PPF_Duplicate | PPF_DuplicateForPIE | PPF_DuplicateVerbatim));
+		LoadedPatternVersion = bPackageLoad ? Ar.CustomVer(LyraRecoilPatternVersion::GUID) : LyraRecoilPatternVersion::DirectAngles;
+	}
+}
+
+void ULyraRecoilProfile::PostInitProperties()
+{
+	Super::PostInitProperties();
+	// Keep the legacy CDO defaults so omitted properties in old packages deserialize correctly.
+	if (bInitializeNewAngles && !HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject | RF_NeedLoad)) ConvertLegacyPatternToAngles();
+}
+
+bool ULyraRecoilProfile::ConvertLegacyPatternToAngles()
+{
+	if (bUseDirectShotAngles) return true;
+	if (VerticalKickCurve.ExternalCurve) VerticalKickCurve.ExternalCurve->ConditionalPostLoad();
+	TArray<FRecoilPatternPoint> Converted = PatternPoints;
+	for (int32 I=0; I<Converted.Num(); ++I)
+	{
+		Converted[I].X = RecoilPerShot_Horizontal * PatternPoints[I].X;
+		Converted[I].Y = RecoilPerShot_Vertical * PatternPoints[I].Y * GetVerticalKickCurveScale(I);
+		if (!FMath::IsFinite(Converted[I].X) || !FMath::IsFinite(Converted[I].Y) || Converted[I].Y < 0.0f) return false;
+	}
+	const float NewTailPitch = RecoilPerShot_Vertical * (PatternPoints.IsEmpty() ? 1.0f : PatternPoints.Last().Y);
+	const float NewRandomRange = RecoilPerShot_Horizontal * HorizontalRandomRange;
+	if (!FMath::IsFinite(NewTailPitch) || !FMath::IsFinite(NewRandomRange) || NewTailPitch < 0 || NewRandomRange < 0) return false;
+#if WITH_DEV_AUTOMATION_TESTS
+	PreMigrationPoints = PatternPoints;
+	bHasPreMigrationPoints = true;
+#endif
+	PatternPoints = MoveTemp(Converted);
+	TailPitchDegrees = NewTailPitch;
+	HorizontalRandomRangeDegrees = NewRandomRange;
+	bUseTailPitchCurve = true;
+	bUseDirectShotAngles = true;
+	return true;
+}
+
+float ULyraRecoilProfile::GetShotPitchDegrees(int32 ShotIndex) const
+{
+	const int32 Index = FMath::Max(0, ShotIndex);
+	if (!bUseDirectShotAngles) return RecoilPerShot_Vertical * GetPatternPoint(Index).Y * GetVerticalKickCurveScale(Index);
+	if (PatternPoints.IsValidIndex(Index)) return PatternPoints[Index].Y;
+	return TailPitchDegrees * (bUseTailPitchCurve ? GetVerticalKickCurveScale(Index) : 1.0f);
+}
+
 void ULyraRecoilProfile::PostLoad()
 {
 	Super::PostLoad();
+	if (LoadedPatternVersion < LyraRecoilPatternVersion::DirectAngles)
+	{
+		bUseDirectShotAngles = false;
+		if (!ConvertLegacyPatternToAngles()) UE_LOG(LogLyraRecoilMigration, Error, TEXT("Cannot convert legacy recoil profile %s; legacy data retained"), *GetPathName());
+	}
 
 	// 兼容手工改动过的旧资产
 	SanitizePatternLength();
@@ -356,7 +441,7 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 
 	// --- Curves must not be empty ---
 	const FRichCurve* VerticalCurve = VerticalKickCurve.GetRichCurveConst();
-	if ((VerticalCurve == nullptr) || !VerticalCurve->HasAnyData())
+	if ((!bUseDirectShotAngles || bUseTailPitchCurve) && ((VerticalCurve == nullptr) || !VerticalCurve->HasAnyData()))
 	{
 		OutErrors.Add(FString::Printf(TEXT("%s VerticalKickCurve is empty: at least one key is required"), *Prefix));
 	}
@@ -419,13 +504,20 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 		}
 	}
 
+	if (bUseDirectShotAngles)
+	{
+		if (!FMath::IsFinite(HorizontalRandomRangeDegrees) || HorizontalRandomRangeDegrees < 0) OutErrors.Add(TEXT("HorizontalRandomRangeDegrees must be finite and non-negative"));
+		if (!FMath::IsFinite(TailPitchDegrees) || TailPitchDegrees < 0) OutErrors.Add(TEXT("TailPitchDegrees must be finite and non-negative"));
+		for (const FRecoilPatternPoint& Point : PatternPoints)
+			if (!FMath::IsFinite(Point.X) || !FMath::IsFinite(Point.Y)) OutErrors.Add(TEXT("Per-shot angles must be finite"));
+	}
 	// --- Pattern ---
 	if (PatternLength < 0 || PatternLength > PatternPoints.Num())
 	{
 		OutErrors.Add(FString::Printf(TEXT("%s PatternLength = %d out of range [0, PatternPoints.Num()=%d]"),
 			*Prefix, PatternLength, PatternPoints.Num()));
 	}
-	if (HorizontalRandomRange < 0.0f || HorizontalRandomRange > 1.0f)
+	if (!bUseDirectShotAngles && (HorizontalRandomRange < 0.0f || HorizontalRandomRange > 1.0f))
 	{
 		OutErrors.Add(FString::Printf(TEXT("%s HorizontalRandomRange = %.4f must be within [0, 1]"), *Prefix, HorizontalRandomRange));
 	}
@@ -433,14 +525,16 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 	for (int32 Index = 0; Index < PatternPoints.Num(); ++Index)
 	{
 		const FRecoilPatternPoint& Point = PatternPoints[Index];
-		if (Point.X < -1.0f || Point.X > 1.0f)
+		if (!bUseDirectShotAngles && (Point.X < -1.0f || Point.X > 1.0f))
 		{
 			OutErrors.Add(FString::Printf(TEXT("%s PatternPoints[%d].X = %.4f must be within [-1, 1]"), *Prefix, Index, Point.X));
 		}
-		if (Point.Y < 0.0f || Point.Y > 1.0f)
+		if (Point.Y < 0.0f || (!bUseDirectShotAngles && Point.Y > 1.0f))
 		{
-			OutErrors.Add(FString::Printf(TEXT("%s PatternPoints[%d].Y = %.4f must be within [0, 1]. "
-				"Pattern only describes shape; put the rising ramp into VerticalKickCurve instead."), *Prefix, Index, Point.Y));
+			if (bUseDirectShotAngles)
+				OutErrors.Add(FString::Printf(TEXT("第%d发上抬角度 %.6g° 必须非负。"), Index+1, Point.Y));
+			else
+				OutErrors.Add(FString::Printf(TEXT("%s PatternPoints[%d].Y = %.4f must be within [0, 1]. Pattern only describes shape; put the rising ramp into VerticalKickCurve instead."), *Prefix, Index, Point.Y));
 		}
 	}
 

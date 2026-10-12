@@ -458,13 +458,13 @@ bool FLyraRecoilProfileEditor::ConfirmStructureChange(const FLyraRecoilPatternDa
     for (int32 I=0; I<Candidate.Points.Num() && I<24; ++I)
     {
         const auto& P=Candidate.Points[I];
-        const double Pitch=Profile->RecoilPerShot_Vertical*static_cast<double>(P.Y)*Profile->GetVerticalKickCurveScale(I);
+        const double Pitch=Profile->GetPatternVerticalScale()*static_cast<double>(P.Y)*Profile->GetPatternVerticalCurveScale(I);
         const FString Old=Order.IsValidIndex(I)?FString::Printf(TEXT("（原第%d发）"),Order[I]+1):FString();
         Preview+=FString::Printf(TEXT("第%d发%s %s：X=%.6g Y=%.6g ΔPitch=%.6g°"),I+1,*Old,I<Candidate.PatternLength?TEXT("固定"):TEXT("尾段"),P.X,P.Y,Pitch);
         if (Cumulative.IsValidIndex(I)) Preview+=FString::Printf(TEXT(" 累计Yaw/Pitch=%.6g/%.6g°"),Cumulative[I].X,Cumulative[I].Y);
         Preview+=TEXT("\n");
     }
-    if (Candidate.Points.Num()>24) Preview+=TEXT("其余节点保留原始归一化参数并按新索引求值。\n");
+    if (Candidate.Points.Num()>24) Preview+=TEXT("其余节点保留逐发参数；角度格式重排后每发角度不变。\n");
     Preview+=TEXT("\n确认应用一个事务？");
     return FMessageDialog::Open(EAppMsgType::YesNo,FText::FromString(Preview))==EAppReturnType::Yes;
 }
@@ -1259,6 +1259,7 @@ TSharedRef<SWidget> FLyraRecoilProfileEditor::CreatePatternGraph()
     ]
     + SVerticalBox::Slot().FillHeight(1)[SAssignNew(PatternGraph, SLyraRecoilPatternGraph).Editor(SharedThis(this))]
     + SVerticalBox::Slot().AutoHeight()[SNew(SButton).Text(FText::FromString(TEXT("高级：调整基础强度以容纳被拒绝的目标")))
+        .Visibility_Lambda([this] { return Profile && Profile->bUseDirectShotAngles ? EVisibility::Collapsed : EVisibility::Visible; })
         .IsEnabled_Lambda([this] { return PatternGraph && !PatternGraph->GetRejectedTargets().IsEmpty(); })
         .OnClicked_Lambda([this] { AdjustStrengthForRejectedTargets(); return FReply::Handled(); })]
     + SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).AutoWrapText(true)

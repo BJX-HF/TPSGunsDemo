@@ -49,9 +49,11 @@ class UE_API ULyraRecoilProfile : public UPrimaryDataAsset
 
 public:
 
-	ULyraRecoilProfile();
+	ULyraRecoilProfile(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	//~UObject interface
+	virtual void Serialize(FArchive& Ar) override;
+	virtual void PostInitProperties() override;
 	virtual void PostLoad() override;
 	//~End of UObject interface
 
@@ -59,21 +61,57 @@ public:
 	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
-	/** Separate V1 pitch/back visual channel. Defaults off for existing assets. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|WeaponVisual")
+	/** 独立的武器外观后坐力通道；既有资产默认关闭。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|WeaponVisual", meta = (ToolTip = "武器外观后坐力：控制枪身的抬起、左右摆动、侧倾及后退、上移、侧移。\n仅影响外观，不改变镜头后坐力或弹道；既有资产默认关闭。"))
 	FWeaponVisualRecoilSettings WeaponVisual;
+
+	/** Stored point units. Legacy assets are converted on load; do not toggle this manually. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (DisplayName = "逐发角度格式"))
+	bool bUseDirectShotAngles = false;
+
+	/** Random horizontal walk limit in degrees, used after PatternLength. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|PatternTail", meta = (DisplayName = "尾段水平随机范围", ForceUnits = deg, ClampMin = "0.0", ToolTip = "固定段之后水平随机游走的角度范围（±度数）。姿态和全局倍率仍生效。"))
+	float HorizontalRandomRangeDegrees = 0.108f;
+
+	/** Vertical kick after the stored point array ends. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|PatternTail", meta = (DisplayName = "数组外每发上抬角度", ForceUnits = deg, ClampMin = "0.0", ToolTip = "超过逐发数组后，每发使用这个上抬角度；可选尾段曲线只作用于数组外。数组内每发直接使用配置角度。"))
+	float TailPitchDegrees = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|PatternTail", meta = (DisplayName = "数组外启用上抬倍率曲线", ToolTip = "启用后：数组外上抬 = 数组外每发上抬角度 × VerticalKickCurve 在该发序号的倍率。旧资产转换时启用以保留无限尾段行为。"))
+	bool bUseTailPitchCurve = false;
+
+	/** Atomic conversion; preserves every stored shot and the unbounded random tail. */
+	bool ConvertLegacyPatternToAngles();
+	float GetPatternHorizontalScale() const { return bUseDirectShotAngles ? 1.0f : RecoilPerShot_Horizontal; }
+	float GetPatternVerticalScale() const { return bUseDirectShotAngles ? 1.0f : RecoilPerShot_Vertical; }
+	float GetPatternVerticalCurveScale(int32 ShotIndex) const { return bUseDirectShotAngles ? 1.0f : GetVerticalKickCurveScale(ShotIndex); }
+	float GetShotPitchDegrees(int32 ShotIndex) const;
+#if WITH_DEV_AUTOMATION_TESTS
+	/** Transient pre-conversion points for checking current on-disk assets, never serialized. */
+	const TArray<FRecoilPatternPoint>& GetPreMigrationPointsForTests() const { return PreMigrationPoints; }
+	bool HasPreMigrationPointsForTests() const { return bHasPreMigrationPoints; }
+#endif
+
+private:
+	bool bInitializeNewAngles = true;
+	int32 LoadedPatternVersion = 1;
+#if WITH_DEV_AUTOMATION_TESTS
+	TArray<FRecoilPatternPoint> PreMigrationPoints;
+	bool bHasPreMigrationPoints = false;
+#endif
+public:
 
 	// ---------------------------------------------------------------------
 	// 基础（Base）
 	// ---------------------------------------------------------------------
 
 	/** 每发基础垂直 Kick（度）。Pattern 的 Y 分量乘以此值得到实际抬枪角度。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (EditCondition = "!bUseDirectShotAngles", EditConditionHides, ForceUnits = deg, ClampMin = "0.0",
 		ToolTip = "每发基础抬枪角度（度）：本发实际上抬 = Pattern 的 Y 分量 × 本值。\n调大 = 整体后坐力更猛。本值参与 Golden 基线，改完必须重导 Golden。"))
 	float RecoilPerShot_Vertical = 0.35f;
 
 	/** 每发基础水平 Kick（度）。Pattern 的 X 分量乘以此值得到实际水平偏移。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (ForceUnits = deg, ClampMin = "0.0",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Base", meta = (EditCondition = "!bUseDirectShotAngles", EditConditionHides, ForceUnits = deg, ClampMin = "0.0",
 		ToolTip = "每发基础水平偏移（度）：本发实际水平偏移 = Pattern 的 X 分量 × 本值。\n调大 = 左右摆得更宽。本值参与 Golden 基线，改完必须重导 Golden。"))
 	float RecoilPerShot_Horizontal = 0.18f;
 
@@ -87,7 +125,7 @@ public:
 	 * 只作用于垂直分量，水平分量不受影响（保证 P3 的 Pattern 水平严格可比对）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Curves",
-		meta = (ToolTip = "射击序号 → 垂直 Kick 倍率曲线（X = 第几发，从 0 起；Y = 倍率）。\n用来做「越打越强」或「前几发猛、后面软」。只作用于垂直分量，水平不受影响。\n曲线无数据时按倍率 1.0 处理（不缩放）。"))
+		meta = (ToolTip = "角度格式中仅作为数组外尾段倍率曲线（需要启用尾段曲线）。X = 发序号（从 0 起），Y = 倍率；数组内角度不受影响。旧归一化格式仍按原定义使用。\n曲线无数据时按倍率 1.0 处理（不缩放）。"))
 	FRuntimeFloatCurve VerticalKickCurve;
 
 	/**
@@ -293,9 +331,9 @@ public:
 	// Pattern
 	// ---------------------------------------------------------------------
 
-	/** 归一化 Pattern 点数组。索引即 ShotIndex。 */
+	/** 逐发 Yaw/Pitch 角度数组。旧格式单位由版本迁移处理。索引即 ShotIndex。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern",
-		meta = (ToolTip = "归一化弹道图案点数组，索引 = 第几发（从 0 起）。\nX = 水平（右为正，-1~1），Y = 垂直（上为正，0~1）；只描述形状，实际幅度由 RecoilPerShot_Vertical / RecoilPerShot_Horizontal 缩放 —— 所以改威力不会破坏图案形状。\n本数组参与 Golden 基线，改完必须重导 Golden。"))
+		meta = (ToolTip = "逐发角度数组，索引 = 第几发（从 0 起）。\n角度格式：X = 本发水平偏移（度，右正左负）；Y = 本发上抬（度，非负）。数组内直接使用角度，不再乘基础强度或逐发曲线；姿态和全局倍率仍生效。旧归一化资产加载时自动转换。\n本数组参与 Golden 基线，改完必须重导 Golden。"))
 	TArray<FRecoilPatternPoint> PatternPoints;
 
 	/** 固定 Pattern 覆盖的发数。必须 <= PatternPoints.Num()。超出后进入伪随机区间。 */
@@ -307,7 +345,7 @@ public:
 	 * 固定 Pattern 之后的水平随机游走幅度（归一化单位，与 PatternPoints.X 同量纲）。
 	 * 游走累计值被 Clamp 在 [-HorizontalRandomRange, +HorizontalRandomRange]。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (ClampMin = "0.0", ClampMax = "1.0",
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern", meta = (EditCondition = "!bUseDirectShotAngles", EditConditionHides, ClampMin = "0.0", ClampMax = "1.0",
 		ToolTip = "固定图案之后的水平随机游走幅度（归一化单位，与 PatternPoints 的 X 同量纲）：游走累计值被夹在 ± 本值内。\n调大 = 后半程更飘；0 = 完全不额外打偏。本值参与 Golden 基线。"))
 	float HorizontalRandomRange = 0.6f;
 
@@ -669,7 +707,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
 	bool IsInterpolatedSingleShot() const { return SingleShotMode == ERecoilSingleShotMode::Interpolated; }
 
-	/** 取 ShotIndex 对应的归一化 Pattern 点。越界时返回最后一点。空数组时返回 (0,1)。 */
+	/** 取存储的逐发点（当前格式为度，旧格式为比例）。越界返回最后一点，空数组返回 (0,1)；运行时 Pitch 尾段应使用 GetShotPitchDegrees。 */
 	UFUNCTION(BlueprintPure, Category = "Recoil|Query")
 	FRecoilPatternPoint GetPatternPoint(int32 ShotIndex) const;
 

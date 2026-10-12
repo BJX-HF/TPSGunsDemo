@@ -13,6 +13,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRecoilEditorInputBoundary,"Lyra.Recoil.Editor.
 bool FRecoilEditorInputBoundary::RunTest(const FString&)
 {
     TStrongObjectPtr<ULyraRecoilProfile> Profile(NewObject<ULyraRecoilProfile>());
+    Profile->bUseDirectShotAngles = false;
+    Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
     Profile->SingleShotMode=ERecoilSingleShotMode::InstantWrite;
     Profile->RecoveryDelay=1;
     FLyraRecoilPreviewConfig Config;
@@ -52,6 +54,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRecoilEditorInvalidPreview,"Lyra.Recoil.Editor
 bool FRecoilEditorInvalidPreview::RunTest(const FString&)
 {
     TStrongObjectPtr<ULyraRecoilProfile> Profile(NewObject<ULyraRecoilProfile>());
+    Profile->bUseDirectShotAngles = false;
+    Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
     Profile->SingleShotMode=ERecoilSingleShotMode::Interpolated;
     FLyraRecoilPreviewController Preview;
     FString Error; TArray<FName> Names;
@@ -83,6 +87,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRecoilEditorStrengthTail,"Lyra.Recoil.Editor.M
 bool FRecoilEditorStrengthTail::RunTest(const FString&)
 {
     TStrongObjectPtr<ULyraRecoilProfile> P(NewObject<ULyraRecoilProfile>());
+    P->bUseDirectShotAngles = false;
+    P->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
     P->PatternPoints={FRecoilPatternPoint(.5f,.5f),FRecoilPatternPoint(.75f,.8f),FRecoilPatternPoint(-.25f,.6f)};
     P->PatternLength=1; P->RecoilPerShot_Horizontal=1; P->RecoilPerShot_Vertical=1;
     P->VerticalKickCurve.EditorCurveData.Reset(); P->VerticalKickCurve.EditorCurveData.AddKey(0,1);

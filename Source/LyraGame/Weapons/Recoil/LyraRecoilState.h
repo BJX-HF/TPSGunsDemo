@@ -736,6 +736,8 @@ public:
 	/**
 	 * 单发偏移的唯一实现。相机链与弹道链都必须走这里。
 	 *
+	 *   角度格式：数组内 Vertical = PatternY × Mult，Horizontal = PatternX × Mult。
+	 *   数组外 Pitch 与随机水平范围由独立尾段角度设置决定；以下公式仅为旧格式兼容。
 	 *   Vertical   = RecoilPerShot_Vertical   × PatternY(ShotIndex) × VerticalKickCurve(ShotIndex) × Mult
 	 *   Horizontal = RecoilPerShot_Horizontal × PatternX(ShotIndex)                              × Mult
 	 *
@@ -764,9 +766,9 @@ public:
 		bool bRecoilEnabled);
 
 	/**
-	 * 取第 ShotIndex 发的归一化水平形状值。
+	 * 取第 ShotIndex 发的水平值：角度格式返回度数，旧格式返回归一化形状值。
 	 * ShotIndex < PatternLength 时严格等于 PatternPoints[ShotIndex].X；
-	 * 之后进入确定性随机游走，结果被 Clamp 在 ±HorizontalRandomRange 内。
+	 * 之后进入确定性随机游走，结果被 Clamp 在对应单位的范围内（角度格式为 ±HorizontalRandomRangeDegrees，旧格式为 ±HorizontalRandomRange）。
 	 */
 	static float ComputePatternHorizontal(const ULyraRecoilProfile& Profile, int32 ShotIndex, int32 Seed);
 

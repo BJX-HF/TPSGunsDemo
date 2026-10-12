@@ -153,7 +153,7 @@ FReply SLyraRecoilPatternGraph::OnMouseMove(const FGeometry& Geometry,const FPoi
    if(FVector2D::DistSquared(ToScreen(E->GetCumulativePoints()[I]),Local)<=64)
    {
     const auto Point=E->GetCumulativePoints()[I]; const auto Raw=P->PatternPoints[I];
-    Hover=FString::Printf(TEXT("第%d发 累计Yaw/Pitch=%.9g/%.9g°\n原值X/Y=%.9g/%.9g；曲线采样=%.9g\nH=%.9g V=%.9g。零或极小分母轴保持原值。"),I+1,Point.X,Point.Y,Raw.X,Raw.Y,P->GetVerticalKickCurveScale(I),P->RecoilPerShot_Horizontal,P->RecoilPerShot_Vertical);
+    Hover=FString::Printf(TEXT("第%d发 累计Yaw/Pitch=%.9g/%.9g°\n逐发参数X/Y=%.9g/%.9g；有效曲线倍率=%.9g\n水平/垂直缩放=%.9g/%.9g（角度格式均为1）。"),I+1,Point.X,Point.Y,Raw.X,Raw.Y,P->GetPatternVerticalCurveScale(I),P->GetPatternHorizontalScale(),P->GetPatternVerticalScale());
     break;
    }
   SetToolTipText(FText::FromString(Hover));
@@ -241,12 +241,12 @@ int32 SLyraRecoilPatternGraph::OnPaint(const FPaintArgs&,const FGeometry& Geomet
  ViewSize=Geometry.GetLocalSize();
  const auto Brush=FAppStyle::GetBrush("WhiteBrush");
  FSlateDrawElement::MakeBox(Out,Layer,Geometry.ToPaintGeometry(),Brush,ESlateDrawEffect::None,FLinearColor(.025f,.038f,.06f));
- auto Line=[&](FVector2D A,FVector2D B,FLinearColor Color,float Width=1)
+ auto Line=[&](FVector2D A,FVector2D B,FLinearColor Color,float Width=1,int32 LayerOffset=1)
  {
   if(!FMath::IsFinite(A.X)||!FMath::IsFinite(A.Y)||!FMath::IsFinite(B.X)||!FMath::IsFinite(B.Y)) return;
   if(FMath::Max(FMath::Max(FMath::Abs(A.X),FMath::Abs(A.Y)),FMath::Max(FMath::Abs(B.X),FMath::Abs(B.Y)))>1.e6) return;
   TArray<FVector2f> Points={FVector2f(A),FVector2f(B)};
-  FSlateDrawElement::MakeLines(Out,Layer+1,Geometry.ToPaintGeometry(),Points,ESlateDrawEffect::None,Color,true,Width);
+  FSlateDrawElement::MakeLines(Out,Layer+LayerOffset,Geometry.ToPaintGeometry(),Points,ESlateDrawEffect::None,Color,true,Width);
  };
  auto Label=[&](FVector2D Position,const FString& Text,FLinearColor Color)
  { FSlateDrawElement::MakeText(Out,Layer+3,Geometry.ToPaintGeometry(FVector2f(200,20),FSlateLayoutTransform(FVector2f(Position))),Text,FAppStyle::GetFontStyle("SmallFont"),ESlateDrawEffect::None,Color); };
@@ -260,8 +260,19 @@ int32 SLyraRecoilPatternGraph::OnPaint(const FPaintArgs&,const FGeometry& Geomet
  Line(FVector2D(Origin.X,0),FVector2D(Origin.X,ViewSize.Y),FLinearColor(.4f,.5f,.6f));
  Line(FVector2D(0,Origin.Y),FVector2D(ViewSize.X,Origin.Y),FLinearColor(.4f,.5f,.6f));
  Label(FVector2D(10,8),TEXT("累计配置 Kick（度）  X=Yaw →  Y=Pitch ↑"),FLinearColor::White);
- Label(FVector2D(10,27),FString::Printf(TEXT("固定点可编辑；随机尾段虚线只读。吸附%s %.4g°"),bSnap?TEXT("开"):TEXT("关"),SnapStep),FLinearColor(.5f,.8f,.8f));
- auto E=Editor.Pin(); if(!E) return Layer+4;
+ Label(FVector2D(10,27),FString::Printf(TEXT("逐发角度配置；尾段虚线只读。吸附%s %.4g°"),bSnap?TEXT("开"):TEXT("关"),SnapStep),FLinearColor(.5f,.8f,.8f));
+ // Use the displayed grid step, which changes with zoom and can differ from SnapStep.
+ // Both axes share Scale, so this one-cell ruler applies to Yaw and Pitch equally.
+ const FLinearColor RulerColor(.65f,.9f,1.f);
+ FSlateDrawElement::MakeBox(Out,Layer+4,Geometry.ToPaintGeometry(FVector2f(280,44),FSlateLayoutTransform(FVector2f(6,45))),Brush,ESlateDrawEffect::None,FLinearColor(.025f,.038f,.06f,.95f));
+ FSlateFontInfo RulerFont=FAppStyle::GetFontStyle("SmallFont"); RulerFont.Size=10;
+ FSlateDrawElement::MakeText(Out,Layer+6,Geometry.ToPaintGeometry(FVector2f(264,20),FSlateLayoutTransform(FVector2f(14,49))),
+  FString::Printf(TEXT("比例尺：1 格 = %.4g°（Yaw / Pitch）"),Step),RulerFont,ESlateDrawEffect::None,RulerColor);
+ const FVector2D RulerStart(14,79),RulerEnd(14+Step*Scale,79);
+ Line(RulerStart,RulerEnd,RulerColor,1.5f,5);
+ Line(RulerStart-FVector2D(0,4),RulerStart+FVector2D(0,4),RulerColor,1.5f,5);
+ Line(RulerEnd-FVector2D(0,4),RulerEnd+FVector2D(0,4),RulerColor,1.5f,5);
+ auto E=Editor.Pin(); if(!E) return Layer+7;
  const auto& Points=(bDragging||bKeyboardGesture)?DraftPoints:E->GetCumulativePoints();
  TSet<int32> SelectedSet(E->GetSelectedIndices());
  FVector2D Previous=Origin;
@@ -293,5 +304,5 @@ int32 SLyraRecoilPatternGraph::OnPaint(const FPaintArgs&,const FGeometry& Geomet
   Line(BoxEnd,FVector2D(StartMouse.X,BoxEnd.Y),FLinearColor::Yellow); Line(FVector2D(StartMouse.X,BoxEnd.Y),StartMouse,FLinearColor::Yellow);
  }
  if(!DraftErrors.IsEmpty()) Label(FVector2D(10,ViewSize.Y-28),DraftErrors[0],FLinearColor(1,.45f,.3f));
- return Layer+4;
+ return Layer+7;
 }

@@ -65,6 +65,11 @@ namespace LyraRecoilGolden
 		Root->SetNumberField(TEXT("recoilPerShotHorizontal"), static_cast<double>(Profile.RecoilPerShot_Horizontal));
 		Root->SetNumberField(TEXT("horizontalRandomRange"), static_cast<double>(Profile.HorizontalRandomRange));
 
+		Root->SetBoolField(TEXT("directShotAngles"), Profile.bUseDirectShotAngles);
+		Root->SetNumberField(TEXT("horizontalRandomRangeDegrees"), Profile.HorizontalRandomRangeDegrees);
+		Root->SetNumberField(TEXT("tailPitchDegrees"), Profile.TailPitchDegrees);
+		Root->SetBoolField(TEXT("useTailPitchCurve"), Profile.bUseTailPitchCurve);
+
 		// 单发后坐力模型：把模式与插值参数一并写入，Golden 才能识别"换了模型"。
 		// 注意：单发 Kick 的数值本身由 ComputeShotKick 决定，与选择哪套模型**无关**
 		//（两套模型只在"相机怎么跟上"这一步分叉），所以这些字段是**元信息**，

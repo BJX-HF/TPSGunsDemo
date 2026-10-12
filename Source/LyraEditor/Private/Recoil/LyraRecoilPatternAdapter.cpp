@@ -80,6 +80,17 @@ namespace LyraRecoilPatternAdapterInternal
 		return true;
 	}
 
+	bool CheckPointValue(const ULyraRecoilProfile& Profile, int32 Index, const TCHAR* Axis, double Value,
+		double Minimum, double Maximum, FLyraRecoilConversionReport& Report, TArray<FString>& Errors)
+	{
+		if (!Profile.bUseDirectShotAngles) return CheckNormalizedValue(Index, Axis, Value, Minimum, Maximum, Report, Errors);
+		if (!IsFiniteValue(Value) || FMath::Abs(Value) > MAX_flt)
+		{ Errors.Add(FString::Printf(TEXT("第%d发 %s 角度非有限或超过可存储范围。"), Index+1, Axis)); return false; }
+		if (Minimum == 0.0 && Value < -ZeroAngleTolerance)
+		{ Errors.Add(FString::Printf(TEXT("第%d发上抬角度 %.6g° 为负。累计点必须不低于前一发；请同时移动后续点或调整相邻发。"), Index+1, Value)); return false; }
+		return true;
+	}
+
 	/**
 	 * 正向重建校验：用给定强度与 Profile 曲线从候选 float 值重建累计角度，
 	 * 与目标累计点逐发比较；超出容差即拒绝（“提交时转为 float 字段并再做正向重建检查”）。
@@ -93,7 +104,7 @@ namespace LyraRecoilPatternAdapterInternal
 
 		for (int32 Index = 0; Index < Length; ++Index)
 		{
-			const double CurveScale = static_cast<double>(Profile.GetVerticalKickCurveScale(Index));
+			const double CurveScale = static_cast<double>(Profile.GetPatternVerticalCurveScale(Index));
 			if (!IsFiniteValue(CurveScale))
 			{
 				Errors.Add(FString::Printf(TEXT("VerticalKickCurve sample at shot %d is not finite"), Index));
@@ -179,6 +190,7 @@ FLyraRecoilPatternData FLyraRecoilPatternAdapter::Read(const ULyraRecoilProfile&
 	FLyraRecoilPatternData Data;
 	Data.Points = Profile.PatternPoints;
 	Data.PatternLength = Profile.PatternLength;
+	Data.bUsesDirectAngles = Profile.bUseDirectShotAngles;
 	return Data;
 }
 
@@ -321,7 +333,7 @@ bool FLyraRecoilPatternAdapter::Validate(const ULyraRecoilProfile& Profile, TArr
 	const int32 MaxShotIndex = FMath::Max(Profile.PatternPoints.Num(), FMath::Max(0, Profile.PatternLength));
 	for (int32 ShotIndex = 0; ShotIndex <= MaxShotIndex; ++ShotIndex)
 	{
-		const double Sample = static_cast<double>(Profile.GetVerticalKickCurveScale(ShotIndex));
+		const double Sample = static_cast<double>(Profile.GetPatternVerticalCurveScale(ShotIndex));
 		if (!IsFiniteValue(Sample))
 		{
 			Errors.Add(FString::Printf(TEXT("%s VerticalKickCurve sample at shot %d is not finite (NaN/Inf)"), *Prefix, ShotIndex));
@@ -346,8 +358,8 @@ bool FLyraRecoilPatternAdapter::BuildCumulativeFor(const ULyraRecoilProfile& Pro
 		return false;
 	}
 
-	const double Horizontal = static_cast<double>(Profile.RecoilPerShot_Horizontal);
-	const double Vertical = static_cast<double>(Profile.RecoilPerShot_Vertical);
+	const double Horizontal = static_cast<double>(Profile.GetPatternHorizontalScale());
+	const double Vertical = static_cast<double>(Profile.GetPatternVerticalScale());
 	if (!IsFiniteValue(Horizontal) || !IsFiniteValue(Vertical))
 	{
 		Errors.Add(TEXT("RecoilPerShot_Vertical/Horizontal is not finite (NaN/Inf)"));
@@ -361,7 +373,7 @@ bool FLyraRecoilPatternAdapter::BuildCumulativeFor(const ULyraRecoilProfile& Pro
 	double Pitch = 0.0;
 	for (int32 Index = 0; Index < Data.PatternLength; ++Index)
 	{
-		const double CurveScale = static_cast<double>(Profile.GetVerticalKickCurveScale(Index));
+		const double CurveScale = static_cast<double>(Profile.GetPatternVerticalCurveScale(Index));
 		if (!IsFiniteValue(CurveScale))
 		{
 			Errors.Add(FString::Printf(TEXT("VerticalKickCurve sample at shot %d is not finite (NaN/Inf)"), Index));
@@ -438,8 +450,8 @@ bool FLyraRecoilPatternAdapter::MoveCumulative(const ULyraRecoilProfile& Profile
 		return false;
 	}
 
-	const double Horizontal = static_cast<double>(Profile.RecoilPerShot_Horizontal);
-	const double Vertical = static_cast<double>(Profile.RecoilPerShot_Vertical);
+	const double Horizontal = static_cast<double>(Profile.GetPatternHorizontalScale());
+	const double Vertical = static_cast<double>(Profile.GetPatternVerticalScale());
 	if (!IsFiniteValue(Horizontal) || !IsFiniteValue(Vertical))
 	{
 		Errors.Add(TEXT("RecoilPerShot_Vertical/Horizontal is not finite (NaN/Inf)"));
@@ -491,16 +503,16 @@ bool FLyraRecoilPatternAdapter::MoveCumulative(const ULyraRecoilProfile& Profile
 			else
 			{
 				const double RawX = TargetDeltaYaw / Horizontal;
-				if (!CheckNormalizedValue(Index, TEXT("X"), RawX, -1.0, 1.0, OutReport, Errors))
+				if (!CheckPointValue(Profile, Index, TEXT("X"), RawX, -1.0, 1.0, OutReport, Errors))
 				{
 					return false;
 				}
-				Candidate[Index].X = static_cast<float>(FMath::Clamp(RawX, -1.0, 1.0));
+				Candidate[Index].X = static_cast<float>(Profile.bUseDirectShotAngles ? RawX : FMath::Clamp(RawX, -1.0, 1.0));
 			}
 		}
 
 		// ---- 垂直轴 ----
-		const double CurveScale = static_cast<double>(Profile.GetVerticalKickCurveScale(Index));
+		const double CurveScale = static_cast<double>(Profile.GetPatternVerticalCurveScale(Index));
 		if (!IsFiniteValue(CurveScale))
 		{
 			Errors.Add(FString::Printf(TEXT("VerticalKickCurve sample at shot %d is not finite (NaN/Inf)"), Index));
@@ -538,11 +550,11 @@ bool FLyraRecoilPatternAdapter::MoveCumulative(const ULyraRecoilProfile& Profile
 				}
 
 				const double RawY = TargetDeltaPitch / VerticalDenominator;
-				if (!CheckNormalizedValue(Index, TEXT("Y"), RawY, 0.0, 1.0, OutReport, Errors))
+				if (!CheckPointValue(Profile, Index, TEXT("Y"), RawY, 0.0, 1.0, OutReport, Errors))
 				{
 					return false;
 				}
-				Candidate[Index].Y = static_cast<float>(FMath::Clamp(RawY, 0.0, 1.0));
+				Candidate[Index].Y = static_cast<float>(Profile.bUseDirectShotAngles ? FMath::Max(0.0, RawY) : FMath::Clamp(RawY, 0.0, 1.0));
 			}
 		}
 	}
@@ -590,14 +602,16 @@ bool FLyraRecoilPatternAdapter::Insert(const FLyraRecoilPatternData& Source, int
 			Errors.Add(FString::Printf(TEXT("InsertedPoints[%d] is not finite (NaN/Inf)"), NewIndex));
 			return false;
 		}
-		if (Point.X < -1.0f || Point.X > 1.0f)
+		if (!Source.bUsesDirectAngles && (Point.X < -1.0f || Point.X > 1.0f))
 		{
 			Errors.Add(FString::Printf(TEXT("InsertedPoints[%d].X = %.6f is outside [-1, 1]"), NewIndex, static_cast<double>(Point.X)));
 			return false;
 		}
-		if (Point.Y < 0.0f || Point.Y > 1.0f)
+		if (Point.Y < 0.0f || (!Source.bUsesDirectAngles && Point.Y > 1.0f))
 		{
-			Errors.Add(FString::Printf(TEXT("InsertedPoints[%d].Y = %.6f is outside [0, 1]"), NewIndex, static_cast<double>(Point.Y)));
+			Errors.Add(Source.bUsesDirectAngles
+				? FString::Printf(TEXT("插入第 %d 发上抬角度 %.6f° 必须非负"), NewIndex + 1, static_cast<double>(Point.Y))
+				: FString::Printf(TEXT("InsertedPoints[%d].Y = %.6f is outside [0, 1]"), NewIndex, static_cast<double>(Point.Y)));
 			return false;
 		}
 	}
@@ -612,6 +626,8 @@ bool FLyraRecoilPatternAdapter::Insert(const FLyraRecoilPatternData& Source, int
 	}
 	for (const FRecoilPatternPoint& Point : NewPoints)
 	{
+		if (!FMath::IsFinite(Point.X) || !FMath::IsFinite(Point.Y))
+		{ Errors.Add(TEXT("Clipboard point overflows float storage")); return false; }
 		Points.Add(Point);
 	}
 	for (int32 SourceIndex = Index; SourceIndex < Count; ++SourceIndex)
@@ -784,7 +800,7 @@ const TCHAR* FLyraRecoilPatternAdapter::GetClipboardFormatName()
 
 int32 FLyraRecoilPatternAdapter::GetClipboardFormatVersion()
 {
-	return 1;
+	return 2;
 }
 
 FString FLyraRecoilPatternAdapter::Copy(const ULyraRecoilProfile& Profile, const TArray<int32>& Indices)
@@ -809,8 +825,8 @@ FString FLyraRecoilPatternAdapter::Copy(const ULyraRecoilProfile& Profile, const
 		return FString();
 	}
 
-	const double Horizontal = static_cast<double>(Profile.RecoilPerShot_Horizontal);
-	const double Vertical = static_cast<double>(Profile.RecoilPerShot_Vertical);
+	const double Horizontal = static_cast<double>(Profile.GetPatternHorizontalScale());
+	const double Vertical = static_cast<double>(Profile.GetPatternVerticalScale());
 	if (!IsFiniteValue(Horizontal) || !IsFiniteValue(Vertical))
 	{
 		return FString();
@@ -829,7 +845,7 @@ FString FLyraRecoilPatternAdapter::Copy(const ULyraRecoilProfile& Profile, const
 			return FString();
 		}
 
-		const double CurveScale = static_cast<double>(Profile.GetVerticalKickCurveScale(SourceIndex));
+		const double CurveScale = static_cast<double>(Profile.GetPatternVerticalCurveScale(SourceIndex));
 		const double YawDegrees = Horizontal * static_cast<double>(Point.X);
 		const double PitchDegrees = Vertical * static_cast<double>(Point.Y) * CurveScale;
 		if (!IsFiniteValue(CurveScale) || !IsFiniteValue(YawDegrees) || !IsFiniteValue(PitchDegrees))
@@ -855,7 +871,8 @@ FString FLyraRecoilPatternAdapter::Copy(const ULyraRecoilProfile& Profile, const
 
 	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetStringField(TEXT("format"), GetClipboardFormatName());
-	Root->SetNumberField(TEXT("version"), static_cast<double>(GetClipboardFormatVersion()));
+	Root->SetNumberField(TEXT("version"), Profile.bUseDirectShotAngles ? 2.0 : 1.0);
+	if (Profile.bUseDirectShotAngles) Root->SetStringField(TEXT("units"), TEXT("degrees"));
 	Root->SetField(TEXT("source"), MakeShared<FJsonValueObject>(SourceObject));
 	Root->SetArrayField(TEXT("indices"), IndexArray);
 	Root->SetArrayField(TEXT("points"), PointArray);
@@ -919,11 +936,19 @@ bool FLyraRecoilPatternAdapter::ParseClipboardEx(const FString& Text, FLyraRecoi
 	}
 
 	const double VersionNumber = VersionValue->AsNumber();
-	if (VersionNumber != static_cast<double>(GetClipboardFormatVersion()))
+	if (VersionNumber != 1.0 && VersionNumber != 2.0)
 	{
 		Errors.Add(FString::Printf(TEXT("Clipboard version %.0f is unsupported (expected %d); refusing the whole payload"),
 			VersionNumber, GetClipboardFormatVersion()));
 		return false;
+	}
+
+	if (VersionNumber == 2.0)
+	{
+		FString Units;
+		if (!Root->TryGetStringField(TEXT("units"), Units) || Units != TEXT("degrees"))
+		{ Errors.Add(TEXT("Angle clipboard v2 requires units=degrees")); return false; }
+		OutData.bUsesDirectAngles = true;
 	}
 
 	// --- 点数组 ---
@@ -990,6 +1015,8 @@ bool FLyraRecoilPatternAdapter::ParseClipboardEx(const FString& Text, FLyraRecoi
 		FRecoilPatternPoint Point;
 		Point.X = static_cast<float>(X);
 		Point.Y = static_cast<float>(Y);
+		if (!FMath::IsFinite(Point.X) || !FMath::IsFinite(Point.Y))
+		{ Errors.Add(TEXT("Clipboard point overflows float storage")); return false; }
 		Points.Add(Point);
 
 		double YawDegrees = 0.0;
@@ -1128,8 +1155,8 @@ bool FLyraRecoilPatternAdapter::ConvertClipboardAngles(const ULyraRecoilProfile&
 		return false;
 	}
 
-	const double Horizontal = static_cast<double>(TargetProfile.RecoilPerShot_Horizontal);
-	const double Vertical = static_cast<double>(TargetProfile.RecoilPerShot_Vertical);
+	const double Horizontal = static_cast<double>(TargetProfile.GetPatternHorizontalScale());
+	const double Vertical = static_cast<double>(TargetProfile.GetPatternVerticalScale());
 	if (!IsFiniteValue(Horizontal) || !IsFiniteValue(Vertical))
 	{
 		Errors.Add(TEXT("Target RecoilPerShot_Vertical/Horizontal is not finite (NaN/Inf)"));
@@ -1148,7 +1175,7 @@ bool FLyraRecoilPatternAdapter::ConvertClipboardAngles(const ULyraRecoilProfile&
 	for (int32 ClipIndex = 0; ClipIndex < Count; ++ClipIndex)
 	{
 		const int32 TargetIndex = FirstTargetIndex + ClipIndex;
-		const double CurveScale = static_cast<double>(TargetProfile.GetVerticalKickCurveScale(TargetIndex));
+		const double CurveScale = static_cast<double>(TargetProfile.GetPatternVerticalCurveScale(TargetIndex));
 		if (!IsFiniteValue(CurveScale))
 		{
 			Errors.Add(FString::Printf(TEXT("Target VerticalKickCurve sample at shot %d is not finite (NaN/Inf)"), TargetIndex));
@@ -1181,11 +1208,11 @@ bool FLyraRecoilPatternAdapter::ConvertClipboardAngles(const ULyraRecoilProfile&
 		else
 		{
 			const double RawX = YawDegrees / Horizontal;
-			if (!CheckNormalizedValue(TargetIndex, TEXT("X"), RawX, -1.0, 1.0, Report, Errors))
+			if (!CheckPointValue(TargetProfile, TargetIndex, TEXT("X"), RawX, -1.0, 1.0, Report, Errors))
 			{
 				return false;
 			}
-			Point.X = static_cast<float>(FMath::Clamp(RawX, -1.0, 1.0));
+			Point.X = static_cast<float>(TargetProfile.bUseDirectShotAngles ? RawX : FMath::Clamp(RawX, -1.0, 1.0));
 		}
 
 		const double VerticalDenominator = Vertical * CurveScale;
@@ -1217,11 +1244,11 @@ bool FLyraRecoilPatternAdapter::ConvertClipboardAngles(const ULyraRecoilProfile&
 			}
 
 			const double RawY = PitchDegrees / VerticalDenominator;
-			if (!CheckNormalizedValue(TargetIndex, TEXT("Y"), RawY, 0.0, 1.0, Report, Errors))
+			if (!CheckPointValue(TargetProfile, TargetIndex, TEXT("Y"), RawY, 0.0, 1.0, Report, Errors))
 			{
 				return false;
 			}
-			Point.Y = static_cast<float>(FMath::Clamp(RawY, 0.0, 1.0));
+			Point.Y = static_cast<float>(TargetProfile.bUseDirectShotAngles ? FMath::Max(0.0, RawY) : FMath::Clamp(RawY, 0.0, 1.0));
 		}
 
 		Built.Add(Point);
@@ -1231,7 +1258,7 @@ bool FLyraRecoilPatternAdapter::ConvertClipboardAngles(const ULyraRecoilProfile&
 	for (int32 ClipIndex = 0; ClipIndex < Count; ++ClipIndex)
 	{
 		const int32 TargetIndex = FirstTargetIndex + ClipIndex;
-		const double CurveScale = static_cast<double>(TargetProfile.GetVerticalKickCurveScale(TargetIndex));
+		const double CurveScale = static_cast<double>(TargetProfile.GetPatternVerticalCurveScale(TargetIndex));
 		const double RebuiltYaw = Horizontal * static_cast<double>(Built[ClipIndex].X);
 		const double RebuiltPitch = Vertical * static_cast<double>(Built[ClipIndex].Y) * CurveScale;
 		const double TargetYaw = Clipboard.SourceYawDegrees[ClipIndex];
@@ -1277,7 +1304,7 @@ bool FLyraRecoilPatternAdapter::MakeStablePitchOrder(const ULyraRecoilProfile& P
 	}
 
 	const int32 Count = Source.Points.Num();
-	const double Vertical = static_cast<double>(Profile.RecoilPerShot_Vertical);
+	const double Vertical = static_cast<double>(Profile.GetPatternVerticalScale());
 	if (!IsFiniteValue(Vertical))
 	{
 		Errors.Add(TEXT("RecoilPerShot_Vertical is not finite (NaN/Inf)"));
@@ -1290,7 +1317,7 @@ bool FLyraRecoilPatternAdapter::MakeStablePitchOrder(const ULyraRecoilProfile& P
 	double Pitch = 0.0;
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
-		const double CurveScale = static_cast<double>(Profile.GetVerticalKickCurveScale(Index));
+		const double CurveScale = static_cast<double>(Profile.GetPatternVerticalCurveScale(Index));
 		if (!IsFiniteValue(CurveScale))
 		{
 			Errors.Add(FString::Printf(TEXT("VerticalKickCurve sample at shot %d is not finite (NaN/Inf)"), Index));
@@ -1331,6 +1358,7 @@ bool FLyraRecoilPatternAdapter::BuildStrengthAdjustmentCandidate(const ULyraReco
 	FLyraRecoilPatternData& OutData, TArray<FString>& Errors)
 {
 	const int32 StartErrorCount = Errors.Num();
+	if (Profile.bUseDirectShotAngles) { Errors.Add(TEXT("角度格式直接编辑逐发角度，无需调整归一化基础强度。")); return false; }
 	OutAdjustment = FLyraRecoilStrengthAdjustment();
 
 	const FLyraRecoilPatternData Source = Read(Profile);
@@ -1349,8 +1377,8 @@ bool FLyraRecoilPatternAdapter::BuildStrengthAdjustmentCandidate(const ULyraReco
 
 	const int32 FixedLength = Source.PatternLength;
 	OutAdjustment.TargetCumulativePoints = Targets;
-	OutAdjustment.OldHorizontal = static_cast<double>(Profile.RecoilPerShot_Horizontal);
-	OutAdjustment.OldVertical = static_cast<double>(Profile.RecoilPerShot_Vertical);
+	OutAdjustment.OldHorizontal = static_cast<double>(Profile.GetPatternHorizontalScale());
+	OutAdjustment.OldVertical = static_cast<double>(Profile.GetPatternVerticalScale());
 	OutAdjustment.NewHorizontal = OutAdjustment.OldHorizontal;
 	OutAdjustment.NewVertical = OutAdjustment.OldVertical;
 
@@ -1390,7 +1418,7 @@ bool FLyraRecoilPatternAdapter::BuildStrengthAdjustmentCandidate(const ULyraReco
 
 	for (int32 Index = 0; Index < FixedLength; ++Index)
 	{
-		const double CurveScale = static_cast<double>(Profile.GetVerticalKickCurveScale(Index));
+		const double CurveScale = static_cast<double>(Profile.GetPatternVerticalCurveScale(Index));
 		if (!IsFiniteValue(CurveScale))
 		{
 			Errors.Add(FString::Printf(TEXT("VerticalKickCurve sample at shot %d is not finite (NaN/Inf)"), Index));
@@ -1448,12 +1476,12 @@ bool FLyraRecoilPatternAdapter::BuildStrengthAdjustmentCandidate(const ULyraReco
 	for (int32 Index = 0; Index < FixedLength; ++Index)
 	{
 		const FRecoilPatternPoint& OldPoint = Source.Points[Index];
-		const double CurveScale = static_cast<double>(Profile.GetVerticalKickCurveScale(Index));
+		const double CurveScale = static_cast<double>(Profile.GetPatternVerticalCurveScale(Index));
 
 		if (NewHorizontal > DenominatorEpsilon)
 		{
 			const double RawX = Deltas[Index].X / NewHorizontal;
-			if (!CheckNormalizedValue(Index, TEXT("X"), RawX, -1.0, 1.0, Report, Errors))
+			if (!CheckPointValue(Profile, Index, TEXT("X"), RawX, -1.0, 1.0, Report, Errors))
 			{
 				OutAdjustment.bApplicable = false;
 				OutAdjustment.BlockingReasons.Add(TEXT("Renormalized horizontal candidate is out of range"));
@@ -1484,7 +1512,7 @@ bool FLyraRecoilPatternAdapter::BuildStrengthAdjustmentCandidate(const ULyraReco
 		}
 
 		const double RawY = Deltas[Index].Y / NewVerticalDenominator;
-		if (!CheckNormalizedValue(Index, TEXT("Y"), RawY, 0.0, 1.0, Report, Errors))
+		if (!CheckPointValue(Profile, Index, TEXT("Y"), RawY, 0.0, 1.0, Report, Errors))
 		{
 			OutAdjustment.bApplicable = false;
 			OutAdjustment.BlockingReasons.Add(TEXT("Renormalized vertical candidate is out of range"));
@@ -1513,7 +1541,7 @@ bool FLyraRecoilPatternAdapter::BuildStrengthAdjustmentCandidate(const ULyraReco
     // Preserve the effective vertical angle of every array tail shot, even when L is zero.
     for (int32 Index = FixedLength; Index < Candidate.Num(); ++Index)
     {
-        const double C = Profile.GetVerticalKickCurveScale(Index);
+        const double C = Profile.GetPatternVerticalCurveScale(Index);
         const double Target = OldVertical * Source.Points[Index].Y * C;
         const double Denominator = NewVertical * C;
         if (!IsFiniteValue(C) || !IsFiniteValue(Target) || !IsFiniteValue(Denominator))
@@ -1539,7 +1567,7 @@ bool FLyraRecoilPatternAdapter::BuildStrengthAdjustmentCandidate(const ULyraReco
         for (int32 Index = FixedLength; Index < Source.Points.Num()+8; ++Index)
         {
             const double Walk = FRecoilRuntimeState::ComputePatternHorizontal(Profile, Index, Seed);
-            const double C = Profile.GetVerticalKickCurveScale(Index);
+            const double C = Profile.GetPatternVerticalCurveScale(Index);
             const double BeforeY = Profile.GetPatternPoint(Index).Y;
             const double AfterY = Candidate.IsEmpty() ? 1.0 : Candidate[FMath::Min(Index, Candidate.Num()-1)].Y;
             const double BeforeV=OldVertical*BeforeY*C, AfterV=NewVertical*AfterY*C;

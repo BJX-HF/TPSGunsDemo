@@ -60,7 +60,7 @@ public:
 	bool CommitCumulative(const TArray<FVector2D>& Targets, const FText& Description, TArray<FString>& OutErrors);
 	bool CommitStrengthAdjustment(const TArray<FVector2D>& Targets, TArray<FString>& OutErrors);
 
-	/** 表格精确编辑：改单发归一化值。 */
+	/** 表格精确编辑：改单发存储值（当前格式为度，旧格式为归一化）；函数名保留兼容。 */
 	bool CommitPointNormalized(int32 Index, float X, float Y, TArray<FString>& OutErrors);
 
 	/** 结构命令。 */
@@ -77,8 +77,10 @@ public:
 	// ---------------------------------------------------------------------
 
 	bool CopySelectionToClipboard(TArray<FString>& OutErrors) const;
-	/** 默认语义：粘贴原始归一化逐发参数，插到数组末尾（新节点新 ID）。 */
+	/** 默认语义：粘贴逐发参数，跨单位载荷按源角度转换，插到数组末尾（新节点新 ID）。 */
 	bool PasteNormalizedFromClipboard(TArray<FString>& OutErrors);
+	/** 与剪贴板入口共用的载荷提交路径；不依赖系统剪贴板状态。 */
+	bool PasteParameters(const FString& Payload, TArray<FString>& OutErrors);
 	/** 显式“按角度粘贴”：用目标 H/V/曲线把载荷中的源逐发角度反算后插入。 */
 	bool PasteByAngleFromClipboard(TArray<FString>& OutErrors);
 

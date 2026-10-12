@@ -173,14 +173,14 @@ bool FLyraRecoilPatternFixedRegionTest::RunTest(const FString& Parameters)
 		const FRecoilShotKick Kick = FRecoilRuntimeState::ComputeShotKick(*Profile, ShotIndex, 1.0f, 1.0f, Seed);
 
 		// 水平分量不经过 VerticalKickCurve，必须严格等于 配置值 × 基准水平 Kick
-		const float ExpectedHorizontal = Profile->RecoilPerShot_Horizontal * Point.X;
+		const float ExpectedHorizontal = Profile->GetPatternHorizontalScale() * Point.X;
 		TestTrue(
 			FString::Printf(TEXT("Shot %d horizontal == PatternPoints[%d].X x RecoilPerShot_Horizontal (expected %.6f actual %.6f)"),
 				ShotIndex, ShotIndex, ExpectedHorizontal, Kick.Horizontal),
 			FMath::IsNearlyEqual(Kick.Horizontal, ExpectedHorizontal, Tolerance));
 
 		// 垂直分量 = 配置值 × 基准垂直 Kick × VerticalKickCurve
-		const float ExpectedVertical = Profile->RecoilPerShot_Vertical * Point.Y * Profile->GetVerticalKickCurveScale(ShotIndex);
+		const float ExpectedVertical = Profile->GetPatternVerticalScale() * Point.Y * Profile->GetPatternVerticalCurveScale(ShotIndex);
 		TestTrue(
 			FString::Printf(TEXT("Shot %d vertical == PatternPoints[%d].Y x RecoilPerShot_Vertical x VerticalKickCurve (expected %.6f actual %.6f)"),
 				ShotIndex, ShotIndex, ExpectedVertical, Kick.Vertical),
@@ -238,8 +238,8 @@ bool FLyraRecoilPatternRandomWalkTest::RunTest(const FString& Parameters)
 
 	const int32 Seed = FRecoilRuntimeState::ResolveSeed(Profile);
 
-	const float MaxHorizontalShape = Profile->HorizontalRandomRange;
-	const float MaxHorizontalKick = Profile->RecoilPerShot_Horizontal * Profile->HorizontalRandomRange;
+	const float MaxHorizontalShape = Profile->bUseDirectShotAngles ? Profile->HorizontalRandomRangeDegrees : Profile->HorizontalRandomRange;
+	const float MaxHorizontalKick = Profile->GetPatternHorizontalScale() * MaxHorizontalShape;
 
 	constexpr int32 NumWalkShots = 12;
 

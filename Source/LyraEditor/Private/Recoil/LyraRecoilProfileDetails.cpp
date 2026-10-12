@@ -24,7 +24,7 @@ void FLyraRecoilProfileDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
   .Value_Lambda([Weak]() -> TOptional<int32> { auto E=Weak.Pin(); return E && E->GetProfile() ? TOptional<int32>(E->GetProfile()->PatternLength) : TOptional<int32>(); })
   .OnValueCommitted_Lambda([Weak](int32 Value,ETextCommit::Type) { if(auto E=Weak.Pin()) E->SetPatternLengthValue(Value); })];
  Pattern.AddCustomRow(FText::FromString(TEXT("逐发编辑"))).WholeRowContent()
- [SNew(STextBlock).AutoWrapText(true).Text(FText::FromString(TEXT("逐发原值、增删与重排请使用左侧表格。序号从1开始；曲线采样从0开始。随机尾段的X当前不生效，原值仍保留。")))];
+ [SNew(STextBlock).AutoWrapText(true).Text(FText::FromString(TEXT("逐发角度、增删与重排请使用左侧表格。角度格式中 X=Yaw°、Y=上抬Pitch°，无1.0上限；姿态和全局倍率仍生效。序号从1开始；曲线采样从0开始。随机尾段的X当前不生效，原值仍保留。")))];
 
  IDetailCategoryBuilder& Curves=Builder.EditCategory("CurveOwnership",FText::FromString(TEXT("曲线所有权")),ECategoryPriority::Important);
  for(FName Name: FLyraRecoilEditOperations::GetCurvePropertyNames())

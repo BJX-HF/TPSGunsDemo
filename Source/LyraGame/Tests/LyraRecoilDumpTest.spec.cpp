@@ -56,6 +56,8 @@ namespace LyraRecoilDumpTest
 	static ULyraRecoilProfile* MakeTestProfile()
 	{
 		ULyraRecoilProfile* Profile = NewObject<ULyraRecoilProfile>(GetTransientPackage());
+		Profile->bUseDirectShotAngles = false;
+		Profile->PatternPoints = GetDefault<ULyraRecoilProfile>()->PatternPoints;
 
 		Profile->RecoilPerShot_Vertical = 0.5f;
 		Profile->RecoilPerShot_Horizontal = 0.25f;
