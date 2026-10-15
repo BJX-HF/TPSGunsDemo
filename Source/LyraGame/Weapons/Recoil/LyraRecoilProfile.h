@@ -55,7 +55,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "启用武器配置", ToolTip = "开启后，本 DA 提供初始满弹匣、备弹和射速。弹药仅在物品创建时初始化，切枪不会补弹。"))
 	bool bEnableWeaponConfig = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "武器索引", ToolTip = "对应的武器物品定义，便于定位 ID 资产。实际配置由该武器实例引用的后坐力 DA 决定。"))
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Transient, Category = "Weapon Config", meta = (DisplayName = "武器索引（迁移兼容）", ToolTip = "仅保留旧资产迁移兼容，不保存项目 Content 到 ShooterCore 的跨插件引用。实际配置由武器实例引用的后坐力 DA 决定。"))
 	TSoftClassPtr<ULyraInventoryItemDefinition> WeaponItemDefinition;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "弹匣容量", ClampMin = "1", EditCondition = "bEnableWeaponConfig", ToolTip = "新创建武器的弹匣容量；初始弹匣自动装满。修改后重新创建武器或重新开始游戏生效。"))
@@ -351,7 +351,7 @@ public:
 
 	/** 逐发 Yaw/Pitch 角度数组。旧格式单位由版本迁移处理。索引即 ShotIndex。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Recoil|Pattern",
-		meta = (ToolTip = "逐发角度数组，索引 = 第几发（从 0 起）。\n角度格式：X = 本发水平偏移（度，右正左负）；Y = 本发上抬（度，非负）。数组内直接使用角度，不再乘基础强度或逐发曲线；姿态和全局倍率仍生效。旧归一化资产加载时自动转换。\n本数组参与 Golden 基线，改完必须重导 Golden。"))
+		meta = (ToolTip = "逐发角度数组，索引 = 第几发（从 0 起）。\n角度格式：X = 本发水平偏移（度，右正左负）；Y = 本发垂直偏移（度，正数上抬、负数下移）。数组内直接使用角度，不再乘基础强度或逐发曲线；姿态和全局倍率仍生效。旧归一化资产加载时自动转换。\n本数组参与 Golden 基线，改完必须重导 Golden。"))
 	TArray<FRecoilPatternPoint> PatternPoints;
 
 	/** 固定 Pattern 覆盖的发数。必须 <= PatternPoints.Num()。超出后进入伪随机区间。 */

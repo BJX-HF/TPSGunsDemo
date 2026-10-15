@@ -6,6 +6,7 @@
 /**
  * -run=LyraWeaponConfig: export asset/Blueprint inspection to Saved/WeaponConfigInspection.txt.
  * -migrate: initialize DA ammo/RPM from existing item/ability defaults and wire the fire timer.
+ * -clearweaponrefs: clear informational DA -> ShooterCore item references that violate project asset boundaries.
  * -reticles: wire DPI-correct radius and unclamped diameter for the three weapon reticles.
  * -addpistol: append the pistol to the two-weapon starting loadout; -loadout: inspect it.
  * Existing enabled weapon settings and all recoil patterns are preserved.

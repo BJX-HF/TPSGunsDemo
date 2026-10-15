@@ -71,6 +71,41 @@ float ULyraReticleWidgetBase::ComputeMaxScreenspaceSpreadRadius() const
 				FVector2D(View.Width(), View.Height()), Projection.ProjectionMatrix);
 		}
 	}
+
+	// Some PIE, split-screen, and Pixel Streaming viewports do not expose a
+	// projection through ULocalPlayer yet, even though the player camera can
+	// already project world positions. Keep the same cone-to-screen mapping as
+	// a fallback instead of returning zero and collapsing all markers at the
+	// reticle center.
+	if (PC && PC->PlayerCameraManager)
+	{
+		constexpr float ProjectionDistance = 10000.0f;
+		const float SpreadRadiusRadians = LyraWeaponSpreadMath::HalfAngleRadians(ComputeSpreadAngle());
+		const float SpreadRadiusAtDistance = FMath::Tan(SpreadRadiusRadians) * ProjectionDistance;
+
+		FVector CameraLocation;
+		FRotator CameraRotation;
+		PC->PlayerCameraManager->GetCameraViewPoint(CameraLocation, CameraRotation);
+		const FVector CameraForward = CameraRotation.RotateVector(FVector::ForwardVector);
+		const FVector CameraUp = CameraRotation.RotateVector(FVector::UpVector);
+		const FVector EdgePoint = CameraLocation
+			+ CameraForward * ProjectionDistance
+			+ CameraUp * SpreadRadiusAtDistance;
+
+		FVector2D ScreenPoint;
+		if (PC->ProjectWorldLocationToScreen(EdgePoint, ScreenPoint, true))
+		{
+			int32 ViewportWidth = 0;
+			int32 ViewportHeight = 0;
+			PC->GetViewportSize(ViewportWidth, ViewportHeight);
+			if (ViewportWidth > 0 && ViewportHeight > 0)
+			{
+				const FVector2D ScreenCenter(ViewportWidth * 0.5f, ViewportHeight * 0.5f);
+				return (ScreenPoint - ScreenCenter).Length();
+			}
+		}
+	}
+
 	return 0.0f;
 }
 

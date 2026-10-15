@@ -396,30 +396,6 @@ void ULyraGameplayAbility_RangedWeapon::TraceBulletsInCartridge(const FRangedWea
 	const int32 BulletsPerCartridge = WeaponData->GetBulletsPerCartridge();
 
 	// ------------------------------------------------------------------
-	// 后坐力弹道链（开发计划 §P3）
-	//
-	// 顺序：AimDir ──► 叠加后坐力偏移 ──► 走原有 spread 扩散
-	//
-	// 偏移刻意叠加在扩散**之前**，两者互相独立：
-	//   - Lyra.Recoil.Enable 0 时偏移恒为 0，弹道完全回到 Lyra 原有纯扩散行为；
-	//   - 整发（一发子弹 cartridge）内的所有弹丸共用同一个偏移，
-	//     所以霰弹枪的多弹丸是整体偏移，不会各自乱飞。
-	//
-	// 注意取的是"这一发"的序号：AddRecoil() 在扣弹成功之后才调用并递增 ShotIndex，
-	// 所以此刻的 ShotIndex 正是当前这一发的索引。
-	// ------------------------------------------------------------------
-	const int32 RecoilShotIndex = WeaponData->GetRecoilState().ShotIndex;
-	const FRecoilShotKick RecoilOffset = WeaponData->GetRecoilShotDirectionOffset(RecoilShotIndex);
-
-	FVector AimDirWithRecoil = InputData.AimDir;
-	if (!FMath::IsNearlyZero(RecoilOffset.Vertical) || !FMath::IsNearlyZero(RecoilOffset.Horizontal))
-	{
-		// Pitch 向上为正、Yaw 向右为正，与 FRotator 的符号约定一致，可直接相加
-		const FRotator RecoilRotator(RecoilOffset.Vertical, RecoilOffset.Horizontal, 0.0f);
-		AimDirWithRecoil = (InputData.AimDir.Rotation() + RecoilRotator).Vector().GetSafeNormal();
-	}
-
-	// ------------------------------------------------------------------
 	// 散布快照（资产散布模型）
 	//
 	// 在**发弹这一刻**把本发实际使用的锥角记进运行时状态，随后由 ApplyShot 写进
@@ -438,7 +414,11 @@ void ULyraGameplayAbility_RangedWeapon::TraceBulletsInCartridge(const FRangedWea
 
 	for (int32 BulletIndex = 0; BulletIndex < BulletsPerCartridge; ++BulletIndex)
 	{
-		const FVector BulletDir = VRandConeNormalDistribution(AimDirWithRecoil, HalfSpreadAngleInRadians, WeaponData->GetSpreadExponent());
+		// InputData.AimDir comes from GetPlayerViewPoint(), so it already contains
+		// the recoil currently visible in the camera. Applying the current shot's
+		// kick again here double-counts recoil and puts bullets outside the reticle.
+		// The camera kick then affects the aim direction sampled by the next shot.
+		const FVector BulletDir = VRandConeNormalDistribution(InputData.AimDir, HalfSpreadAngleInRadians, WeaponData->GetSpreadExponent());
 
 		const FVector EndTrace = InputData.StartTrace + (BulletDir * WeaponData->GetMaxDamageRange());
 		FVector HitLocation = EndTrace;

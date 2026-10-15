@@ -156,6 +156,14 @@ float ULyraRecoilProfile::GetShotPitchDegrees(int32 ShotIndex) const
 void ULyraRecoilProfile::PostLoad()
 {
 	Super::PostLoad();
+
+	// WeaponItemDefinition used to be an editable navigation-only field.  Older
+	// packages can still carry a ShooterCore soft reference in memory even
+	// though the property is now transient.  Drop it as soon as the profile is
+	// loaded so editing any real profile value (including spread) cannot make
+	// the asset validator report a stale cross-plugin reference.
+	WeaponItemDefinition.Reset();
+
 	if (LoadedPatternVersion < LyraRecoilPatternVersion::DirectAngles)
 	{
 		bUseDirectShotAngles = false;
@@ -169,6 +177,10 @@ void ULyraRecoilProfile::PostLoad()
 #if WITH_EDITOR
 void ULyraRecoilProfile::PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent)
 {
+	// Keep the migration-only index clear for already-open assets as well as
+	// assets loaded after the property was made transient.
+	WeaponItemDefinition.Reset();
+
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
 	SanitizePatternLength();
@@ -535,12 +547,9 @@ bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 		{
 			OutErrors.Add(FString::Printf(TEXT("%s PatternPoints[%d].X = %.4f must be within [-1, 1]"), *Prefix, Index, Point.X));
 		}
-		if (Point.Y < 0.0f || (!bUseDirectShotAngles && Point.Y > 1.0f))
+		if (!bUseDirectShotAngles && (Point.Y < 0.0f || Point.Y > 1.0f))
 		{
-			if (bUseDirectShotAngles)
-				OutErrors.Add(FString::Printf(TEXT("第%d发上抬角度 %.6g° 必须非负。"), Index+1, Point.Y));
-			else
-				OutErrors.Add(FString::Printf(TEXT("%s PatternPoints[%d].Y = %.4f must be within [0, 1]. Pattern only describes shape; put the rising ramp into VerticalKickCurve instead."), *Prefix, Index, Point.Y));
+			OutErrors.Add(FString::Printf(TEXT("%s PatternPoints[%d].Y = %.4f must be within [0, 1]. Pattern only describes shape; put the rising ramp into VerticalKickCurve instead."), *Prefix, Index, Point.Y));
 		}
 	}
 

@@ -86,8 +86,8 @@ namespace LyraRecoilPatternAdapterInternal
 		if (!Profile.bUseDirectShotAngles) return CheckNormalizedValue(Index, Axis, Value, Minimum, Maximum, Report, Errors);
 		if (!IsFiniteValue(Value) || FMath::Abs(Value) > MAX_flt)
 		{ Errors.Add(FString::Printf(TEXT("第%d发 %s 角度非有限或超过可存储范围。"), Index+1, Axis)); return false; }
-		if (Minimum == 0.0 && Value < -ZeroAngleTolerance)
-		{ Errors.Add(FString::Printf(TEXT("第%d发上抬角度 %.6g° 为负。累计点必须不低于前一发；请同时移动后续点或调整相邻发。"), Index+1, Value)); return false; }
+		// 角度格式保存的是逐发增量。允许 Y 为负，以表达连发中某一发向下的移动；
+		// 旧归一化格式仍由 CheckNormalizedValue 保持 [0, 1] 约束。
 		return true;
 	}
 
@@ -554,7 +554,7 @@ bool FLyraRecoilPatternAdapter::MoveCumulative(const ULyraRecoilProfile& Profile
 				{
 					return false;
 				}
-				Candidate[Index].Y = static_cast<float>(Profile.bUseDirectShotAngles ? FMath::Max(0.0, RawY) : FMath::Clamp(RawY, 0.0, 1.0));
+				Candidate[Index].Y = static_cast<float>(Profile.bUseDirectShotAngles ? RawY : FMath::Clamp(RawY, 0.0, 1.0));
 			}
 		}
 	}
@@ -607,11 +607,9 @@ bool FLyraRecoilPatternAdapter::Insert(const FLyraRecoilPatternData& Source, int
 			Errors.Add(FString::Printf(TEXT("InsertedPoints[%d].X = %.6f is outside [-1, 1]"), NewIndex, static_cast<double>(Point.X)));
 			return false;
 		}
-		if (Point.Y < 0.0f || (!Source.bUsesDirectAngles && Point.Y > 1.0f))
+		if (!Source.bUsesDirectAngles && (Point.Y < 0.0f || Point.Y > 1.0f))
 		{
-			Errors.Add(Source.bUsesDirectAngles
-				? FString::Printf(TEXT("插入第 %d 发上抬角度 %.6f° 必须非负"), NewIndex + 1, static_cast<double>(Point.Y))
-				: FString::Printf(TEXT("InsertedPoints[%d].Y = %.6f is outside [0, 1]"), NewIndex, static_cast<double>(Point.Y)));
+			Errors.Add(FString::Printf(TEXT("InsertedPoints[%d].Y = %.6f is outside [0, 1]"), NewIndex, static_cast<double>(Point.Y)));
 			return false;
 		}
 	}
@@ -1248,7 +1246,7 @@ bool FLyraRecoilPatternAdapter::ConvertClipboardAngles(const ULyraRecoilProfile&
 			{
 				return false;
 			}
-			Point.Y = static_cast<float>(TargetProfile.bUseDirectShotAngles ? FMath::Max(0.0, RawY) : FMath::Clamp(RawY, 0.0, 1.0));
+			Point.Y = static_cast<float>(TargetProfile.bUseDirectShotAngles ? RawY : FMath::Clamp(RawY, 0.0, 1.0));
 		}
 
 		Built.Add(Point);

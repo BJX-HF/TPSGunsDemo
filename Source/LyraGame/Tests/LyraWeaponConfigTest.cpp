@@ -21,6 +21,14 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraWeaponConfigRuntimeTest,
 
 bool FLyraWeaponConfigRuntimeTest::RunTest(const FString& Parameters)
 {
+	const FProperty* SpreadProperty = FindFProperty<FProperty>(ULyraRecoilProfile::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(ULyraRecoilProfile, SpreadAngle_Standing));
+	TestTrue(TEXT("Profile spread angle remains editable"), SpreadProperty && SpreadProperty->HasAnyPropertyFlags(CPF_Edit));
+
+	const FProperty* WeaponIndexProperty = FindFProperty<FProperty>(ULyraRecoilProfile::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(ULyraRecoilProfile, WeaponItemDefinition));
+	TestTrue(TEXT("Legacy weapon index is transient"), WeaponIndexProperty && WeaponIndexProperty->HasAnyPropertyFlags(CPF_Transient));
+
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
 	ON_SCOPE_EXIT { World->DestroyWorld(false); };
 	APawn* Pawn = World->SpawnActor<APawn>();
@@ -47,7 +55,9 @@ bool FLyraWeaponConfigRuntimeTest::RunTest(const FString& Parameters)
 		if (!TestNotNull(TEXT("Bound profile"), Profile)) return false;
 		TestTrue(TEXT("Spread enabled"), Profile->bEnableProfileSpread);
 		TestTrue(TEXT("Weapon config enabled"), Profile->bEnableWeaponConfig);
-		TestEqual(TEXT("Weapon index"), Profile->WeaponItemDefinition.Get(), ItemClass);
+		// ProjectContent recoil profiles must not reference the ShooterCore plugin.
+		// The equipped weapon instance remains the authoritative profile binding.
+		TestTrue(TEXT("No cross-plugin weapon index reference"), Profile->WeaponItemDefinition.IsNull());
 		const int32 OriginalSize = Profile->MagazineSize, OriginalSpare = Profile->SpareAmmo;
 		const float OriginalRPM = Profile->FireRateRPM;
 		ON_SCOPE_EXIT { Profile->MagazineSize = OriginalSize; Profile->SpareAmmo = OriginalSpare; Profile->FireRateRPM = OriginalRPM; };

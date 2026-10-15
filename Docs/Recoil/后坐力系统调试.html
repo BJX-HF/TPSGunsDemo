@@ -19,7 +19,7 @@
 <h2 id="base">1 · 后坐力与轨迹参数</h2>
 <h3>Recoil | Base / Curves / Pattern</h3>
 <div class="scroll"><table><tr><th>参数</th><th>含义</th></tr>
-<tr><td><code>PatternPoints.X / Y</code></td><td>当前格式直接配置逐发角度：X 是水平 Yaw（度，右正左负），Y 是上抬 Pitch（度，非负，无 1.0 上限）。画布显示这些角度的累计值；姿态和全局倍率仍生效。</td></tr>
+<tr><td><code>PatternPoints.X / Y</code></td><td>当前格式直接配置逐发角度：X 是水平 Yaw（度，右正左负），Y 是垂直 Pitch（度，正数上抬、负数下移，无 1.0 上限）。画布显示这些角度的累计值；姿态和全局倍率仍生效。</td></tr>
 <tr><td><code>RecoilPerShot_Vertical / Horizontal</code></td><td>旧归一化格式的基础力度，保留用于兼容；在角度资产中隐藏，不再重复缩放数组内角度。</td></tr>
 <tr><td><code>VerticalKickCurve</code></td><td>角度格式仅在启用数组外尾段曲线时使用；数组内配置角度不乘此曲线。横轴为从 0 开始的发序号，纵轴为倍率。旧归一化格式继续按原定义使用。</td></tr>
 <tr><td><code>PatternPoints</code></td><td>逐发数据数组。固定水平段按 X 配置走向，超过固定段后水平使用随机游走；数组内每一发的 Y 仍为该发上抬角度。调整点位可改变 S 形、7 字形等图案。</td></tr>

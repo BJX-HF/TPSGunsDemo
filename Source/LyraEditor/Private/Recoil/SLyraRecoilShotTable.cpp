@@ -320,9 +320,9 @@ FText SLyraRecoilShotTable::GetRowValidationText(TSharedPtr<FLyraRecoilShotRow> 
 	{
 		Issues.Add(TEXT("Y 非有限数（NaN/Inf）"));
 	}
-	else if (Point.Y < 0.0f || (!bAngles && Point.Y > 1.0f))
+	else if (!bAngles && (Point.Y < 0.0f || Point.Y > 1.0f))
 	{
-		Issues.Add(bAngles ? FString::Printf(TEXT("上抬角度 %.6f° 必须非负"), Point.Y) : FString::Printf(TEXT("Y=%.6f 超出允许范围 [0, 1]"), Point.Y));
+		Issues.Add(FString::Printf(TEXT("Y=%.6f 超出允许范围 [0, 1]"), Point.Y));
 	}
 
 	if (Row->bTailHorizontalInactive)
@@ -495,7 +495,7 @@ TSharedRef<SWidget> SLyraRecoilShotTableRow::GenerateWidgetForColumn(const FName
 			{
 				return TOptional<float>(Row->RawValue.Y);
 			}))
-			.MinValue(TOptional<float>(0.0f))
+			.MinValue(bAngles ? TOptional<float>() : TOptional<float>(0.0f))
 			.MaxValue(bAngles ? TOptional<float>() : TOptional<float>(1.0f))
 			.AllowSpin(false)
 			.OnValueCommitted(SNumericEntryBox<float>::FOnValueCommitted::CreateLambda(

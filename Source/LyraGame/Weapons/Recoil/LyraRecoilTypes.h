@@ -101,7 +101,7 @@ enum class ERecoilSingleShotMode : uint8
 };
 
 /** A per-shot point. Current assets store X/Y in degrees; legacy units are tracked on the Profile.
- * X is signed horizontal kick; Y is non-negative upward kick. Canvas positions are cumulative.
+ * X and Y are signed per-shot kicks. Canvas positions are cumulative.
  */
 USTRUCT(BlueprintType)
 struct FRecoilPatternPoint
@@ -112,8 +112,8 @@ struct FRecoilPatternPoint
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ForceUnits = deg, ToolTip = "本发水平偏移角度（度）：右为正，左为负。"))
 	float X = 0.0f;
 
-	/** Per-shot upward angle in degrees, non-negative. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ForceUnits = deg, ClampMin = "0.0", ToolTip = "本发上抬角度（度），0 表示该发不抬枪；没有归一化的 1.0 上限。"))
+	/** Per-shot vertical angle in degrees. Negative values move the shot downward. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Recoil|Pattern", meta = (ForceUnits = deg, ToolTip = "本发垂直偏移角度（度），正数上抬、负数下移；没有归一化的 1.0 上限。"))
 	float Y = 0.0f;
 
 	FRecoilPatternPoint() = default;

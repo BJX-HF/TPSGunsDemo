@@ -89,7 +89,10 @@ namespace
 				const double Seconds = Delay->GetFloatingPointPropertyValue(Delay->ContainerPtrToValuePtr<void>(Ability->GeneratedClass->GetDefaultObject()));
 				if (Seconds <= 0.0 || Profile->MagazineSize < 1 || Profile->SpareAmmo < 0) return 1;
 				Profile->FireRateRPM = 60.0 / Seconds;
-				Profile->WeaponItemDefinition = FSoftObjectPath(Item->GeneratedClass->GetPathName());
+				// ProjectContent profiles must not retain a reference back into the
+				// ShooterCore GameFeature plugin. The equipped weapon instance is the
+				// authoritative profile binding; this field is informational only.
+				Profile->WeaponItemDefinition.Reset();
 				Profile->bEnableWeaponConfig = true;
 				TArray<FString> Errors;
 				if (!Profile->ValidateProfile(Errors) || !SaveAsset(Profile)) return 1;
@@ -151,6 +154,28 @@ namespace
 		}
 		if (Patched != 1 || !CompileAndSave(Fire)) return 1;
 		UE_LOG(LogWeaponConfig, Display, TEXT("Weapon configuration migration complete; fire timer reads the equipped weapon profile."));
+		return 0;
+	}
+
+	int32 ClearWeaponItemReferences()
+	{
+		for (const TCHAR* Name : {TEXT("Rifle"), TEXT("Rifle_S"), TEXT("ak47"), TEXT("Pistol"), TEXT("Shotgun")})
+		{
+			const FString Path = FString::Printf(TEXT("/Game/Weapons/Recoil/DA_Recoil_%s.DA_Recoil_%s"), Name, Name);
+			ULyraRecoilProfile* Profile = LoadObject<ULyraRecoilProfile>(nullptr, *Path);
+			if (!Profile)
+			{
+				UE_LOG(LogWeaponConfig, Error, TEXT("Unable to load recoil profile %s"), *Path);
+				return 1;
+			}
+
+			if (!Profile->WeaponItemDefinition.IsNull())
+			{
+				Profile->WeaponItemDefinition.Reset();
+				if (!SaveAsset(Profile)) return 1;
+				UE_LOG(LogWeaponConfig, Display, TEXT("Cleared cross-plugin weapon index from %s"), *Path);
+			}
+		}
 		return 0;
 	}
 
@@ -307,6 +332,7 @@ int32 ULyraWeaponConfigCommandlet::Main(const FString& Params)
 		return 0;
 	}
 	if (FParse::Param(*Params, TEXT("migrate"))) return MigrateWeaponConfig();
+	if (FParse::Param(*Params, TEXT("clearweaponrefs"))) return ClearWeaponItemReferences();
 	if (FParse::Param(*Params, TEXT("reticles"))) return MigrateReticles();
 	TArray<FString> Files;
 	IFileManager::Get().FindFilesRecursive(Files, *(FPaths::ProjectPluginsDir() / TEXT("GameFeatures/ShooterCore/Content/Weapons")), TEXT("*.uasset"), true, false);

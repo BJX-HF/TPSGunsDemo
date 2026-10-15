@@ -66,7 +66,9 @@
 
 ④ 喂给圆锥采样
      HalfSpreadAngleInRadians = DegreesToRadians(EffectiveCone × 0.5)
-     BulletDir = VRandConeNormalDistribution(AimDirWithRecoil, HalfSpreadAngleInRadians, SpreadExponent)
+     // AimDir is the current camera view direction. Recoil is applied to the
+     // camera and is therefore sampled naturally by the next shot.
+     BulletDir = VRandConeNormalDistribution(AimDir, HalfSpreadAngleInRadians, SpreadExponent)
 ```
 
 ### 3.2 单位口径（必须记住的三条）
