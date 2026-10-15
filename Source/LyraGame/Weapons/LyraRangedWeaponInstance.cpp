@@ -440,6 +440,7 @@ void ULyraRangedWeaponInstance::AddRecoil()
 
 	if (RecoilState.ApplyShot(Profile, ComputeRecoilPoseMultiplier(), ComputeRecoilPoseState()))
 	{
+		ULyraRecoilDebug::RecordRecoilGraphShot(this);
 		// Consume exactly the same committed shot result as the camera and trajectory.
 		++VisualShotSerial;
 		const FRecoilShotResult& Shot = RecoilState.ShotHistory.Last();
@@ -578,6 +579,7 @@ void ULyraRangedWeaponInstance::SampleRecoilPlayerAim()
 
 void ULyraRangedWeaponInstance::ResetRecoilState()
 {
+	ULyraRecoilDebug::ResetRecoilGraph(this);
 	RecoilState.Reset(RecoilProfile);
 	VisualRecoilState.Reset();
 	VisualShotSerial = 0;
@@ -762,6 +764,7 @@ void ULyraRangedWeaponInstance::ClearRecoilCameraOffset()
 
 void ULyraRangedWeaponInstance::DrawRecoilDebug()
 {
+	ULyraRecoilDebug::RecordRecoilGraphFrame(this);
 	// 屏幕面板（数值 + Roll 波形）不受 ENABLE_DRAW_DEBUG 限制：
 	// 它们是纯 GEngine->AddOnScreenDebugMessage，只要不是 Shipping 构建就能用。
 	// 分开判断是因为两者的 CVar 独立 —— 只想看波形时不必把世界线也画出来。

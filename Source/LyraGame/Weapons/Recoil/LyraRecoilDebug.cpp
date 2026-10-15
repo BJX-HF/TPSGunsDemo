@@ -3,11 +3,16 @@
 #include "Weapons/Recoil/LyraRecoilDebug.h"
 
 #include "DrawDebugHelpers.h"
+#include "CanvasItem.h"
+#include "Debug/DebugDrawService.h"
 #include "Camera/LyraCameraRollShake.h"
+#include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "Equipment/LyraEquipmentManagerComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -82,6 +87,19 @@ namespace LyraRecoilDebugPrivate
 
 namespace LyraRecoilCVars
 {
+	static bool bPitchGraph = false;
+	static FAutoConsoleVariableRef CVarPitchGraph(
+		TEXT("Lyra.Recoil.PitchGraph"), bPitchGraph,
+		TEXT("Draw five seconds of pitch: cyan = logical recoil, magenta = camera input, yellow = shot. Default: 0"), ECVF_Default);
+	static bool bYawGraph = false;
+	static FAutoConsoleVariableRef CVarYawGraph(
+		TEXT("Lyra.Recoil.YawGraph"), bYawGraph,
+		TEXT("Draw five seconds of yaw: cyan = logical recoil, magenta = camera input, yellow = shot. Default: 0"), ECVF_Default);
+	static bool bRollGraph = false;
+	static FAutoConsoleVariableRef CVarRollGraph(
+		TEXT("Lyra.Recoil.RollGraph"), bRollGraph,
+		TEXT("Draw five seconds of actual frame-sampled roll. Cyan = raw degrees, magenta = scaled camera input, yellow = shot. Default: 0"),
+		ECVF_Default);
 	/** 总开关 */
 	static bool bRecoilEnabled = true;
 	static FAutoConsoleVariableRef CVarRecoilEnabled(
@@ -185,6 +203,245 @@ namespace LyraRecoilCVars
 	static bool bVisualTrace = false;
 	static FAutoConsoleVariableRef CVarVisualTrace(TEXT("Lyra.Recoil.VisualTrace"), bVisualTrace,
 		TEXT("Record one Gun Kick CSV sample per local animation frame. Default: 0"), ECVF_Default);
+}
+
+namespace LyraRecoilGraphPrivate
+{
+#if !UE_BUILD_SHIPPING
+	constexpr double WindowSeconds = 5.0;
+	constexpr int32 MaxSamples = 4096;
+	struct FSample
+	{
+		double Time = 0.0;
+		float Raw[3] = {};
+		float Display[3] = {};
+	};
+	struct FTrace
+	{
+		TWeakObjectPtr<UWorld> World;
+		TArray<FSample> Samples;
+		TArray<double> Shots;
+		uint64 LastFrame = MAX_uint64;
+	};
+	static TMap<TWeakObjectPtr<const ULyraRangedWeaponInstance>, FTrace> Traces;
+	static FDelegateHandle DrawHandle;
+	static FDelegateHandle CleanupHandle;
+
+	// Roll, Pitch and Yaw share one clock/history and independent visibility switches.
+	static bool IsAnyGraphEnabled()
+	{
+		return LyraRecoilCVars::bRollGraph || LyraRecoilCVars::bPitchGraph || LyraRecoilCVars::bYawGraph;
+	}
+
+	static void StopDrawing()
+	{
+		if (DrawHandle.IsValid())
+		{
+			UDebugDrawService::Unregister(DrawHandle);
+			DrawHandle.Reset();
+		}
+		if (CleanupHandle.IsValid())
+		{
+			FWorldDelegates::OnWorldCleanup.Remove(CleanupHandle);
+			CleanupHandle.Reset();
+		}
+	}
+
+	static void OnToggle(IConsoleVariable*)
+	{
+		// Keep the shared timeline when switching visible axes; clear when all are off.
+		if (!IsAnyGraphEnabled())
+		{
+			Traces.Reset();
+			StopDrawing();
+		}
+	}
+
+	static void OnWorldCleanup(UWorld* World, bool, bool)
+	{
+		for (auto It = Traces.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().IsValid() || !It.Value().World.IsValid() || It.Value().World.Get() == World)
+			{
+				It.RemoveCurrent();
+			}
+		}
+		if (Traces.IsEmpty()) { StopDrawing(); }
+	}
+
+	static void Draw(UCanvas* Canvas, APlayerController* PC)
+	{
+		if (!IsAnyGraphEnabled() || !Canvas || !PC || !GEngine || Canvas->SizeX < 300 || Canvas->SizeY < 260)
+		{
+			return;
+		}
+		// The engine passes the controller for this view: no first-world/player lookup.
+		for (const auto& Pair : Traces)
+		{
+			const ULyraRangedWeaponInstance* Weapon = Pair.Key.Get();
+			const FTrace& Trace = Pair.Value;
+			if (!Weapon || Trace.World.Get() != PC->GetWorld() || Weapon->GetPawn() != PC->GetPawn() || Trace.Samples.IsEmpty())
+			{
+				continue;
+			}
+			const double Now = PC->GetWorld()->GetTimeSeconds();
+			if (Now - Trace.Samples.Last().Time > 0.5f) { continue; }
+			const float Width = FMath::Min(760.0f, Canvas->SizeX - 32.0f);
+			const bool EnabledAxes[] = {LyraRecoilCVars::bRollGraph, LyraRecoilCVars::bPitchGraph, LyraRecoilCVars::bYawGraph};
+			const TCHAR* AxisNames[] = {TEXT("ROLL"), TEXT("PITCH"), TEXT("YAW")};
+			const int32 PanelCount = int32(EnabledAxes[0]) + int32(EnabledAxes[1]) + int32(EnabledAxes[2]);
+			const float Height = FMath::Min(FMath::Min(250.0f, Canvas->SizeY * 0.38f), (Canvas->SizeY - 40.0f - (PanelCount - 1) * 8.0f) / PanelCount);
+			int32 PanelIndex = 0;
+			for (int32 Axis = 0; Axis < 3; ++Axis)
+			{
+				if (!EnabledAxes[Axis]) { continue; }
+				const FVector2D Origin(Canvas->SizeX - Width - 16.0f, Canvas->SizeY - 24.0f - Height - PanelIndex++ * (Height + 8.0f));
+				FCanvasTileItem Background(Origin, FVector2D(Width, Height), FLinearColor(0.015f, 0.025f, 0.045f, 0.88f));
+				Background.BlendMode = SE_BLEND_Translucent;
+				Canvas->DrawItem(Background);
+				auto Text = [Canvas](const FString& Value, float X, float Y, const FLinearColor& Color)
+				{
+					Canvas->K2_DrawText(GEngine->GetSmallFont(), Value, FVector2D(X, Y), FVector2D(0.9f, 0.9f), Color);
+				};
+				const float Left = Origin.X + 58.0f, Right = Origin.X + Width - 14.0f;
+				const bool bCompact = Height < 150.0f;
+				const bool bTiny = Height < 100.0f;
+				const float Top = Origin.Y + (bTiny ? 18.0f : (bCompact ? 42.0f : 62.0f));
+				const float Bottom = Origin.Y + Height - (bTiny ? 14.0f : 20.0f);
+				float Peak = 0.1f;
+				for (const FSample& Sample : Trace.Samples)
+				{
+					if (Sample.Time >= Now - WindowSeconds)
+					{
+						Peak = FMath::Max(Peak, FMath::Max(FMath::Abs(Sample.Raw[Axis]), FMath::Abs(Sample.Display[Axis])));
+					}
+				}
+				const float Range = FMath::CeilToFloat(Peak * 11.0f) / 10.0f;
+				auto X = [&](double Time) { return FMath::Lerp(Left, Right, static_cast<float>(FMath::Clamp((Time - (Now - WindowSeconds)) / WindowSeconds, 0.0, 1.0))); };
+				auto Y = [&](float Value) { return FMath::Lerp(Bottom, Top, (Value / Range + 1.0f) * 0.5f); };
+				const FLinearColor RawColor(0.0f, 0.85f, 1.0f);
+				const FLinearColor DisplayColor(1.0f, 0.25f, 0.8f);
+				Text(FString::Printf(TEXT("%s HISTORY | last 5s | deg"), AxisNames[Axis]), Origin.X + 10, Origin.Y + 7, FLinearColor::White);
+				if (!bTiny)
+				{
+					Text(FString::Printf(TEXT("%s %+.3f"), Axis == 0 ? TEXT("Raw") : TEXT("Logic"), Trace.Samples.Last().Raw[Axis]), Origin.X + 10, Origin.Y + 25, RawColor);
+					Text(FString::Printf(TEXT("%s %+.3f"), Axis == 0 ? TEXT("Scaled input") : TEXT("Camera input"), Trace.Samples.Last().Display[Axis]), Origin.X + 140, Origin.Y + 25, DisplayColor);
+				}
+				if (!bCompact)
+				{
+					Text(TEXT("Yellow = fire; camera target, not final POV"), Origin.X + 10, Origin.Y + 42, FLinearColor(0.8f, 0.8f, 0.65f));
+				}
+				for (int32 Tick = 0; Tick <= 5; ++Tick)
+				{
+					const float TickX = FMath::Lerp(Left, Right, Tick / 5.0f);
+					Canvas->K2_DrawLine(FVector2D(TickX, Top), FVector2D(TickX, Bottom), 1.0f, FLinearColor(0.18f, 0.22f, 0.28f));
+					Text(Tick == 5 ? TEXT("now") : FString::Printf(TEXT("-%ds"), 5 - Tick), TickX - 10, Bottom + 6, FLinearColor::White);
+				}
+				for (int32 Tick = -1; Tick <= 1; ++Tick)
+				{
+					const float TickY = Y(Tick * Range);
+					Canvas->K2_DrawLine(FVector2D(Left, TickY), FVector2D(Right, TickY), Tick == 0 ? 1.5f : 1.0f, FLinearColor(0.35f, 0.4f, 0.45f));
+					Text(FString::Printf(TEXT("%+.2f"), Tick * Range), Origin.X + 5, TickY - 6, FLinearColor::White);
+				}
+				for (double FireTime : Trace.Shots)
+				{
+					if (FireTime >= Now - WindowSeconds)
+					{
+						Canvas->K2_DrawLine(FVector2D(X(FireTime), Top), FVector2D(X(FireTime), Bottom), 1.0f, FLinearColor(0.6f, 0.5f, 0.15f));
+					}
+				}
+				for (int32 Index = 1; Index < Trace.Samples.Num(); ++Index)
+				{
+					const FSample& A = Trace.Samples[Index - 1];
+					const FSample& B = Trace.Samples[Index];
+					if (A.Time < Now - WindowSeconds || B.Time - A.Time > 0.25f) { continue; }
+					// Wider raw stroke remains visible when both channels coincide at scale=1.
+					Canvas->K2_DrawLine(FVector2D(X(A.Time), Y(A.Raw[Axis])), FVector2D(X(B.Time), Y(B.Raw[Axis])), 3.0f, RawColor);
+					Canvas->K2_DrawLine(FVector2D(X(A.Time), Y(A.Display[Axis])), FVector2D(X(B.Time), Y(B.Display[Axis])), 1.0f, DisplayColor);
+				}
+			}
+		}
+	}
+
+	static FTrace* FindOrAdd(const ULyraRangedWeaponInstance* Weapon)
+	{
+		if (!IsAnyGraphEnabled() || !Weapon || !Weapon->GetWorld() || !Weapon->GetPawn() || !Weapon->GetPawn()->IsLocallyControlled())
+		{
+			return nullptr;
+		}
+		if (!DrawHandle.IsValid())
+		{
+			DrawHandle = UDebugDrawService::Register(TEXT("Game"), FDebugDrawDelegate::CreateStatic(&Draw));
+			CleanupHandle = FWorldDelegates::OnWorldCleanup.AddStatic(&OnWorldCleanup);
+			for (const TCHAR* Name : {TEXT("Lyra.Recoil.RollGraph"), TEXT("Lyra.Recoil.PitchGraph"), TEXT("Lyra.Recoil.YawGraph")})
+			{
+				IConsoleManager::Get().FindConsoleVariable(Name)->SetOnChangedCallback(FConsoleVariableDelegate::CreateStatic(&OnToggle));
+			}
+		}
+		for (auto It = Traces.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().IsValid() || !It.Value().World.IsValid()) { It.RemoveCurrent(); }
+		}
+		FTrace& Trace = Traces.FindOrAdd(Weapon);
+		Trace.World = Weapon->GetWorld();
+		const double Now = Trace.World->GetTimeSeconds();
+		if (!Trace.Samples.IsEmpty() && Now < Trace.Samples.Last().Time)
+		{
+			Trace.Samples.Reset(); Trace.Shots.Reset(); Trace.LastFrame = MAX_uint64;
+		}
+		int32 Expired = 0;
+		while (Expired < Trace.Samples.Num() && Trace.Samples[Expired].Time < Now - WindowSeconds) { ++Expired; }
+		Trace.Samples.RemoveAt(0, Expired, EAllowShrinking::No);
+		Trace.Shots.RemoveAll([Now](double Time) { return Time < Now - WindowSeconds; });
+		return &Trace;
+	}
+#endif
+}
+
+void ULyraRecoilDebug::RecordRecoilGraphFrame(const ULyraRangedWeaponInstance* Weapon)
+{
+#if !UE_BUILD_SHIPPING
+	using namespace LyraRecoilGraphPrivate;
+	if (FTrace* Trace = FindOrAdd(Weapon))
+	{
+		if (Trace->LastFrame == GFrameCounter) { return; }
+		Trace->LastFrame = GFrameCounter;
+		const FRecoilRuntimeState& State = Weapon->GetRecoilState();
+		FSample Sample;
+		Sample.Time = Weapon->GetWorld()->GetTimeSeconds();
+		Sample.Raw[0] = State.GetCameraRollOffset();
+		Sample.Raw[1] = State.AccumulatedPitch;
+		Sample.Raw[2] = State.AccumulatedYaw;
+		if (IsRecoilEnabled())
+		{
+			Sample.Display[0] = Sample.Raw[0] * GetRollShakeScale();
+			// These values already contain GlobalScale and pose scaling. Do not scale twice.
+			Sample.Display[1] = State.GetCameraPitchOffset();
+			Sample.Display[2] = State.GetCameraYawOffset();
+		}
+		if (Trace->Samples.Num() >= MaxSamples) { Trace->Samples.RemoveAt(0, 1, EAllowShrinking::No); }
+		Trace->Samples.Add(Sample);
+	}
+#endif
+}
+
+void ULyraRecoilDebug::RecordRecoilGraphShot(const ULyraRangedWeaponInstance* Weapon)
+{
+#if !UE_BUILD_SHIPPING
+	if (LyraRecoilGraphPrivate::FTrace* Trace = LyraRecoilGraphPrivate::FindOrAdd(Weapon))
+	{
+		if (Trace->Shots.Num() >= LyraRecoilGraphPrivate::MaxSamples) { Trace->Shots.RemoveAt(0, 1, EAllowShrinking::No); }
+		Trace->Shots.Add(Weapon->GetWorld()->GetTimeSeconds());
+	}
+#endif
+}
+
+void ULyraRecoilDebug::ResetRecoilGraph(const ULyraRangedWeaponInstance* Weapon)
+{
+#if !UE_BUILD_SHIPPING
+	LyraRecoilGraphPrivate::Traces.Remove(Weapon);
+	if (LyraRecoilGraphPrivate::Traces.IsEmpty()) { LyraRecoilGraphPrivate::StopDrawing(); }
+#endif
 }
 
 bool ULyraRecoilDebug::IsRecoilEnabled()
@@ -488,7 +745,10 @@ void ULyraRecoilDebug::DrawRollShakeDebugPanel(const UWorld* World, const ULyraR
 		for (int32 i = 0; i < LyraRecoilDebugPrivate::RollCurveSamples; ++i)
 		{
 			const float SampleTime = Params.DurationSeconds * (static_cast<float>(i) / static_cast<float>(LyraRecoilDebugPrivate::RollCurveSamples - 1));
-			Samples[i] = ULyraCameraRollShake::EvaluateRollShake(Params, SampleTime);
+			// Use the phase chosen for this exact shot.  Runtime evaluation uses
+			// Roll.PhaseOffset, so omitting it here makes the debug curve disagree
+			// with the visible shake whenever phase jitter is enabled.
+			Samples[i] = ULyraCameraRollShake::EvaluateRollShake(Params, SampleTime, Roll.PhaseOffset);
 			Peak = FMath::Max(Peak, FMath::Abs(Samples[i]));
 		}
 

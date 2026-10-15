@@ -36,6 +36,9 @@ struct FWeaponVisualRecoilPose;
  *   Lyra.Recoil.DebugDraw     0/1   世界内可视化
  *   Lyra.Recoil.RollShake     <f>   Roll 震动实时振幅倍率（0 = 关掉 Roll）
  *   Lyra.Recoil.RollDebug     0/1   Roll 震动的实时曲线/参数面板（独立于 Debug）
+ *   Lyra.Recoil.PitchGraph    0/1   最近 5 秒 Pitch 逻辑后坐力 / 相机输入曲线
+ *   Lyra.Recoil.YawGraph      0/1   最近 5 秒 Yaw 逻辑后坐力 / 相机输入曲线
+ *   Lyra.Recoil.RollGraph     0/1   最近 5 秒实际帧采样曲线：raw / scaled input / 开火时刻
  *   Lyra.Recoil.SpreadDebug   0/1   散布（锥角）实时面板（独立于 Debug / RollDebug）
  *   Lyra.Recoil.Dump                导出本轮连发到 Saved/RecoilDump_<timestamp>.csv
  *   Lyra.Recoil.ReloadProfile       从磁盘强制重载当前武器的资产
@@ -87,6 +90,13 @@ public:
 	/** Lyra.Recoil.RollDebug：是否显示 Roll 震动的实时曲线与参数面板。 */
 	UFUNCTION(BlueprintPure, Category = "Recoil|Debug")
 	static bool IsRollDebugPanelEnabled();
+
+	/** RollGraph / PitchGraph / YawGraph: shared five-second frame history, independently visible. */
+	static void RecordRecoilGraphFrame(const ULyraRangedWeaponInstance* Weapon);
+	/** Exact fire-event marker, independent of burst ShotIndex resets. */
+	static void RecordRecoilGraphShot(const ULyraRangedWeaponInstance* Weapon);
+	/** Equipment/profile reset must not join unrelated weapon timelines. */
+	static void ResetRecoilGraph(const ULyraRangedWeaponInstance* Weapon);
 
 	// ---------------------------------------------------------------------
 	// CVar 取值（散布专用通道）

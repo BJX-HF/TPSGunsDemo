@@ -34,7 +34,10 @@ namespace LyraRecoilConsoleTest
 		TEXT("Lyra.Recoil.Enable"),
 		TEXT("Lyra.Recoil.Scale"),
 		TEXT("Lyra.Recoil.Debug"),
-		TEXT("Lyra.Recoil.DebugDraw")
+		TEXT("Lyra.Recoil.DebugDraw"),
+		TEXT("Lyra.Recoil.RollGraph"),
+		TEXT("Lyra.Recoil.PitchGraph"),
+		TEXT("Lyra.Recoil.YawGraph")
 	};
 
 	static const TCHAR* const RecoilCommandNames[] =
@@ -45,7 +48,7 @@ namespace LyraRecoilConsoleTest
 }
 
 //////////////////////////////////////////////////////////////////////////
-// 注册契约：4 个变量 + 2 个命令
+// 注册契约：后坐力与三轴曲线变量 + 2 个命令
 //////////////////////////////////////////////////////////////////////////
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLyraRecoilConsoleRegistrationTest, "Lyra.Recoil.Console.Registration",

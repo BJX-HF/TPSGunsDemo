@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TPS Guns Demo · Roll 震动与连发曲线</title>
+<style>
+:root{--bg:#0b1020;--panel:#121a2d;--panel2:#18233b;--text:#eaf0ff;--muted:#9aabd0;--cyan:#58d6ff;--pink:#ff73c8;--green:#78e6a5;--line:#2e3d60;--warn:#ffd166}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0,#1a2c51 0,#0b1020 45%);color:var(--text);font:15px/1.65 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}main{max-width:1180px;margin:auto;padding:36px 22px 70px}h1{font-size:clamp(28px,4vw,48px);line-height:1.15;margin:0 0 12px}h2{margin:32px 0 10px;font-size:24px}h3{margin:22px 0 8px;font-size:18px;color:var(--cyan)}p{color:#d5def4}.lead{font-size:18px;color:#c2d1ef;max-width:900px}.tag{display:inline-block;color:#091221;background:var(--cyan);border-radius:999px;padding:2px 10px;margin:0 5px 0 0;font-size:12px;font-weight:700}.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}@media(max-width:850px){.grid{grid-template-columns:1fr}}@media(max-width:600px){.controls{grid-template-columns:repeat(2,minmax(0,1fr))!important}main{padding-left:12px;padding-right:12px}.card{padding:12px}table{font-size:12px}th,td{padding:6px 3px}}.card{min-width:0;overflow-wrap:anywhere;background:linear-gradient(145deg,var(--panel),#10182a);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 12px 28px #0003}.formula{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#080d19;border-left:3px solid var(--pink);padding:13px 16px;white-space:pre-wrap;color:#f4d9ef;overflow:auto}.note{border-left:3px solid var(--warn);padding:9px 13px;background:#2c2515;color:#ffe6a8}.small{font-size:13px;color:var(--muted)}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{border-bottom:1px solid var(--line);padding:8px;text-align:right}th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:600}code{overflow-wrap:anywhere;word-break:break-word;color:#a8ebff;background:#0b1425;border-radius:4px;padding:1px 5px}canvas{width:100%;height:300px;background:#080d19;border:1px solid var(--line);border-radius:10px;display:block}.controls{display:grid;grid-template-columns:repeat(4,minmax(110px,1fr));gap:10px}.controls label{display:flex;flex-direction:column;color:var(--muted);font-size:12px}.controls input{width:100%;margin-top:4px;background:#0b1425;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:7px}.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}.pink{background:var(--pink)}.cyan{background:var(--cyan)}.green{background:var(--green)}pre{white-space:pre-wrap;background:#080d19;padding:12px;border:1px solid var(--line);border-radius:8px;color:#c6d6f5;overflow:auto}.footer{margin-top:36px;border-top:1px solid var(--line);padding-top:15px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><main>
+<div><span class="tag">TPSGunsDemo</span><span class="tag">Lyra.Recoil</span><span class="tag">RollShake</span></div>
+<h1>连续射击时 Roll 怎么算，画面会怎样</h1>
+<p class="lead">这页按项目当前实现解释 <code>ULyraRecoilProfile::BuildRollShakeParams</code>、<code>ULyraCameraRollShake::EvaluateRollShake</code> 和 <code>FRecoilRuntimeState::ApplyShot</code> 的真实链路。Roll 是绕相机视线轴的倾斜角，和 Pitch/Yaw 的累计、回正互相独立。</p>
+
+<h2>1. 一发震动的计算链</h2>
+<div class="grid"><div class="card"><h3>① 开火时装配本发参数</h3><div class="formula">index = max(ShotIndex, 0)
+rampCount = max(0, index - RampStartShot + 1)
+bonus = min(rampCount × AmplitudePerShot,
+            MaxAmplitudeBonus)
+base = max(0, Amplitude + bonus)
+AmplitudeDegrees = base × SegmentScale(index)
+                   × max(0, PoseMultiplier)
+                   × max(0, GlobalScale)
+PeriodSeconds = Period × max(epsilon, PeriodScale(index))</div><p>C++ 字段默认值（不代表当前武器资产实值）：基础振幅 0.6°、时长 0.22 s、周期 0.055 s；从序号 4（0 起）开始每发 +0.05°，最多 +0.9°。按 0 起序号：index 0～3 仍是 0.6°；index 4（人类计数第 5 发）为 0.65°；index 21（第 22 发）达到 1.5°，之后封顶。</p></div><div class="card"><h3>② 每帧解析求值</h3><div class="formula">u = clamp(Elapsed / Duration, 0, 1)
+Envelope(u) =
+  if DecayCurve 有键：
+    clamp(lerp(clamp(Curve(u), 0, 1), clamp(EndAmplitudeRatio, 0, 1), u), 0, 1)
+  else：lerp(1, clamp(EndAmplitudeRatio, 0, 1), u)
+phase = 2π × Elapsed / Period + PhaseOffset
+RollDegrees = AmplitudeDegrees × Envelope(u) × cos(phase)</div><p><code>Elapsed ≥ Duration</code> 时直接返回 0，并停用本次状态。相位扰动是确定性的：<code>DeterministicSignedRandom(HashCombine(Seed, ShotIndex)) × PhaseJitterRadians</code>，同一种子和发序号可复现。</p></div></div>
+<div class="note">衰减曲线的一个细节：空曲线且 EndRatio=0 时 E=1−u；如果手工给出 Curve(u)=1−u，代码还会再向终值混合，实际 E=(1−u)²，衰减更快。<br>关键语义：Roll 不把上一帧的角度累加到下一帧，也不走 Pitch/Yaw 的回正状态机；它按当前时间直接求解，所以帧率只影响采样密度，不会产生积分漂移。但这不等于各帧率视觉相同：默认周期 0.055 s ≈ 18.18 Hz，在 60 fps 每周期仅约 3.3 个采样点，低帧率可能混叠，看起来像慢抖。</div>
+
+<h2>2. 连发时发生什么</h2>
+<div class="card"><p>每次 <code>ApplyShot</code> 成功后，都会调用 <code>BuildRollShakeParams(ShotIndex,...)</code>，随后 <code>ULyraCameraRollShake::Trigger</code> 把该发设为新的 ActiveParams、Elapsed=0，并立即采样 t=0。于是上一发尚未走完的 Roll 会被本发覆盖；高速连发时，玩家看到的是一串“重新起跳、相位略有变化、还没完全衰减就被下一发接管”的连续横滚。</p><div class="formula">第 n 发的有效振幅：
+Aₙ = min(A₀ + max(0, n - r + 1)·p, A₀ + bmax)
+      · Sₙ · Pose · GlobalScale
+
+第 n 发在其局部时间 τ 内：
+Rₙ(τ) = Aₙ · E(τ / D) · cos(2π τ / Tₙ + φₙ)
+0 ≤ τ < D；τ ≥ D 时 Rₙ = 0</div><p>如果射速间隔 Δt 小于时长 D，下一发会在上一发结束前触发；因此可见曲线由多个局部波段拼接，而不是把角度相加。每发重启近正峰，会产生瞬时跳变；连发时间平均角度不保证为零。每发的 <code>PhaseOffset</code> 默认范围 ±0.35 rad，会让起始峰值和摆动时序略有变化（默认 ±0.35 rad 的 cos 仍为正，所以不会随机选择初始左右方向），避免机械重复。</p></div>
+
+<h2>3. 用默认参数看前 12 发</h2>
+<div class="card"><table id="shotTable"><thead><tr><th>发序号 n</th><th>Ramp bonus (°)</th><th>Amplitude (°)</th><th>周期 (ms)</th><th>观感</th></tr></thead><tbody></tbody></table><p class="small">表中暂按 SegmentScale=1、PeriodScale=1、PoseMultiplier=1、GlobalScale=1 展示；真实武器姿态和曲线会按资产值替换。</p></div>
+
+<h2>4. 可交互波形：单发如何被连发覆盖</h2>
+<div class="card"><div class="controls"><label>连射发数<input id="shots" type="number" min="1" max="40" step="1" value="12"></label><label>射击间隔 Δt (s)<input id="interval" type="number" min="0.01" max="1" step="0.005" value="0.09"></label><label>基础振幅 (°)<input id="amp" type="number" min="0" max="5" step="0.05" value="0.6"></label><label>每发增量 (°)<input id="per" type="number" min="0" max="1" step="0.01" value="0.05"></label><label>Ramp 起始序号<input id="ramp" type="number" min="0" max="40" step="1" value="4"></label><label>增量上限 (°)<input id="cap" type="number" min="0" max="5" step="0.05" value="0.9"></label><label>时长 D (s)<input id="dur" type="number" min="0.02" max="2" step="0.01" value="0.22"></label><label>周期 T (s)<input id="period" type="number" min="0.01" max="1" step="0.005" value="0.055"></label></div><canvas id="chart" width="1100" height="300"></canvas><div class="legend"><span><i class="dot pink"></i>当前可见 Roll（按每发 Trigger 覆盖）</span><span><i class="dot cyan"></i>每发局部波形（参考）</span><span><i class="dot green"></i>开火时刻</span></div><p id="chartInfo" class="small"></p><label for="timeCursor">拖动时间，查看当前横滚：<strong id="timeValue"></strong></label><input id="timeCursor" type="range" min="0" max="1000" step="1" value="0" style="width:100%"><div style="position:relative;height:180px;background:#081322;border:1px solid #2e3d60;overflow:hidden;border-radius:10px"><div id="viewTilt" style="position:absolute;inset:-90px;background:linear-gradient(#173650 0 50%,#253b32 50%);transform-origin:center"><div style="position:absolute;top:50%;left:0;right:0;border-top:2px solid #91afc0"></div></div><div style="position:absolute;top:50%;left:50%;color:white;transform:translate(-50%,-50%);font-size:26px">+</div><div style="position:absolute;bottom:8px;left:12px;color:#cedbeb;font-size:12px">示意以 10× 倾角展示；图像倾斜符号仅为说明，游戏最终视图以实测为准</div></div><p class="small">页面只复现无自定义衰减曲线、相位=0、EndAmplitudeRatio=0、各倍率=1 的示例。游戏配置的 FRichCurve 插值和确定性随机相位以 C++ 实现及实时面板为准。</p></div>
+
+<h2>5. 运行时调试入口</h2>
+<div class="card"><p>开发版中 Roll 面板独立于普通后坐力面板，输入以下 CVar：</p><pre>Lyra.Recoil.RollGraph 1       // 新增：5秒滚动实测曲线，raw/display Roll 与开火标记
+Lyra.Recoil.RollDebug 1       // 屏幕显示当前 Roll、包络、t/D、参数和 ASCII 曲线
+Lyra.Recoil.RollShake 0       // 只关闭显示层 Roll，便于 A/B 对比；不改资产
+Lyra.Recoil.RollShake 1       // 恢复默认显示倍率
+Lyra.Recoil.DebugDraw 1       // 世界内品红圆弧表示当前横滚角
+Lyra.Recoil.Dump              // 导出本轮连发 CSV 到 Saved/RecoilDump_*.csv</pre><p>面板中的 <code>Waveform t=0..D</code> 使用与运行时相同的 <code>EvaluateRollShake(Params, SampleTime, Roll.PhaseOffset)</code> 采样，并用 <code>|</code> 标出当前时刻。<code>RollGraph</code> 的 Display 是提交给 recoil modifier 的 Roll 目标偏移；最终 POV 可能继续叠加其他 camera shake，也可能包含切枪时 ClearRecoilOffset 的释放过程，不能把 Display 当作最终屏幕总 Roll。当前武器这条 Roll 自身在最后一发 D 秒到点后归零。新增 <code>RollGraph</code> 观察连续射击的真实帧采样，<code>RollDebug</code> 观察本发理论波形，两者用途不同。CSV 的 <code>RollShake</code> 列是按姿态倍率=1、全局倍率=1、相位=0 重建的标称 t=0 值，不能还原真实连发时间曲线。</p></div>
+
+<h2>6. 调参时应该看什么</h2>
+<div class="grid"><div class="card"><h3>“越打越抖”</h3><p>调 <code>AmplitudePerShot</code> 与 <code>MaxAmplitudeBonus</code>；RampStartShot 决定从第几发开始显著。想做分段轻重，用 <code>SegmentScaleCurve</code>，它是倍率，可先降后升。</p></div><div class="card"><h3>“越打越急”</h3><p>用 <code>PeriodScaleCurve</code> 让后段倍率小于 1；周期变短后，同样的 0.22 s 内会出现更多周期。注意周期和射速的关系：当 Δt 接近或小于 D，覆盖感会更强。</p></div><div class="card"><h3>“每发都一样太机械”</h3><p>增加 <code>PhaseJitterRadians</code>（默认 0.35 rad）。固定 Seed 与 ShotIndex 时，非零扰动也能复现；设为 0 只是取消相位随机，方便隔离波形和制作简单 Golden。</p></div><div class="card"><h3>“结束时还歪着”</h3><p>Roll 在 D 到点时无条件归零；<code>EndAmplitudeRatio</code> 只影响包络末段，不能把震动延伸到 D 之后。若需要更长释放，增加 Duration 或调整衰减曲线。</p></div></div>
+
+<div class="footer">代码依据：<code>Source/LyraGame/Weapons/Recoil/LyraRecoilProfile.cpp</code>、<code>Source/LyraGame/Camera/LyraCameraRollShake.cpp</code>、<code>Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp</code>、<code>Source/LyraGame/Weapons/Recoil/LyraRecoilDebug.cpp</code>。页面为离线单文件，无外部依赖。</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const defaults={shots:12,interval:.09,amp:.6,per:.05,ramp:4,cap:.9,dur:.22,period:.055};
+function val(id){const e=$(id),v=Number(e.value);return Math.min(Number(e.max),Math.max(Number(e.min),Number.isFinite(v)?v:(defaults[id]||0)))}
+function params(){return {n:Math.round(val('shots')),dt:val('interval'),a:val('amp'),per:val('per'),ramp:Math.round(val('ramp')),cap:val('cap'),d:val('dur'),period:val('period')}}
+function amp(p,n){return p.a+Math.min(Math.max(0,n-p.ramp+1)*p.per,p.cap)}
+function roll(p,n,t){return t<0||t>=p.d?0:amp(p,n)*Math.max(0,1-t/p.d)*Math.cos(2*Math.PI*t/p.period)}
+function table(p){const body=$('shotTable').querySelector('tbody');body.innerHTML='';for(let n=0;n<12;n++){const b=Math.min(Math.max(0,n-p.ramp+1)*p.per,p.cap),tr=document.createElement('tr');tr.innerHTML=`<td>第 ${n+1} 发 / index ${n}</td><td>${b.toFixed(2)}</td><td>${amp(p,n).toFixed(2)}</td><td>${(p.period*1000).toFixed(1)}</td><td>${n<p.ramp?'基础振幅':b>=p.cap?'增量封顶':'开始增强'}</td>`;body.appendChild(tr)}}
+function draw(){const p=params();table(p);const c=$('chart'),ctx=c.getContext('2d'),W=c.width=Math.round(c.clientWidth),H=c.height=300;ctx.clearRect(0,0,W,H);const total=(p.n-1)*p.dt+p.d,pad={l:66,r:18,t:23,b:35},peak=Math.max(.1,amp(p,p.n-1))*1.1,x=t=>pad.l+t/total*(W-pad.l-pad.r),mid=(pad.t+H-pad.b)/2,y=v=>mid-v/peak*(H-pad.b-pad.t)/2;ctx.font='12px system-ui';ctx.fillStyle='#9aabd0';ctx.fillText('Roll (°)',7,15);ctx.lineWidth=1;for(let i=-2;i<=2;i++){const v=i/2*peak,yy=y(v);ctx.strokeStyle=i===0?'#61718e':'#263654';ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();ctx.fillText(v.toFixed(2),10,yy+4)}const ticks=W<500?3:5;for(let i=0;i<=ticks;i++){const t=total*i/ticks;ctx.fillText(t.toFixed(2)+'s',x(t)-13,H-10)}
+ctx.strokeStyle='rgba(88,214,255,.22)';for(let n=0;n<p.n;n++){ctx.beginPath();const samples=Math.min(12000,Math.max(120,Math.ceil(p.d/p.period*20)));for(let i=0;i<=samples;i++){const t=i/samples*p.d;i?ctx.lineTo(x(n*p.dt+t),y(roll(p,n,t))):ctx.moveTo(x(n*p.dt+t),y(roll(p,n,t)))}ctx.stroke()}
+ctx.strokeStyle='rgba(120,230,165,.4)';ctx.setLineDash([3,4]);for(let n=0;n<p.n;n++){const xx=x(n*p.dt);ctx.beginPath();ctx.moveTo(xx,pad.t);ctx.lineTo(xx,H-pad.b);ctx.stroke()}ctx.setLineDash([]);
+ctx.strokeStyle='#ff73c8';ctx.lineWidth=2.5;ctx.beginPath();for(let n=0;n<p.n;n++){const start=n*p.dt,end=n===p.n-1?p.d:p.dt;const count=Math.max(2,Math.ceil(end*1000));if(n===0)ctx.moveTo(x(0),y(0));ctx.lineTo(x(start),y(roll(p,n,0)));for(let i=1;i<=count;i++){const t=end*i/count;ctx.lineTo(x(start+t),y(roll(p,n,t)))}}ctx.stroke();
+const cursor=val('timeCursor')/1000*total;ctx.strokeStyle='#ffe8a8';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x(cursor),pad.t);ctx.lineTo(x(cursor),H-pad.b);ctx.stroke();$('chartInfo').textContent=`${p.n} 发，间隔 ${p.dt.toFixed(3)} s，总观察 ${total.toFixed(3)} s。绿虚线为开火时刻，粉色垂线为 Trigger 重触发的瞬时角度变化；蓝色淡线表示被覆盖的每发后续。这里沿用连续 ShotIndex，低射速若在游戏中已进入 Recovering/Idle，将另起连发并把 index 重置为 0。`;tilt(p,cursor)}
+function tilt(p,t){const n=Math.min(p.n-1,Math.floor(t/p.dt)),z=roll(p,n,t-n*p.dt);$('timeValue').textContent=t.toFixed(3)+' s / Roll '+z.toFixed(3)+'°';$('viewTilt').style.transform='rotate('+(-z*10)+'deg)'}
+for(const id of Object.keys(defaults))$(id).addEventListener('input',draw);$('timeCursor').addEventListener('input',draw);draw();
+window.addEventListener("resize", draw);
+</script>
+</body></html>
+
+
+
+
+
+
+
+
+
