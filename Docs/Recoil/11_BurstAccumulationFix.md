@@ -11,7 +11,7 @@
 | 缺陷等级 | 阻断级（后坐力系统在连发 + 压枪工况下整体失效） |
 | 涉及文件 | `Source/LyraGame/Weapons/Recoil/LyraRecoilState.h`<br>`Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp` |
 | 影响模式 | **仅 `Interpolated`**（场上 = 槽位 0 `ID_Rifle` / `DA_Recoil_Rifle_S`） |
-| 未受影响 | `InstantWrite`（槽位 1 `ID_Rifle_7` / `DA_Recoil_Rifle_7`）、Golden 数据、CSV 契约、既有 30 个自动化用例 |
+| 未受影响 | `InstantWrite`（槽位 1 `ID_ak47` / `DA_Recoil_ak47`）、Golden 数据、CSV 契约、既有 30 个自动化用例 |
 | 前置文档 | [10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)（模型设计）<br>[07_TuningRecipe.md](07_TuningRecipe.md)（数值配方） |
 | 云端参照 | `TPS_Recoil_Impl_v2.1` §6.4 / §7.1 / §7.4 / §7.5（tdrive `后坐力开发/`） |
 | 编译状态 | ✅ **编译通过**（LyraEditor Win64 Development，`Result: Succeeded`，0 error / 0 warning，47.68s） |
@@ -47,13 +47,13 @@
 | A | 按住左键连发时，镜头抬升量**几发之后就不再增长** | 真实缺陷 |
 | B | 单发射击的顿挫感看起来正常 | 正常 |
 | C | 「一动鼠标」这个条件**本身不是触发条件**，只是放大感知 | 见 §2 |
-| D | 切到槽位 1（`InstantWrite` 的 `DA_Recoil_Rifle_7`）后连发正常累加 | 定位到模式 |
+| D | 切到槽位 1（`InstantWrite` 的 `DA_Recoil_ak47`）后连发正常累加 | 定位到模式 |
 
 ### 1.3 复现步骤（PIE）
 
 1. 进 `L_ShooterPerf`，用**槽位 0**（`ID_Rifle`，`Interpolated`）。
 2. 对着墙长按左键打空一个弹匣，**完全不碰鼠标** → 镜头抬升到 ~1.05° 后就停住（异常）。
-3. 换成**槽位 1**（`ID_Rifle_7`，`InstantWrite`）重复 → 镜头持续抬升、能到上限（正常）。
+3. 换成**槽位 1**（`ID_ak47`，`InstantWrite`）重复 → 镜头持续抬升、能到上限（正常）。
 4. 用 `Lyra.Recoil.Dump` 导出两轮 CSV，对比 `AccumulatedPitch` 列的形状即可量化。
 
 > 第 2 步**不需要动鼠标**就能看到后坐力不涨 —— 这一点很关键，它说明鼠标不是原因。
@@ -861,7 +861,7 @@ grep -n "RecoilReturnRatio;$" Source/LyraGame/Weapons/Recoil/LyraRecoilState.cpp
 3. **验收动作 B（负残留）**：故意压过头（`covSum` 明显大于 `Accum Pitch` 峰值）。
    - ✅ 期望：回正结束后镜头**低于起枪点** —— 这是 §13.1 决定 B 的字面减法，属预期。
    - ❌ 若觉得"沉过头"，那就是 §13.8 的 #49 要讨论的。
-4. **验收动作 C（零回归）**：换 `DA_Recoil_Rifle_7`（槽位 1，`InstantWrite`）**完全不压枪**。
+4. **验收动作 C（零回归）**：换 `DA_Recoil_ak47`（槽位 1，`InstantWrite`）**完全不压枪**。
    - ✅ 期望：手感与 P12 完全一致（`covSum` 恒 0）。
 5. 打 `Lyra.Recoil.Dump 1` 导 CSV：`AccumulatedPitch` 列就是 `T_raw` 口径，
    可与 §13.5 的表逐发对（注意 CSV 只记逻辑偏移，不含显示层补间）。

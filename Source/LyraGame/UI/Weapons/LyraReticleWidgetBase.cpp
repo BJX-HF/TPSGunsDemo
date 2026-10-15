@@ -5,6 +5,11 @@
 #include "Inventory/LyraInventoryItemInstance.h"
 #include "Weapons/LyraRangedWeaponInstance.h"
 #include "Weapons/LyraWeaponInstance.h"
+#include "Weapons/LyraWeaponSpreadMath.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/GameViewportClient.h"
+#include "SceneView.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(LyraReticleWidgetBase)
 
@@ -29,11 +34,7 @@ float ULyraReticleWidgetBase::ComputeSpreadAngle() const
 {
 	if (const ULyraRangedWeaponInstance* RangedWeapon = Cast<const ULyraRangedWeaponInstance>(WeaponInstance))
 	{
-		const float BaseSpreadAngle = RangedWeapon->GetCalculatedSpreadAngle();
-		const float SpreadAngleMultiplier = RangedWeapon->GetCalculatedSpreadAngleMultiplier();
-		const float ActualSpreadAngle = BaseSpreadAngle * SpreadAngleMultiplier;
-
-		return ActualSpreadAngle;
+		return RangedWeapon->GetEffectiveSpreadAngle();
 	}
 	else
 	{
@@ -55,41 +56,26 @@ bool ULyraReticleWidgetBase::HasFirstShotAccuracy() const
 
 float ULyraReticleWidgetBase::ComputeMaxScreenspaceSpreadRadius() const
 {
-	const float LongShotDistance = 10000.f;
-
-	APlayerController* PC = GetOwningPlayer();
-	if (PC && PC->PlayerCameraManager)
+	const APlayerController* PC = GetOwningPlayer();
+	const ULocalPlayer* Player = PC ? PC->GetLocalPlayer() : nullptr;
+	if (Player && Player->ViewportClient && Player->ViewportClient->Viewport)
 	{
-		// A weapon's spread can be thought of as a cone shape. To find the screenspace spread for reticle visualization,
-		// we create a line on the edge of the cone at a long distance. The end of that point is on the edge of the cone's circle.
-		// We then project it back onto the screen. Its distance from screen center is the spread radius.
-
-		// This isn't perfect, due to there being some distance between the camera location and the gun muzzle.
-
-		const float SpreadRadiusRads = FMath::DegreesToRadians(ComputeSpreadAngle() * 0.5f);
-		const float SpreadRadiusAtDistance = FMath::Tan(SpreadRadiusRads) * LongShotDistance;
-
-		FVector CamPos;
-		FRotator CamOrient;
-		PC->PlayerCameraManager->GetCameraViewPoint(CamPos, CamOrient);
-
-		FVector CamForwDir = CamOrient.RotateVector(FVector::ForwardVector);
-		FVector CamUpDir   = CamOrient.RotateVector(FVector::UpVector);
-
-		FVector OffsetTargetAtDistance = CamPos + (CamForwDir * LongShotDistance) + (CamUpDir * SpreadRadiusAtDistance);
-
-		FVector2D OffsetTargetInScreenspace;
-
-		if (PC->ProjectWorldLocationToScreen(OffsetTargetAtDistance, OffsetTargetInScreenspace, true))
+		FSceneViewProjectionData Projection;
+		if (Player->GetProjectionData(Player->ViewportClient->Viewport, Projection))
 		{
-			int32 ViewportSizeX(0), ViewportSizeY(0);
-			PC->GetViewportSize(ViewportSizeX, ViewportSizeY);
-
-			const FVector2D ScreenSpaceCenter(FVector::FReal(ViewportSizeX) * 0.5f, FVector::FReal(ViewportSizeY) * 0.5f);
-
-			return (OffsetTargetInScreenspace - ScreenSpaceCenter).Length();
+			// r = tan(full cone angle / 2) * focal length in pixels.
+			// The projection matrix already contains ADS FOV, aspect-ratio constraints,
+			// and the player's split-screen view. No arbitrary world distance is needed.
+			const FIntRect View = Projection.GetConstrainedViewRect();
+			return LyraWeaponSpreadMath::ScreenRadius(ComputeSpreadAngle(),
+				FVector2D(View.Width(), View.Height()), Projection.ProjectionMatrix);
 		}
 	}
-	
 	return 0.0f;
+}
+
+float ULyraReticleWidgetBase::ComputeSpreadRadiusInWidgetUnits() const
+{
+	return LyraWeaponSpreadMath::WidgetRadius(ComputeMaxScreenspaceSpreadRadius(),
+		UWidgetLayoutLibrary::GetViewportScale(this));
 }

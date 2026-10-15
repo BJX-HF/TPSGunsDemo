@@ -48,6 +48,12 @@ public:
 
 	float GetCalculatedSpreadAngleMultiplier() const;
 
+	/** Effective full cone angle used by both bullet sampling and the reticle. */
+	float GetEffectiveSpreadAngle() const
+	{
+		return FMath::Clamp(GetCalculatedSpreadAngle() * GetCalculatedSpreadAngleMultiplier(), 0.0f, 179.0f);
+	}
+
 	bool HasFirstShotAccuracy() const
 	{
 		return bHasFirstShotAccuracy;

@@ -2,6 +2,8 @@
 
 #include "LyraGameplayAbility_RangedWeapon.h"
 #include "Weapons/LyraRangedWeaponInstance.h"
+#include "Weapons/Recoil/LyraRecoilProfile.h"
+#include "Weapons/LyraWeaponSpreadMath.h"
 #include "Physics/LyraCollisionChannels.h"
 #include "LyraLogChannels.h"
 #include "AIController.h"
@@ -79,6 +81,13 @@ ULyraGameplayAbility_RangedWeapon::ULyraGameplayAbility_RangedWeapon(const FObje
 ULyraRangedWeaponInstance* ULyraGameplayAbility_RangedWeapon::GetWeaponInstance() const
 {
 	return Cast<ULyraRangedWeaponInstance>(GetAssociatedEquipment());
+}
+
+float ULyraGameplayAbility_RangedWeapon::GetWeaponFireInterval(float DefaultInterval) const
+{
+	const ULyraRangedWeaponInstance* Weapon = GetWeaponInstance();
+	const ULyraRecoilProfile* Profile = Weapon ? Weapon->GetRecoilProfile() : nullptr;
+	return Profile && Profile->bEnableWeaponConfig ? Profile->GetFireIntervalSeconds() : DefaultInterval;
 }
 
 bool ULyraGameplayAbility_RangedWeapon::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
@@ -423,17 +432,12 @@ void ULyraGameplayAbility_RangedWeapon::TraceBulletsInCartridge(const FRangedWea
 	//
 	// 未启用资产散布时这个值恒为 0，写入后不会被使用。
 	// ------------------------------------------------------------------
-	WeaponData->NotifyShotSpreadUsed(
-		WeaponData->GetCalculatedSpreadAngle() * WeaponData->GetCalculatedSpreadAngleMultiplier());
+	const float ActualSpreadAngle = WeaponData->GetEffectiveSpreadAngle();
+	WeaponData->NotifyShotSpreadUsed(ActualSpreadAngle);
+	const float HalfSpreadAngleInRadians = LyraWeaponSpreadMath::HalfAngleRadians(ActualSpreadAngle);
 
 	for (int32 BulletIndex = 0; BulletIndex < BulletsPerCartridge; ++BulletIndex)
 	{
-		const float BaseSpreadAngle = WeaponData->GetCalculatedSpreadAngle();
-		const float SpreadAngleMultiplier = WeaponData->GetCalculatedSpreadAngleMultiplier();
-		const float ActualSpreadAngle = BaseSpreadAngle * SpreadAngleMultiplier;
-
-		const float HalfSpreadAngleInRadians = FMath::DegreesToRadians(ActualSpreadAngle * 0.5f);
-
 		const FVector BulletDir = VRandConeNormalDistribution(AimDirWithRecoil, HalfSpreadAngleInRadians, WeaponData->GetSpreadExponent());
 
 		const FVector EndTrace = InputData.StartTrace + (BulletDir * WeaponData->GetMaxDamageRange());

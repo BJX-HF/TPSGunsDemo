@@ -1,5 +1,7 @@
 # 12 · 散布并入后坐力配置表（姿态-角度直接模型）
 
+> 当前状态（2026-10-15）：五份 DA 已启用资产散布，手枪与霰弹枪已绑定对应 DA；弹药、射速和准星换算见 [13_WeaponConfigAndReticle.md](13_WeaponConfigAndReticle.md)。下文保留该功能最初实现时的记录。
+
 > **代号 P13**（编号说明：11 号文档已经占用了 P10 / P12 两个编号，本文按最大号往后顺延）。
 > 2026-09-20 · 状态：**代码 + 文档已完成，⏳ 待编译 + 待 PIE 手测**
 >
@@ -250,7 +252,7 @@ Lyra 的既有顺序是「**先按当前散布打出去 → 再 `AddSpread()` �
 
 `LyraRecoilAssetGenCommandlet` 生成资产时写入的散布参数。单位：度（全锥角）/ 度每秒。
 
-| 参数 | Rifle | Rifle_S | Rifle_7 | Pistol | Shotgun |
+| 参数 | Rifle | Rifle_S | ak47 | Pistol | Shotgun |
 | --- | --- | --- | --- | --- | --- |
 | `bEnableProfileSpread` | true | true | true | true | true |
 | `SpreadAngle_Standing` | 0.35 | 0.32 | 0.38 | 0.50 | 3.50 |

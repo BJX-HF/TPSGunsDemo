@@ -55,6 +55,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Lyra|Ability")
 	ULyraRangedWeaponInstance* GetWeaponInstance() const;
 
+	/** Profile fire interval; unconfigured weapons keep their Blueprint interval. */
+	UFUNCTION(BlueprintPure, Category="Lyra|Weapon Config")
+	float GetWeaponFireInterval(float DefaultInterval) const;
+
 	//~UGameplayAbility interface
 	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr, OUT FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;

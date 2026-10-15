@@ -37,7 +37,7 @@
 <tr><td>成功开火后调用 <code>AddRecoil()</code></td><td><code>LyraGameplayAbility_RangedWeapon.cpp:570–585</code>：<code>CommitAbility</code> 成功后依次 <code>AddSpread()</code>、<code>AddRecoil()</code></td><td>这里已经是每发视觉事件的可靠入口；不能在按键按下时单独触发。</td></tr>
 <tr><td>后座状态属于武器实例</td><td><code>LyraRangedWeaponInstance.cpp:418-451</code>：<code>AddRecoil</code>（<code>RecoilState.ApplyShot</code> 在 L441）；<code>:475-528</code>：<code>UpdateRecoil</code> 每帧 <code>Advance</code>（L488），随后更新相机（L518）</td><td>视觉状态也应随当前武器装备、卸下、切换而重置。</td></tr>
 <tr><td>镜头与弹道已有各自通道</td><td><code>LyraRecoilState.h</code> 的 <code>CameraOffsetPitch/Yaw</code>、<code>RollShake</code>；<code>LyraCameraModifier_WeaponRecoil.cpp</code> 给显示相机叠偏移</td><td>枪体可读相机实际输出做弱对齐，但不得把枪体状态重新写回镜头或弹道。</td></tr>
-<tr><td>两把步枪已有独立预设</td><td><code>B_WeaponInstance_Rifle</code> 引用 <code>DA_Recoil_Rifle_S</code>；<code>B_WeaponInstance_Rifle_7</code> 使用另一预设</td><td>在同一 <code>ULyraRecoilProfile</code> 上加 Visual 子配置最利于 A/B 调参。</td></tr>
+<tr><td>两把步枪已有独立预设</td><td><code>B_WeaponInstance_Rifle</code> 引用 <code>DA_Recoil_Rifle_S</code>；<code>B_WeaponInstance_ak47</code> 使用另一预设</td><td>在同一 <code>ULyraRecoilProfile</code> 上加 Visual 子配置最利于 A/B 调参。</td></tr>
 <tr><td>武器 Actor 挂在角色骨架上</td><td><code>LyraEquipmentInstance.cpp:69–89</code> 按定义资产的 <code>AttachSocket</code> 挂接；<code>WID_Rifle</code> 的插槽是 <code>weapon_r</code></td><td>优先做“持枪手动，枪跟着动”。直接移动枪 Actor 会让手与握把脱离。</td></tr>
 <tr><td>现有动画层具备手部 IK</td><td><code>ABP_Mannequin_Base</code> 使用 <code>SkeletalControlsLayer</code>；<code>ABP_ItemAnimLayersBase</code> 有 <code>HandIKRetargeting</code>、<code>TwoBoneIK</code>、<code>ik_hand_gun</code>、<code>VB IK_Hand_L_weaponSpace</code></td><td>应在现有动画层中插入后座姿态，沿用双手控制，不复制第一人称 ABP。</td></tr>
 </tbody></table></div>

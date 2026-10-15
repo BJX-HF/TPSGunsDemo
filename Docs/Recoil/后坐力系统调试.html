@@ -14,7 +14,7 @@
 <header><h1>后坐力系统调试</h1><div class="muted">可调参数与 Debug 速查 · TPSGunsDemo</div></header>
 <div class="note">2026-10-11：逐发配置直接使用角度，旧归一化资产在加载时进行版本化转换。配置、迁移和相邻点拖动规则见 <a href="17_PerShotAngles.md">逐发角度配置说明</a>。</div>
 <nav><a href="#base">后坐力</a><a href="#single">单发与回正</a><a href="#roll">Roll</a><a href="#spread">散布</a><a href="#ammo">弹匣、备弹与射速</a><a href="#debug">Debug 命令</a><a href="#panels">读数与排错</a></nav>
-<div class="note">角度单位均为度。后坐力参数位于当前武器的 <code>DA_Recoil_*</code> 资产；<code>DA_Recoil_Rifle_S</code> 与 <code>DA_Recoil_Rifle_7</code> 目前都使用 <code>Interpolated</code> 单发模式。表中的“默认”是字段默认值，具体枪械请以资产面板中的值为准。</div>
+<div class="note">角度单位均为度。后坐力参数位于当前武器的 <code>DA_Recoil_*</code> 资产；<code>DA_Recoil_Rifle_S</code> 与 <code>DA_Recoil_ak47</code> 目前都使用 <code>Interpolated</code> 单发模式。表中的“默认”是字段默认值，具体枪械请以资产面板中的值为准。</div>
 
 <h2 id="base">1 · 后坐力与轨迹参数</h2>
 <h3>Recoil | Base / Curves / Pattern</h3>
@@ -73,7 +73,7 @@
 <h2 id="spread">4 · 散布参数</h2>
 <div class="note">散布与后坐力可分别调试。只有打开资产上的 <code>bEnableProfileSpread</code>，下列资产散布字段才生效；关闭时使用 Lyra 原有的 heat 散布配置。资产散布角为<strong>全锥角</strong>，弹丸采样使用半角。</div>
 <div class="scroll"><table><tr><th>参数</th><th>含义</th></tr>
-<tr><td><code>bEnableProfileSpread</code></td><td>资产散布模式开关；默认关。开后使用本资产的姿态角度参数。</td></tr>
+<tr><td><code>bEnableProfileSpread</code></td><td>资产散布模式开关；当前五份 DA 已开启。开启后使用本资产的姿态角度参数。</td></tr>
 <tr><td><code>SpreadAngle_Standing</code><br><code>SpreadAngle_Crouching</code><br><code>SpreadAngle_JumpingOrFalling</code></td><td>各姿态的基础散布全锥角，度。姿态切换立即选择对应参数。</td></tr>
 <tr><td><code>MaxSpreadAngle_Standing</code><br><code>MaxSpreadAngle_Crouching</code><br><code>MaxSpreadAngle_JumpingOrFalling</code></td><td>各姿态的散布上限，度；不得小于对应基础角。</td></tr>
 <tr><td><code>SpreadAddPerShot_Standing</code><br><code>SpreadAddPerShot_Crouching</code><br><code>SpreadAddPerShot_JumpingOrFalling</code></td><td>各姿态每开一发增加的散布角，度，增长到对应上限为止。</td></tr>
@@ -89,15 +89,15 @@
 <p class="muted">武器实例中的 <code>BulletsPerCartridge</code> 控制每发弹丸数，<code>MaxDamageRange</code> 影响远处弹着的实际离散距离，<code>BulletTraceSweepRadius</code> 影响命中检测宽度；它们不改变散布角。</p>
 
 <h2 id="ammo">5 · 弹匣容量、备弹与射速</h2>
-<p>弹药数量在武器物品定义中设置，射速在开火能力中设置；它们不属于 <code>DA_Recoil_*</code> 的后坐力参数。</p>
-<div class="scroll"><table><tr><th>要修改的内容</th><th>位置与参数</th><th>含义</th></tr>
-<tr><td>弹匣容量</td><td><code>ID_Rifle</code> 或 <code>ID_Rifle_7</code> → <code>InventoryFragment_SetStats</code> → <code>Lyra.ShooterGame.Weapon.MagazineSize</code></td><td>一个弹匣最多可装多少发；两把枪需分别修改。当前均为 30。</td></tr>
-<tr><td>出生时弹匣内子弹</td><td>同一物品定义 → <code>Lyra.ShooterGame.Weapon.MagazineAmmo</code></td><td>新建武器实例时已经装入弹匣的发数。想满弹匣出生，通常将其设为与 <code>MagazineSize</code> 相同；当前均为 30。</td></tr>
-<tr><td>初始备弹</td><td>同一物品定义 → <code>Lyra.ShooterGame.Weapon.SpareAmmo</code></td><td>新建武器实例时弹匣外可供换弹的数量，不含弹匣内子弹；当前均为 60。</td></tr>
-<tr><td>全自动射速</td><td><code>ShooterCore/Weapons/Rifle/GA_Weapon_Fire_Rifle_Auto</code> → <code>Fire Delay Time Secs</code></td><td>连续两发之间的最短间隔，单位秒；越小射速越快。当前 0.12 秒，约每秒 8.33 发、每分钟 500 发。</td></tr>
-<tr><td>是否全自动</td><td>同一开火能力 → <code>Auto Rate</code></td><td>当前为 1，对应全自动开火。</td></tr>
+<p>打开对应 <code>DA_Recoil_*</code>，在顶部<strong>武器配置（索引 / 弹药 / 射速）</strong>中调整。当前武器已启用 DA 配置。</p>
+<div class="scroll"><table><tr><th>字段</th><th>含义</th></tr>
+<tr><td>武器索引 / <code>WeaponItemDefinition</code></td><td>定位对应 ID 资产。运行时由 ID → 装备定义 → 武器实例引用的 DA 取值；该索引用于浏览定位。</td></tr>
+<tr><td>弹匣容量 / <code>MagazineSize</code></td><td>新建武器的容量，初始弹匣装满；修改后重新开始 PIE 或重新创建物品。</td></tr>
+<tr><td>初始备弹 / <code>SpareAmmo</code></td><td>不包含弹匣内子弹；修改后重新创建物品。切枪不补弹。</td></tr>
+<tr><td>射速 / <code>FireRateRPM</code></td><td>发/分钟，间隔 = 60 / RPM 秒；每次开火读取当前武器的 DA，两把步枪可独立设置。</td></tr>
 </table></div>
-<div class="note"><strong>修改后：</strong>保存对应资产并重新进入 PIE。弹药初始值只在武器实例创建时写入，已经拿在手上的武器不会随资产修改而更新。<code>ID_Rifle</code> 与 <code>ID_Rifle_7</code> 的弹药数值相互独立；两把枪目前共用 <code>GA_Weapon_Fire_Rifle_Auto</code>，修改射速会同时影响两把枪。</div>
+<p>当前基线：Rifle_S、ak47 均为 30 / 60 / 500 RPM；Pistol 为 12 / 48 / 500 RPM；Shotgun 为 8 / 16 / 120 RPM。普通步枪绑定 <code>DA_Recoil_Rifle_S</code>，<code>DA_Recoil_Rifle</code> 是保留的预设。</p>
+<p>准星标记使用与弹丸一致的有效全锥角：<code>像素半径 = tan(全锥角 / 2) × 相机投影焦距</code>，再除以视口 DPI 缩放得到 UMG 半径；外圈宽高 = 2 × 半径。霰弹枪的 96 半径限制已移除。</p>
 
 <h2 id="debug">6 · Debug 命令</h2>
 <p>在 PIE 控制台输入。调试倍率只在运行时生效，不会写回资产。</p>

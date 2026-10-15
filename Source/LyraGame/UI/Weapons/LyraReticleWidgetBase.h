@@ -33,6 +33,10 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure)
 	float ComputeMaxScreenspaceSpreadRadius() const;
 
+	/** Radius in UMG layout units (screen pixels divided by viewport DPI/application scale). */
+	UFUNCTION(BlueprintPure, Category="Reticle")
+	float ComputeSpreadRadiusInWidgetUnits() const;
+
 	/**
 	 * Returns true if the current weapon is at 'first shot accuracy'
 	 * (the weapon allows it and it is at min spread)

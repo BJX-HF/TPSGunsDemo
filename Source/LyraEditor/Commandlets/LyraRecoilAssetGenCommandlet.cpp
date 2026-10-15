@@ -286,17 +286,17 @@ namespace LyraRecoilAssetGen
 	}
 
 	/**
-	 * Rifle_7：默认携带枪 B —— 走【瞬间写入】单发模型。
+	 * ak47：默认携带枪 B —— 走【瞬间写入】单发模型。
 	 *
 	 * 定位：干脆利落向。和后坐力参考文档 §2 的原始模型逐位一致：
 	 * 开火瞬间直接把 Kick 写进偏移，然后走统一的 RecoveryDelay/Time 回正。
 	 * 与 Rifle_S 同场对比，策划能在同一把武器配置表里直接看出两套模型的差别。
 	 */
-	static FProfileSpec MakeRifle7Spec()
+	static FProfileSpec MakeAk47Spec()
 	{
 		FProfileSpec Spec;
-		Spec.PackageName = TEXT("/Game/Weapons/Recoil/DA_Recoil_Rifle_7");
-		Spec.AssetName = TEXT("DA_Recoil_Rifle_7");
+		Spec.PackageName = TEXT("/Game/Weapons/Recoil/DA_Recoil_ak47");
+		Spec.AssetName = TEXT("DA_Recoil_ak47");
 
 		Spec.RecoilPerShot_Vertical = 0.38f;
 		Spec.RecoilPerShot_Horizontal = 0.20f;
@@ -337,25 +337,8 @@ namespace LyraRecoilAssetGen
 	 * 曲线与 Pattern 数组在构造函数里已有默认值，这里只覆盖差异部分，
 	 * 保证生成出来的资产与"手动右键新建"的资产结构完全一致。
 	 */
-	static void ApplySpec(ULyraRecoilProfile& Profile, const FProfileSpec& Spec)
+	static void ApplySpreadSpec(ULyraRecoilProfile& Profile, const FProfileSpec& Spec)
 	{
-		Profile.bUseDirectShotAngles = false;
-		Profile.RecoilPerShot_Vertical = Spec.RecoilPerShot_Vertical;
-		Profile.RecoilPerShot_Horizontal = Spec.RecoilPerShot_Horizontal;
-
-		Profile.RecoveryDelay = Spec.RecoveryDelay;
-		Profile.RecoveryTime = Spec.RecoveryTime;
-
-		Profile.MaxVerticalKick = Spec.MaxVerticalKick;
-		Profile.MaxHorizontalKick = Spec.MaxHorizontalKick;
-
-		Profile.HorizontalRandomRange = Spec.HorizontalRandomRange;
-
-		Profile.PoseMultiplier_Aiming = Spec.PoseMultiplier_Aiming;
-		Profile.PoseMultiplier_Standing = Spec.PoseMultiplier_Standing;
-		Profile.PoseMultiplier_Crouching = Spec.PoseMultiplier_Crouching;
-		Profile.PoseMultiplier_JumpingOrFalling = Spec.PoseMultiplier_JumpingOrFalling;
-
 		// ---- 散布（姿态-角度直接模型）----
 		//
 		// 逐字段照抄，不做任何换算 —— 与资产上的字段一一对应，改起来不会漏。
@@ -383,6 +366,29 @@ namespace LyraRecoilAssetGen
 		Profile.SpreadTransitionRate_StandingStill = Spec.Spread.SpreadTransitionRate_StandingStill;
 		Profile.SpreadRecoveryDelay = Spec.Spread.SpreadRecoveryDelay;
 		Profile.SpreadExponent = Spec.Spread.SpreadExponent;
+
+	}
+
+	static void ApplySpec(ULyraRecoilProfile& Profile, const FProfileSpec& Spec)
+	{
+		Profile.bUseDirectShotAngles = false;
+		Profile.RecoilPerShot_Vertical = Spec.RecoilPerShot_Vertical;
+		Profile.RecoilPerShot_Horizontal = Spec.RecoilPerShot_Horizontal;
+
+		Profile.RecoveryDelay = Spec.RecoveryDelay;
+		Profile.RecoveryTime = Spec.RecoveryTime;
+
+		Profile.MaxVerticalKick = Spec.MaxVerticalKick;
+		Profile.MaxHorizontalKick = Spec.MaxHorizontalKick;
+
+		Profile.HorizontalRandomRange = Spec.HorizontalRandomRange;
+
+		Profile.PoseMultiplier_Aiming = Spec.PoseMultiplier_Aiming;
+		Profile.PoseMultiplier_Standing = Spec.PoseMultiplier_Standing;
+		Profile.PoseMultiplier_Crouching = Spec.PoseMultiplier_Crouching;
+		Profile.PoseMultiplier_JumpingOrFalling = Spec.PoseMultiplier_JumpingOrFalling;
+
+		ApplySpreadSpec(Profile, Spec);
 
 		// ---- 单发后坐力模型 ----
 		Profile.SingleShotMode = Spec.SingleShotMode;
@@ -437,7 +443,7 @@ namespace LyraRecoilAssetGen
 		//   "Asset '...' cannot be saved as it has only been partially loaded"
 		// 并且是 appError 级别的 Critical Error，直接把进程干掉 ——
 		// 也就是说：**只要磁盘上已有同名资产，这条路径必崩**，
-		// 导致后面还没处理的资产（例如新增的 Rifle_S / Rifle_7）永远轮不到。
+		// 导致后面还没处理的资产（例如新增的 Rifle_S / ak47）永远轮不到。
 		//
 		// 因此这里先用文件系统判断：已存在就直接跳过（除非 -force），
 		// 完全不碰包对象，新增资产才能顺利走到生成分支。
@@ -513,6 +519,7 @@ int32 ULyraRecoilAssetGenCommandlet::Main(const FString& FullCommandLine)
 	ParseCommandLine(*FullCommandLine, Tokens, Switches, Params);
 
 	const bool bForce = Switches.Contains(TEXT("force"));
+	const bool bSpreadOnly = Switches.Contains(TEXT("spreadonly"));
 
 	UE_LOG(LogLyraRecoilAssetGen, Display, TEXT("LyraRecoilAssetGen started (bForce=%s)"), bForce ? TEXT("true") : TEXT("false"));
 
@@ -520,9 +527,9 @@ int32 ULyraRecoilAssetGenCommandlet::Main(const FString& FullCommandLine)
 	Specs.Add(LyraRecoilAssetGen::MakeRifleSpec());
 	Specs.Add(LyraRecoilAssetGen::MakePistolSpec());
 	Specs.Add(LyraRecoilAssetGen::MakeShotgunSpec());
-	// 默认携带的两把枪：Rifle_S 走插值 / Rifle_7 走瞬间写入
+	// 默认携带的两把枪：Rifle_S 走插值 / ak47 走瞬间写入
 	Specs.Add(LyraRecoilAssetGen::MakeRifleSSpec());
-	Specs.Add(LyraRecoilAssetGen::MakeRifle7Spec());
+	Specs.Add(LyraRecoilAssetGen::MakeAk47Spec());
 
 	int32 NumGenerated = 0;
 	int32 NumSkipped = 0;
@@ -530,7 +537,19 @@ int32 ULyraRecoilAssetGenCommandlet::Main(const FString& FullCommandLine)
 
 	for (const LyraRecoilAssetGen::FProfileSpec& Spec : Specs)
 	{
-		ULyraRecoilProfile* Profile = LyraRecoilAssetGen::CreateOrLoadProfile(Spec, bForce);
+		ULyraRecoilProfile* Profile = nullptr;
+		if (bSpreadOnly)
+		{
+			Profile = LoadObject<ULyraRecoilProfile>(nullptr, *(Spec.PackageName + TEXT(".") + Spec.AssetName));
+			if (!Profile) { ++NumFailed; continue; }
+			// Idempotent: never overwrite already-enabled, hand-tuned spread.
+			if (Profile->bEnableProfileSpread) { ++NumSkipped; continue; }
+			LyraRecoilAssetGen::ApplySpreadSpec(*Profile, Spec);
+		}
+		else
+		{
+			Profile = LyraRecoilAssetGen::CreateOrLoadProfile(Spec, bForce);
+		}
 		if (Profile == nullptr)
 		{
 			++NumSkipped;

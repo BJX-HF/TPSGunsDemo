@@ -15,7 +15,7 @@ Lyra 原有那把自动步枪被复制成 **两把**，共用同一套模型 / �
 | 槽位 | 武器 | 后坐力资产 | 形状 | 整体强度 |
 | --- | --- | --- | --- | --- |
 | 0（出生默认拿这把） | `ID_Rifle` | `DA_Recoil_Rifle_S` | **S 型**（先右后左一个弯） | 小（10 发垂直 ≈ 2.34°） |
-| 1 | `ID_Rifle_7` | `DA_Recoil_Rifle_7` | **7 字型**（斜向右上 → 顶部向左一横） | 稍大（12 发垂直 ≈ 2.59°，水平峰值 1.40°） |
+| 1 | `ID_ak47` | `DA_Recoil_ak47` | **7 字型**（斜向右上 → 顶部向左一横） | 稍大（12 发垂直 ≈ 2.59°，水平峰值 1.40°） |
 
 ---
 
@@ -24,20 +24,20 @@ Lyra 原有那把自动步枪被复制成 **两把**，共用同一套模型 / �
 ```
 后坐力配置（本项目后坐力系统的唯一数值来源）
   Content/Weapons/Recoil/DA_Recoil_Rifle_S.uasset   ← S 型 · 小   ★新增
-  Content/Weapons/Recoil/DA_Recoil_Rifle_7.uasset   ← 7 字型 · 稍大 ★新增
+  Content/Weapons/Recoil/DA_Recoil_ak47.uasset   ← 7 字型 · 稍大 ★新增
   Content/Weapons/Recoil/DA_Recoil_{Rifle,Pistol,Shotgun}.uasset  ← 原有三份，未改动
 
 武器链（在 ShooterCore 插件里，与 Lyra 原版同构）
   槽位 0：ID_Rifle ──► WID_Rifle ──► B_WeaponInstance_Rifle ──► DA_Recoil_Rifle_S   ★接线
-  槽位 1：ID_Rifle_7 ─► WID_Rifle_7 ─► B_WeaponInstance_Rifle_7 ─► DA_Recoil_Rifle_7 ★全套新增
-          （ID_Rifle_7 / WID_Rifle_7 / B_WeaponInstance_Rifle_7 均为 ID_Rifle 那条链的复制品）
+  槽位 1：ID_ak47 ─► WID_ak47 ─► B_WeaponInstance_ak47 ─► DA_Recoil_ak47 ★全套新增
+          （ID_ak47 / WID_ak47 / B_WeaponInstance_ak47 均为 ID_Rifle 那条链的复制品）
 
 两把枪共用的部分（没有复制，所以手感之外完全一致）
   B_Rifle（枪模型+动画）· AbilitySet_ShooterRifle（GA_Weapon_Fire_Rifle_Auto / Reload）
   W_Reticle_Rifle · W_AmmoCounter_Rifle · SK_Rifle · GE_Damage_RifleAuto
 
 出生装备来源
-  ShooterCore/Game/B_Hero_ShooterMannequin  →  InitialInventoryItems = [ID_Rifle, ID_Rifle_7]
+  ShooterCore/Game/B_Hero_ShooterMannequin  →  InitialInventoryItems = [ID_Rifle, ID_ak47, ID_Pistol]
   （该变量被 AddInitialInventory 遍历，逐个 AddItemToSlot，最后 SetActiveSlotIndex(槽位0)）
 ```
 
@@ -97,7 +97,7 @@ Pattern（X = 每发水平增量，右为正；Y = 每发垂直倍率）：
 **总计：垂直 2.342°，水平 峰值 +0.655° → 收尾 -0.343°。**
 水平/垂直峰值比 ≈ 0.28 —— 一条**细长的 S**：先向右摆出去，再向左摆回来。
 
-### 3.2 7 字型（`DA_Recoil_Rifle_7`）—— 明显更大 · **`Interpolated`**（2026-09-20 起）
+### 3.2 7 字型（`DA_Recoil_ak47`）—— 明显更大 · **`Interpolated`**（2026-09-20 起）
 
 | 参数 | 值 | 说明 |
 | --- | --- | --- |
@@ -185,7 +185,7 @@ EditorStartupMap=/ShooterCore/Maps/L_ShooterPerf.L_ShooterPerf                  
 
 ### 5.1 直接改资产（推荐，最快）
 
-Content Browser → `Content/Weapons/Recoil/DA_Recoil_Rifle_S` 或 `DA_Recoil_Rifle_7`
+Content Browser → `Content/Weapons/Recoil/DA_Recoil_Rifle_S` 或 `DA_Recoil_ak47`
 → 打开，改 `Pattern` / `RecoilPerShot_*` / `VerticalKickCurve` → PIE 里立刻生效。
 
 - **Pattern 只描述形状**（X ∈ [-1,1] 右为正、Y ∈ [0,1]），"渐强"交给 `VerticalKickCurve`。
@@ -215,34 +215,29 @@ AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")
 
 当时结果：**19/19 通过（该阶段快照，P0–P5 当时的 19 个用例）**；当前 `Lyra.Recoil.*` 已扩充到 **57 个**。命令行老路子（`Docs/Recoil/Tools/run-recoil-tests.ps1`）仍然可用。
 
-### 5.4 射速 / 弹容 / 备弹（2026-09-17 补充）
+### 5.4 射速 / 弹容 / 备弹（2026-10-15 更新）
 
-后坐力之外，这三个数值也常一起调。**它们不在同一层，这是最容易找错的地方。**
+在对应 `DA_Recoil_*` 顶部的「武器配置」分组中修改：
 
-| 想改的 | 改哪 | 当前值 |
-| --- | --- | --- |
-| 射速（连发间隔） | `ShooterCore/Weapons/Rifle/GA_Weapon_Fire_Rifle_Auto` 的 `Fire Delay Time Secs` | `0.12`（≈ 8.33 发/秒） |
-| 是否全自动 | 同上，`Auto Rate` | `1`（1 = 全自动） |
-| 弹匣上限 | `ID_Rifle` / `ID_Rifle_7` 的 `InventoryFragment_SetStats` → `Lyra.ShooterGame.Weapon.MagazineSize` | `30` |
-| 出生时弹匣内 | 同上 → `MagazineAmmo` | `30` |
-| 备弹总数 | 同上 → `SpareAmmo` | `60` |
-| 重装速度 | `GA_Weapon_Reload_Rifle` 的 `Play Rate` | `1` |
+| 字段 | 用途 |
+| --- | --- |
+| `WeaponItemDefinition` | 对应 ID 资产的浏览索引；实际引用链仍由武器实例上的 RecoilProfile 决定 |
+| `MagazineSize` | 弹匣容量，新建物品时装满 |
+| `SpareAmmo` | 弹匣外的初始备弹 |
+| `FireRateRPM` | 发/分钟，开火间隔 `60 / RPM` 秒 |
 
-三条硬约束：
+各枪已启用 `bEnableWeaponConfig` 与 `bEnableProfileSpread`。两个步枪即使共用开火 GA，仍会各自读取当前装备的 DA。容量和备弹在创建物品时初始化，切枪不会补弹；修改这两项后重新开始 PIE。射速在下次创建开火计时器时读取。
 
-1. **射速在能力层，不在武器实例层。** Lyra 原版 `ULyraRangedWeaponInstance` 里**没有**
-   `RoundsPerSecond` 这类字段，别在 `B_WeaponInstance_Rifle` 里翻。
-   公式：`射速(RPS) = 1 / FireDelayTimeSecs`。
-2. **两把枪共用同一个 `AbilitySet_ShooterRifle`**，所以直接改 `GA_Weapon_Fire_Rifle_Auto`
-   会**两把一起变**。要分开必须复制 GA + AbilitySet，再在对应 `WID_*` 的
-   `AbilitySetsToGrant` 里替换。
-3. **弹容/备弹每把枪各自独立**（各在自己 `ID_*` 的 SetStats 里），改一把不影响另一把。
-   但 `InitialItemStats` 只在 `OnInstanceCreated` 写入一次 —— **改完必须重新 PIE**，
-   已拿在手上的实例不会吃新值。
+| 武器 | DA | 弹容 | 备弹 | RPM |
+| --- | --- | --- | --- | --- |
+| Rifle | DA_Recoil_Rifle_S | 30 | 60 | 500 |
+| ak47 | DA_Recoil_ak47 | 30 | 60 | 500 |
+| Pistol | DA_Recoil_Pistol | 12 | 48 | 500 |
+| Shotgun | DA_Recoil_Shotgun | 8 | 16 | 120 |
 
-各武器当前弹药基线：Rifle `30/30/60`、Rifle 7 `30/30/60`、Pistol `12/12/48`、Shotgun `8/8/16`。
+`DA_Recoil_Rifle` 为保留预设，当前默认步枪使用 `Rifle_S`。未启用武器配置的旧武器继续读取 ID 的 SetStats 和 GA 的 FireDelayTimeSecs。`AutoRate` 是开火蒙太奇播放倍率，并非全自动开关。
 
-操作手册见 `Docs/Recoil/后坐力系统调试.html` 第 6 节。
+操作手册见 [后坐力系统调试.html](后坐力系统调试.html) 第 5 节。
 
 ### 5.5 Roll 震屏（2026-09-17 新增）
 
@@ -273,7 +268,7 @@ AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")
 > **✅ 2026-09-17 更新：已支持四段式，但它是可选模式。**
 > 每把枪的资产上现在有 `SingleShotMode` 开关：
 > `InstantWrite`（**结构默认值**，即本文 5.6 原描述的老模型）/ `Interpolated`（新增四段式）。
-> **两把枪的实际分配（2026-09-20 起）**：`DA_Recoil_Rifle_S` 与 `DA_Recoil_Rifle_7` **都是 `Interpolated`**。
+> **两把枪的实际分配（2026-09-20 起）**：`DA_Recoil_Rifle_S` 与 `DA_Recoil_ak47` **都是 `Interpolated`**。
 > 完整方案 → **[10_SingleShotInterpolation.md](10_SingleShotInterpolation.md)**；操作向 → **[后坐力系统调试.html §10](后坐力系统调试.html#model)**。
 
 下表**对 `InstantWrite` 模式（默认）依然完全成立**：
@@ -336,7 +331,7 @@ AutomationTestToolset.RunTestsByFilter("StartsWith:Lyra.Recoil")
 | --- | --- | --- | --- |
 | A | **"7 字型"的方向**：现在是「斜向右上 → 顶部向左横」；如果你要的是「竖着上去 → 顶部向右横」，把两份 Pattern 的 X 整体取反 / 交换符号即可 | 按数字 7 的正常笔顺 | 手感差异明显，改起来 1 分钟 |
 | B | **初始装备里有 20 个 bot 也一起变了** | 没做区分 | `B_Hero_ShooterMannequin` 是玩家和 bot 共用的英雄蓝图，`InitialInventoryItems` 一改两边都变。原来 bot 拿手枪，现在拿步枪（每只 2 把）。想要"只有玩家换步枪、bot 保持手枪"就得改代码或给 bot 换英雄蓝图 |
-| C | **出生手上的第二把要不要保留手枪** | 已按你说的做成「就两把步枪」 | 快捷栏 `NumSlots = 3`，第 3 格空着 |
+| C | **默认携带武器** | 两把步枪 + 第三格手枪（2026-10-15 更新） | 快捷栏 `NumSlots = 3`，第 3 格为 `ID_Pistol` |
 | D | **原版 `DA_Recoil_Rifle` 怎么处理** | 原样留着（Golden 基准） | 现在场上的两把枪都不用它。要不要删 / 要不要让它当第三把"中等"步枪 |
 | E | `GameDefaultMap` 是否也要指到 `L_ShooterPerf` | 没改 | 改了就绕过 Lyra 前端菜单流程 |
 | F | 是否要我修 6.1 那个 flaky 测试 | 没改（要编译） | 需要你关掉编辑器让我编一次 |

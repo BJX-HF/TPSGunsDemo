@@ -16,6 +16,7 @@
 #define UE_API LYRAGAME_API
 
 class UObject;
+class ULyraInventoryItemDefinition;
 
 /**
  * ULyraRecoilProfile
@@ -50,6 +51,23 @@ class UE_API ULyraRecoilProfile : public UPrimaryDataAsset
 public:
 
 	ULyraRecoilProfile(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "启用武器配置", ToolTip = "开启后，本 DA 提供初始满弹匣、备弹和射速。弹药仅在物品创建时初始化，切枪不会补弹。"))
+	bool bEnableWeaponConfig = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "武器索引", ToolTip = "对应的武器物品定义，便于定位 ID 资产。实际配置由该武器实例引用的后坐力 DA 决定。"))
+	TSoftClassPtr<ULyraInventoryItemDefinition> WeaponItemDefinition;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "弹匣容量", ClampMin = "1", EditCondition = "bEnableWeaponConfig", ToolTip = "新创建武器的弹匣容量；初始弹匣自动装满。修改后重新创建武器或重新开始游戏生效。"))
+	int32 MagazineSize = 30;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "初始备弹", ClampMin = "0", EditCondition = "bEnableWeaponConfig", ToolTip = "弹匣外的初始备弹，不包含弹匣内子弹。修改后重新创建武器或重新开始游戏生效。"))
+	int32 SpareAmmo = 60;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon Config", meta = (DisplayName = "射速（发/分钟）", ClampMin = "1", EditCondition = "bEnableWeaponConfig", ToolTip = "每分钟发数 RPM，开火间隔为 60 / RPM 秒。全自动连发和半自动最短开火间隔均读取此值。"))
+	float FireRateRPM = 500.0f;
+
+	float GetFireIntervalSeconds() const { return 60.0f / FMath::Max(1.0f, FireRateRPM); }
 
 	//~UObject interface
 	virtual void Serialize(FArchive& Ar) override;

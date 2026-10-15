@@ -447,7 +447,7 @@ const float StageCoverPitch = State.bRecoveryCoverApplied ? 0.0f : State.Recover
 | 枪 | 峰值 | 旧 Ratio | 旧门槛 | 完美压枪时的压枪量 | 旧落点 |
 | --- | --- | --- | --- | --- | --- |
 | `DA_Recoil_Rifle_S` | 4.0° | 0.15 | 3.4° | 4.0° | 1.0°（≈ 峰值×0.25） |
-| `DA_Recoil_Rifle_7` | 9.0° | 0.30 | 6.7° | 9.0° | 2.7°（≈ 峰值×0.30） |
+| `DA_Recoil_ak47` | 9.0° | 0.30 | 6.7° | 9.0° | 2.7°（≈ 峰值×0.30） |
 
 ### 11.3 修法演进
 

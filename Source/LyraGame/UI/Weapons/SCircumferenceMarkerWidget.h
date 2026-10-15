@@ -60,9 +60,10 @@ public:
 
 	void SetRadius(float NewRadius);
 	void SetMarkerList(TArray<FCircumferenceMarkerEntry>& NewMarkerList);
+	void SetReticleCornerOutsideSpreadRadius(bool bOutside) { bReticleCornerOutsideSpreadRadius = bOutside; }
 
 private:
-	FSlateRenderTransform GetMarkerRenderTransform(const FCircumferenceMarkerEntry& Marker, const float BaseRadius, const float HUDScale) const;
+	FSlateRenderTransform GetMarkerRenderTransform(const FCircumferenceMarkerEntry& Marker, const float BaseRadius) const;
 
 private:
 	/** What each marker on the circumference looks like */

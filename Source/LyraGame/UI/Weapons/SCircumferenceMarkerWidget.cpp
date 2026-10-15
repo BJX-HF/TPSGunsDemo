@@ -2,7 +2,6 @@
 
 #include "UI/Weapons/SCircumferenceMarkerWidget.h"
 
-#include "Engine/UserInterfaceSettings.h"
 #include "Styling/SlateBrush.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(SCircumferenceMarkerWidget)
@@ -11,6 +10,7 @@ class FPaintArgs;
 class FSlateRect;
 
 SCircumferenceMarkerWidget::SCircumferenceMarkerWidget()
+	: bReticleCornerOutsideSpreadRadius(false)
 {
 }
 
@@ -23,26 +23,27 @@ void SCircumferenceMarkerWidget::Construct(const FArguments& InArgs)
 	ColorAndOpacity = InArgs._ColorAndOpacity;
 }
 
-FSlateRenderTransform SCircumferenceMarkerWidget::GetMarkerRenderTransform(const FCircumferenceMarkerEntry& Marker, const float BaseRadius, const float HUDScale) const
+FSlateRenderTransform SCircumferenceMarkerWidget::GetMarkerRenderTransform(const FCircumferenceMarkerEntry& Marker, const float BaseRadius) const
 {
-	// Determine the radius to use for the corners
-	float XRadius = BaseRadius;
-	float YRadius = BaseRadius;
-	if (bReticleCornerOutsideSpreadRadius)
-	{
-		XRadius += MarkerBrush->ImageSize.X * 0.5f;
-		YRadius += MarkerBrush->ImageSize.X * 0.5f;
-	}
-
 	// Get the angle and orientation for this reticle corner
 	const float LocalRotationRadians = FMath::DegreesToRadians(Marker.ImageRotationAngle);
 	const float PositionAngleRadians = FMath::DegreesToRadians(Marker.PositionAngle);
+	const FVector2D Direction(FMath::Sin(PositionAngleRadians), -FMath::Cos(PositionAngleRadians));
+	float MarkerRadius = BaseRadius;
+	if (bReticleCornerOutsideSpreadRadius)
+	{
+		// Keep the inward edge on the cone boundary, including non-square, rotated markers.
+		const FVector2D LocalX(FMath::Cos(LocalRotationRadians), FMath::Sin(LocalRotationRadians));
+		const FVector2D LocalY(-LocalX.Y, LocalX.X);
+		MarkerRadius += 0.5f * (FMath::Abs(Direction | LocalX) * MarkerBrush->ImageSize.X
+			+ FMath::Abs(Direction | LocalY) * MarkerBrush->ImageSize.Y);
+	}
 
 	// First rotate the corner image about the origin
 	FSlateRenderTransform RotateAboutOrigin(Concatenate(FVector2D(-MarkerBrush->ImageSize.X * 0.5f, -MarkerBrush->ImageSize.Y * 0.5f), FQuat2D(LocalRotationRadians), FVector2D(MarkerBrush->ImageSize.X * 0.5f, MarkerBrush->ImageSize.Y * 0.5f)));
 
 	// Move the rotated image to the right place on the spread radius
-	return TransformCast<FSlateRenderTransform>(Concatenate(RotateAboutOrigin, FVector2D(XRadius * FMath::Sin(PositionAngleRadians) * HUDScale, -YRadius * FMath::Cos(PositionAngleRadians) * HUDScale)));
+	return TransformCast<FSlateRenderTransform>(Concatenate(RotateAboutOrigin, Direction * MarkerRadius));
 }
 
 int32 SCircumferenceMarkerWidget::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
@@ -62,10 +63,10 @@ int32 SCircumferenceMarkerWidget::OnPaint(const FPaintArgs& Args, const FGeometr
 		if (MarkerColor.A > KINDA_SMALL_NUMBER)
 		{
 			const float BaseRadius = Radius.Get();
-			const float ApplicationScale = GetDefault<UUserInterfaceSettings>()->ApplicationScale;
 			for (const FCircumferenceMarkerEntry& Marker : MarkerList)
 			{
-				const FSlateRenderTransform MarkerTransform = GetMarkerRenderTransform(Marker, BaseRadius, ApplicationScale);
+				// Radius is already in layout units; Slate applies the viewport scale once.
+				const FSlateRenderTransform MarkerTransform = GetMarkerRenderTransform(Marker, BaseRadius);
 
 				const FPaintGeometry Geometry(AllottedGeometry.ToPaintGeometry(MarkerBrush->ImageSize, FSlateLayoutTransform(LocalCenter - (MarkerBrush->ImageSize * 0.5f)), MarkerTransform, FVector2D(0.0f, 0.0f)));
 				FSlateDrawElement::MakeBox(OutDrawElements, LayerId, Geometry, MarkerBrush, DrawEffects, MarkerColor);

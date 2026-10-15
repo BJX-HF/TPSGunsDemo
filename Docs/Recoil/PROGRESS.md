@@ -64,7 +64,7 @@ Pitch / Yaw 两轴同规则，含 `bCompensationAwareRecovery` 总开关。
 | 槽位 | 武器 | 后坐力资产 | 形状 | 强度 | 单发模型 |
 | --- | --- | --- | --- | --- | --- |
 | 0（出生默认） | `ID_Rifle` | `DA_Recoil_Rifle_S` | S 型（一个弯） | 小：12 发垂直 2.34° | **`Interpolated`** |
-| 1 | `ID_Rifle_7` | `DA_Recoil_Rifle_7` | 7 字型（斜线 + 顶部横杠） | 稍大：12 发垂直 2.59°，水平峰值 1.40° | **`Interpolated`** |
+| 1 | `ID_ak47` | `DA_Recoil_ak47` | 7 字型（斜线 + 顶部横杠） | 稍大：12 发垂直 2.59°，水平峰值 1.40° | **`Interpolated`** |
 
 同时 `Config/DefaultEngine.ini` 的 `EditorStartupMap` 已指向 `/ShooterCore/Maps/L_ShooterPerf`。
 
@@ -420,12 +420,12 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | --- | --- |
 | Rifle 站姿 10 发累计垂直位移 | 2.9661（`DA_Recoil_Rifle`，Golden 基准，未改动） |
 | `DA_Recoil_Rifle_S` 12 发累计垂直 / 水平峰值 | 2.342° / +0.655°（收尾 -0.343°） |
-| `DA_Recoil_Rifle_7` 12 发累计垂直 / 水平峰值 | 2.585° / +1.400°（收尾 -0.052°） |
+| `DA_Recoil_ak47` 12 发累计垂直 / 水平峰值 | 2.585° / +1.400°（收尾 -0.052°） |
 | 姿态倍率实测比值（站/蹲/空中/瞄准） | 1.0000 / 0.8000 / 1.5000 / 0.7500（配置值 1.0 / 0.8 / 1.5 / 0.75，偏差 ≤ 5e-5） |
 | 非线性回正半程进度（快回/线性/慢回） | 0.7667 / 0.5000 / 0.3667 |
 | Golden 20 发（Rifle） | `Source/LyraGame/Tests/Data/RecoilGolden_DA_Recoil_Rifle.json`，已逐发手工验算 |
 | **`DA_Recoil_Rifle_S` 的 `SingleShotMode`** | **`Interpolated`**（lift 0.045 / rebound 0.030 / ratio 0.72） |
-| **`DA_Recoil_Rifle_7` 的 `SingleShotMode`** | **`Interpolated`**（2026-09-20 起；结构默认值仍是 `InstantWrite`） |
+| **`DA_Recoil_ak47` 的 `SingleShotMode`** | **`Interpolated`**（2026-09-20 起；结构默认值仍是 `InstantWrite`） |
 | **P9 帧率不变性（60 vs 144fps）** | 相机链 `max trajectory deviation = 0.000000`（严格为零）<br>逻辑偏移 `max accumulated deviation = 0.007500`（容差 1e-2） |
 | **P9 子步常量** | `FixedSubStepSeconds = 1/60`、`MaxSubStepsPerAdvance = 8` |
 | **P10 `DA_Recoil_Rifle_S` 30 发连发峰值** | 修复前 **1.0496°**（几何衰减封顶）→ 修复后 **4.0446°**（触 `MaxVerticalKick` 上限） |
@@ -462,7 +462,7 @@ powershell -ExecutionPolicy Bypass -File "E:\TPSGunsDemo\Docs\Recoil\Tools\run-r
 | **P11 冻结时机** | `InstantWrite` = Accumulating→Recovering；`Interpolated` = Settle→Drop；长帧保护路径另冻一次 |
 | **P11 零输入回归** | 压枪量为 0 时**逐位**等于旧公式 —— 既有 30 个用例 / 3 份 Golden 一个都没改 |
 | **P11 与 P10/P12/P14 的关系** | 同源、同一处代码；**合并后只走 P11 一套**，其余三条在表里保留为根因与历史记录 |
-| **两把枪的 `SingleShotMode`（2026-09-20 起）** | `DA_Recoil_Rifle_S` 与 `DA_Recoil_Rifle_7` **都是四段式 `Interpolated`** |
+| **两把枪的 `SingleShotMode`（2026-09-20 起）** | `DA_Recoil_Rifle_S` 与 `DA_Recoil_ak47` **都是四段式 `Interpolated`** |
 > **⚠️ 以下 5 行是 P14 时代（`终止值 = 峰值 × Ratio − 抵扣量`）的**修复前**数值记录，仅供追溯。**
 > 2026-09-22 曾采用 `终止值 = min(本梭累计压枪量, 本轮峰值)`；2026-09-28 一度改为显示偏移回正终点恒为 `0°`；**2026-10-01 现行口径为「本轮起枪角 + clamp(本梭累计压枪量, 0, K)」，这些历史数字不再描述当前行为。**
 > 当前行为以 [14_RecoveryToBurstStart.md](14_RecoveryToBurstStart.md) 和对应的 `Lyra.Recoil.*` 用例为准。
@@ -506,7 +506,7 @@ Source/LyraGame/
     ├── LyraRecoilConsoleTest.spec.cpp  【P5】Console 组 + Scale 通路
     ├── LyraRecoilRollShakeTest.spec.cpp【P8】★新建 RollShake 组（6 个用例）+ CameraModifier 组（1 个）
     ├── LyraRecoilSpreadTest.spec.cpp  【P13】★新建 散布（Spread）组（7 个用例）→ [12_SpreadInProfile.md](12_SpreadInProfile.md)
-    └── Data/RecoilGolden_*.json        【P3】Golden 基准（5 份：Rifle / Pistol / Shotgun / Rifle_S / Rifle_7）
+    └── Data/RecoilGolden_*.json        【P3】Golden 基准（5 份：Rifle / Pistol / Shotgun / Rifle_S / ak47）
 
 Source/LyraEditor/
 ├── Commandlets/
@@ -517,10 +517,10 @@ Source/LyraEditor/
 Content/Weapons/Recoil/
 ├── DA_Recoil_{Rifle,Pistol,Shotgun}.uasset  【P1】原有三份（**未改动**，Rifle 是 Golden 基准）
 ├── DA_Recoil_Rifle_S.uasset                 【P7】S 型 · 小      ← 场上槽位 0
-└── DA_Recoil_Rifle_7.uasset                 【P7】7 字型 · 稍大  ← 场上槽位 1
+└── DA_Recoil_ak47.uasset                 【P7】7 字型 · 稍大  ← 场上槽位 1
 
 Plugins/GameFeatures/ShooterCore/Content/
-├── Weapons/Rifle/ID_Rifle_7 / WID_Rifle_7 / B_WeaponInstance_Rifle_7  【P7】第二把枪的资产链（复制品）
+├── Weapons/Rifle/ID_ak47 / WID_ak47 / B_WeaponInstance_ak47  【P7】第二把枪的资产链（复制品）
 ├── Weapons/Rifle/B_WeaponInstance_Rifle                               【改】RecoilProfile 已接线
 └── Game/B_Hero_ShooterMannequin                                       【改】InitialInventoryItems = 两把步枪
 
@@ -610,7 +610,7 @@ Docs/Recoil/
 | 26 | **现状单发模型不是文档 §2 的四段式** —— 是「阶跃累加 → 冻结 → 一次回正」，缺 t1 瞬时回弹、缺阶段时长、缺上抬/下降曲线 | ✅ **已落地**：新增 `Interpolated` 模式补齐四段。原模型改名 `InstantWrite` 并保持为默认，零回归 | [10_SingleShotInterpolation.md](10_SingleShotInterpolation.md) |
 | 27 | 「分段」的歧义：现状按**发序号**分段（`VerticalKickCurve`），文档按**单发内时间轴**分段 | ✅ 两者并存：发序号轴曲线照旧，另加 `LiftCurve` / `ReboundCurve`（段内时间轴） | [09](09_SingleShotCurveGap.md) §3.2 / [10](10_SingleShotInterpolation.md) §1 |
 | 28 | ~~若落地四段式，代价是 3 份 Golden + 多个测试基线要重建~~ | ✅ **代价已规避**：走路 1（开关共存）。实际 Golden 与 19 个老测试**一个都没改** | [10](10_SingleShotInterpolation.md) §2 |
-| 29 | 两把默认枪各用哪套模型 | ⚠️ **当时（2026-09-17）拍板**：槽位 0 `Rifle_S` = `Interpolated`；槽位 1 `Rifle_7` = `InstantWrite`。**2026-09-20 起两把枪已统一为 `Interpolated`**（仅结构默认值仍是 `InstantWrite`） | [10](10_SingleShotInterpolation.md) §6 |
+| 29 | 两把默认枪各用哪套模型 | ⚠️ **当时（2026-09-17）拍板**：槽位 0 `Rifle_S` = `Interpolated`；槽位 1 `ak47` = `InstantWrite`。**2026-09-20 起两把枪已统一为 `Interpolated`**（仅结构默认值仍是 `InstantWrite`） | [10](10_SingleShotInterpolation.md) §6 |
 | 30 | 帧率不稳 / 低帧率怎么保证轨迹一致 | ✅ 固定子步长 `1/60` + 尾段吸附 + **刻意不做尾料冲刷**；实测相机链偏差严格 0.000000 | [10](10_SingleShotInterpolation.md) §4 |
 | 31 | `Settle` 段时长是否新开参数 | ✅ **不开**，复用 `RecoveryDelay`（大祥老师：`把稳定当成 recoverydelay 然后把这个参数干掉`） | [10](10_SingleShotInterpolation.md) §1.2 |
 | 32 | 默认插值曲线取什么形状 | ✅ `LiftCurve` 取 **Ease-Out**（快起慢收，附 5 条理由），`ReboundCurve` 线性 | [10](10_SingleShotInterpolation.md) §6.2 |
@@ -638,7 +638,7 @@ Docs/Recoil/
 
 | # | 事项 | 我的默认选择 | 备选 / 影响面 |
 | --- | --- | --- | --- |
-| 40 | **是否把 5 份资产重新生成**（跑 `gen-recoil-assets.ps1 -Force`） | **建议先别跑** —— 先手工在资产上勾 `bEnableProfileSpread` 试一把，满意了再固化进脚本 | 直接跑 ⇒ 5 份资产的后坐力数值也会一起被脚本默认值覆盖（Rifle_S / Rifle_7 是手调过的，会丢） |
+| 40 | **是否把 5 份资产重新生成**（跑 `gen-recoil-assets.ps1 -Force`） | **建议先别跑** —— 先手工在资产上勾 `bEnableProfileSpread` 试一把，满意了再固化进脚本 | 直接跑 ⇒ 5 份资产的后坐力数值也会一起被脚本默认值覆盖（Rifle_S / ak47 是手调过的，会丢） |
 | 41 | **5 把枪的首版散布数值是否可用** | 我按武器类型的常规量级填的（步枪第 7 发到顶 / 手枪回正 3.5°/s / 霰弹基础 3.5°），**没做实机验证** | 需你在 PIE 里打几轮定稿。更稳的路径见 12 号文档 §8 末尾 |
 | 42 | 参数单位用「全锥角」还是「半角」 | **全锥角**（与 Lyra 原生 `CurrentSpreadAngle` 一致，GA 里有现成的 `× 0.5`） | 改半角 ⇒ 要动 `GetCalculatedSpreadAngle()` 语义 + 准星，属破坏性改动 |
 | 43 | 移动精度：速度 ramp 倍率 vs 新增 `Moving` 姿态 | **ramp 倍率**（后坐力侧零改动） | 新增姿态 ⇒ P4 用例 + 5 份 Golden 全部重导 |
@@ -656,7 +656,7 @@ Docs/Recoil/
 | 48 | ~~**中途中止回正造成的抵扣叠加要不要收敛**~~ | ✅ **2026-09-21 已解决**（新增 `bRecoveryCoverApplied`，当时语义"一梭只抵扣一次"）。**2026-09-22 更新：**现行 `min()` 绝对公式下叠加**构造上不可能**，短路已删；`bRecoveryCoverApplied` 降级为纯观测位 | 原问题：P14 增量公式下 `RecoveryDelay ≤ 射速间隔` 时多次中途回正每次扣一遍 ⇒ `cover=4` 时 `Δ = −5.067` 而非 `−4`。现公式每次回正从同一对锚点独立算出，天然只扣一次。见 [11_BurstAccumulationFix.md §13.9](11_BurstAccumulationFix.md) 与 §14 |
 | 49 | ~~**压过头（`T_net < 0`）的手感底线**~~ | ✅ **2026-09-21 已定案：不设下限，字面减法**（大祥老师拍板） | 原先提供的 `RecoilCompensationMinResidualRatio` 残留地板**已删除** —— 属于"不被要求的额外设计"。口径就是压多少认多少，压过头就低于起枪点 |
 
-> 这两条**只有实机手感能定**，仿真给不出答案。当时按 `InstantWrite` 处理的枪（`Rifle_7`）偏差 ≤ 0.22°，可以不折腾（注：两把枪后已于 2026-09-20 统一为 `Interpolated`）。
+> 这两条**只有实机手感能定**，仿真给不出答案。当时按 `InstantWrite` 处理的枪（`ak47`）偏差 ≤ 0.22°，可以不折腾（注：两把枪后已于 2026-09-20 统一为 `Interpolated`）。
 
 ### P11 回正扣减压枪量带来的待拍板（本次 · 2026-09-20）
 
@@ -705,7 +705,7 @@ Docs/Recoil/
 **P7 现在的实际状态（2026-09-17 更新）：**
 
 1. ~~武器实例接线~~ → **已完成**。`B_WeaponInstance_Rifle` → `DA_Recoil_Rifle_S`，
-   新增的 `B_WeaponInstance_Rifle_7` → `DA_Recoil_Rifle_7`。
+   新增的 `B_WeaponInstance_ak47` → `DA_Recoil_ak47`。
 2. **初始装备已完成**：`L_ShooterPerf` 一进就带两把步枪，可直接切。
 3. **编辑器启动关卡已指向 `L_ShooterPerf`**（重启编辑器生效）。
 4. 已验证：PIE 正常起、21 个英雄各自装备成功、日志无加载/装备报错；`Lyra.Recoil` 19/19 通过。

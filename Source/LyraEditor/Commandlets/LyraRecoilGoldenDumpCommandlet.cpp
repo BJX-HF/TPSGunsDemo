@@ -31,7 +31,7 @@ namespace LyraRecoilGolden
 		TEXT("/Game/Weapons/Recoil/DA_Recoil_Shotgun"),
 		// 默认携带的两把枪：一把走插值、一把走瞬间写入（见 10_SingleShotInterpolation.md §6）
 		TEXT("/Game/Weapons/Recoil/DA_Recoil_Rifle_S"),
-		TEXT("/Game/Weapons/Recoil/DA_Recoil_Rifle_7")
+		TEXT("/Game/Weapons/Recoil/DA_Recoil_ak47")
 	};
 
 	static FString GetRelativeOutputDirectory()

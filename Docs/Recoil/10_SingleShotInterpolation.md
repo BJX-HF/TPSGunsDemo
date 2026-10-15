@@ -296,7 +296,7 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 | 武器 | 资产 | 模式 | 理由 |
 | --- | --- | --- | --- |
 | `Rifle_S` | `/Game/Weapons/Recoil/DA_Recoil_Rifle_S` | **`Interpolated`** | 高射速长按连发向，单发顿挫感最容易被感知 |
-| `Rifle_7` | `/Game/Weapons/Recoil/DA_Recoil_Rifle_7` | **`Interpolated`**（2026-09-20 起；此前是 `InstantWrite`） | 两把枪统一走四段式，时间轴与 S 型一致（`0.045 / 0.030 / 0.72`，射速相同故不分开） |
+| `ak47` | `/Game/Weapons/Recoil/DA_Recoil_ak47` | **`Interpolated`**（2026-09-20 起；此前是 `InstantWrite`） | 两把枪统一走四段式，时间轴与 S 型一致（`0.045 / 0.030 / 0.72`，射速相同故不分开） |
 
 > **注意**：`ERecoilSingleShotMode` 的**结构默认值仍是 `InstantWrite`** —— 既有的 `DA_Recoil_Rifle`
 > 与自动化测试使用的内存 Profile 都依赖它。场上两把枪的资产各自显式配成 `Interpolated`。
@@ -370,7 +370,7 @@ Interpolated:   AccumulatedPitch ──┬──► 回正/CSV/Golden/测试
 | `LyraRecoilState.h/.cpp` | 新增阶段枚举 `ERecoilInterpStage`、阶段时间轴状态、`CameraOffsetPitch/Yaw`、累加器 `SubStepAccumulator`（本帧执行次数记录在 `LastSubStepCount`）；`ApplyShot` / `Advance` 分模式 |
 | `LyraRangedWeaponInstance.cpp` | `UpdateRecoilCameraModifier()` 改读 `GetCameraPitchOffset()/GetCameraYawOffset()` |
 | `LyraRecoilDebug.cpp` | 屏幕面板补一行 `Mode / Stage / SubSteps` |
-| `LyraRecoilAssetGenCommandlet.cpp` | `FProfileSpec` 补 5 个字段；`Rifle_S` / `Rifle_7` **均走插值**（`Interpolated`） |
+| `LyraRecoilAssetGenCommandlet.cpp` | `FProfileSpec` 补 5 个字段；`Rifle_S` / `ak47` **均走插值**（`Interpolated`） |
 | `LyraRecoilTest.spec.cpp` | 新增插值模式用例（含帧率不变性） |
 | `LyraRecoilGoldenDumpCommandlet.cpp` | 把 `singleShotMode` 写进 Golden JSON，便于判断基线是否过期 |
 

@@ -1,0 +1,25 @@
+import unreal
+from pathlib import Path
+ROOT=Path(unreal.Paths.project_dir()).resolve()
+lib=unreal.EditorAssetLibrary
+options=unreal.FbxImportUI()
+options.set_editor_property('import_mesh',True)
+options.set_editor_property('import_as_skeletal',True)
+options.set_editor_property('import_animations',False)
+options.set_editor_property('import_materials',False)
+options.set_editor_property('import_textures',False)
+options.set_editor_property('create_physics_asset',False)
+options.set_editor_property('automated_import_should_detect_type',False)
+options.set_editor_property('mesh_type_to_import',unreal.FBXImportType.FBXIT_SKELETAL_MESH)
+options.set_editor_property('skeleton',unreal.load_asset('/Game/Weapons/Rifle/Mesh/SK_Rifle_Skeleton'))
+data=options.get_editor_property('skeletal_mesh_import_data')
+data.set_editor_property('update_skeleton_reference_pose',False)
+data.set_editor_property('use_t0_as_ref_pose',False)
+data.set_editor_property('import_morph_targets',False)
+task=unreal.AssetImportTask()
+task.set_editor_properties({'filename':str(ROOT/'SourceArt/Weapons/ak47/SK_ak47.fbx'),'destination_path':'/Game/Weapons/ak47/Mesh','destination_name':'SK_ak47','automated':True,'save':True,'replace_existing':True,'options':options,'factory':unreal.FbxFactory()})
+unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+mesh=unreal.load_asset('/Game/Weapons/ak47/Mesh/SK_ak47')
+assert mesh
+assert lib.save_loaded_asset(mesh,False)
+unreal.log('AK47_IMPORT_SUCCESS')

@@ -14,6 +14,7 @@
 void FLyraRecoilProfileDetails::CustomizeDetails(IDetailLayoutBuilder& Builder)
 {
  const TWeakPtr<FLyraRecoilProfileEditor> Weak = Editor;
+ Builder.EditCategory("Weapon Config", FText::FromString(TEXT("武器配置（索引 / 弹药 / 射速）")), ECategoryPriority::Important).SetSortOrder(0);
  Builder.HideProperty(Builder.GetProperty(GET_MEMBER_NAME_CHECKED(ULyraRecoilProfile, PatternPoints)));
  Builder.HideProperty(Builder.GetProperty(GET_MEMBER_NAME_CHECKED(ULyraRecoilProfile, PatternLength)));
  IDetailCategoryBuilder& Pattern = Builder.EditCategory("Recoil|Pattern");

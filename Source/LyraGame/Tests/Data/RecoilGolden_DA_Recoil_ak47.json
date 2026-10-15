@@ -1,7 +1,7 @@
 {
 	"generatedBy": "LyraRecoilGoldenDumpCommandlet",
 	"note": "Regression lock for FRecoilRuntimeState::ComputeShotKick. Re-run -run=LyraRecoilGoldenDump after changing the profile asset.",
-	"assetPath": "/Game/Weapons/Recoil/DA_Recoil_Rifle_7",
+	"assetPath": "/Game/Weapons/Recoil/DA_Recoil_ak47",
 	"seed": 20260917,
 	"shotCount": 20,
 	"poseMultiplier": 1,

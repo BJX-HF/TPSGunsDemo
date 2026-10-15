@@ -37,6 +37,7 @@ void UCircumferenceMarkerWidget::SynchronizeProperties()
 
 	MyMarkerWidget->SetRadius(Radius);
 	MyMarkerWidget->SetMarkerList(MarkerList);
+	MyMarkerWidget->SetReticleCornerOutsideSpreadRadius(bReticleCornerOutsideSpreadRadius);
 }
 
 void UCircumferenceMarkerWidget::SetRadius(float InRadius)

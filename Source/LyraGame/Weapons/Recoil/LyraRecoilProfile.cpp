@@ -416,6 +416,12 @@ bool ULyraRecoilProfile::BuildRollShakeParams(
 bool ULyraRecoilProfile::ValidateProfile(TArray<FString>& OutErrors) const
 {
 	const int32 StartNum = OutErrors.Num();
+	if (bEnableWeaponConfig)
+	{
+		if (MagazineSize < 1) OutErrors.Add(TEXT("MagazineSize must be at least 1"));
+		if (SpareAmmo < 0) OutErrors.Add(TEXT("SpareAmmo must not be negative"));
+		if (!FMath::IsFinite(FireRateRPM) || FireRateRPM < 1.0f) OutErrors.Add(TEXT("FireRateRPM must be finite and at least 1"));
+	}
 
 	// 注意：校验消息一律使用英文 —— 引擎控制台/日志按 ANSI 输出中文会乱码，
 	// 这些消息要作为验收证据被复制粘贴，可读性优先。

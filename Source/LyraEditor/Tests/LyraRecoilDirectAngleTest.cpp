@@ -168,7 +168,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRecoilDirectAssetMigration,"Lyra.Recoil.Angles
  EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FRecoilDirectAssetMigration::RunTest(const FString&)
 {
- for(const TCHAR* Name:{TEXT("DA_Recoil_Rifle"),TEXT("DA_Recoil_Pistol"),TEXT("DA_Recoil_Shotgun"),TEXT("DA_Recoil_Rifle_S"),TEXT("DA_Recoil_Rifle_7")})
+ for(const TCHAR* Name:{TEXT("DA_Recoil_Rifle"),TEXT("DA_Recoil_Pistol"),TEXT("DA_Recoil_Shotgun"),TEXT("DA_Recoil_Rifle_S"),TEXT("DA_Recoil_ak47")})
  {
   const FString Path=FString::Printf(TEXT("/Game/Weapons/Recoil/%s.%s"),Name,Name);
   auto* P=LoadObject<ULyraRecoilProfile>(nullptr,*Path);
